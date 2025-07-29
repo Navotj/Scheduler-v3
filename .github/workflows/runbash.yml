@@ -24,6 +24,9 @@ jobs:
     steps:
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - uses: actions/checkout@v4
+
+      - name: Make script executable
+        run: chmod u+x ./test.sh
     
       - name: Run shell script
         run: ./test.sh
