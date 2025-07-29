@@ -1,5 +1,5 @@
 variable "mongodb_user" {
-  type    = string
+  type = string
 }
 
 variable "mongodb_password" {
@@ -7,15 +7,43 @@ variable "mongodb_password" {
   sensitive = true
 }
 
-
 provider "aws" {
   region = "eu-central-1"
 }
 
+data "aws_vpc" "default" {
+  default = true
+}
+
+resource "aws_security_group" "mongodb_access" {
+  name        = "mongodb-access"
+  description = "Allow MongoDB access"
+  vpc_id      = data.aws_vpc.default.id
+
+  ingress {
+    description = "MongoDB from anywhere (TEMPORARY for testing)"
+    from_port   = 27017
+    to_port     = 27017
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"] # ⚠️ Replace with your IP in production
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "mongodb-access"
+  }
+}
+
 resource "aws_instance" "mongodb" {
-  ami           = "ami-0c1b03e30bca3b373" # Amazon Linux 2 in eu-central-1
-  instance_type = "t3.micro"
-  
+  ami                    = "ami-0c1b03e30bca3b373" # Amazon Linux 2023 x86_64 in eu-central-1
+  instance_type          = "t3.micro"
+  vpc_security_group_ids = [aws_security_group.mongodb_access.id]
 
   user_data = <<-EOM
     #!/bin/bash
@@ -38,30 +66,5 @@ resource "aws_instance" "mongodb" {
 
   tags = {
     Name = "terraform-mongodb"
-  }
-}
-
-resource "aws_security_group" "mongodb_access" {
-  name        = "mongodb-access"
-  description = "Allow MongoDB access"
-  vpc_id      = aws_instance.mongodb.vpc_security_group_ids[0] # uses default VPC SG if not explicitly defined
-
-  ingress {
-    description = "MongoDB from anywhere (TEMPORARY for testing)"
-    from_port   = 27017
-    to_port     = 27017
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"] # ⚠️ change to specific IP later for security
-  }
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  tags = {
-    Name = "mongodb-access"
   }
 }
