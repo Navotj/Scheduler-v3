@@ -3,7 +3,7 @@ provider "aws" {
 }
 
 resource "aws_instance" "mongodb" {
-  ami           = "ami-05e00961530ae1b55" # Amazon Linux 2 (x86_64) in eu-central-1
+  ami           = "ami-0c1b03e30bca3b373" # Amazon Linux 2 in eu-central-1
   instance_type = "t3.micro"
 
   user_data = <<-EOF
