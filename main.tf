@@ -15,6 +15,16 @@ data "aws_vpc" "default" {
   default = true
 }
 
+terraform {
+  backend "s3" {
+    bucket         = "navot-teraform-state-1"
+    key            = "mongodb/terraform.tfstate"
+    region         = "eu-central-1"
+    dynamodb_table = "terraform-lock-table"
+    encrypt        = true
+  }
+}
+
 resource "aws_security_group" "mongodb_access" {
   name        = "mongodb-access"
   description = "Allow MongoDB access"
