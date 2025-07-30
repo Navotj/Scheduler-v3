@@ -61,7 +61,7 @@ jobs:
        TF_VAR_mongodb_user: ${{ secrets.TF_VAR_MONGODB_USER }}
        TF_VAR_mongodb_password: ${{ secrets.TF_VAR_MONGODB_PASSWORD }}
 
-    environment: production
+    environment: Development
 
     # Use the Bash shell regardless whether the GitHub Actions runner is ubuntu-latest, macos-latest, or windows-latest
     defaults:

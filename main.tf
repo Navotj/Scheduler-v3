@@ -57,8 +57,18 @@ resource "aws_instance" "mongodb" {
 
   user_data = <<-EOM
     #!/bin/bash
-    yum update -y
-    amazon-linux-extras enable mongodb4.0
+    set -e
+
+    # Install MongoDB 6.0 from official MongoDB repo
+    tee /etc/yum.repos.d/mongodb-org-6.0.repo > /dev/null <<EOF
+    [mongodb-org-6.0]
+    name=MongoDB Repository
+    baseurl=https://repo.mongodb.org/yum/amazon/2023/mongodb-org/6.0/x86_64/
+    gpgcheck=1
+    enabled=1
+    gpgkey=https://pgp.mongodb.com/server-6.0.asc
+    EOF
+
     yum install -y mongodb-org
 
     sed -i 's/^  bindIp:.*$/  bindIp: 0.0.0.0/' /etc/mongod.conf
@@ -73,6 +83,7 @@ resource "aws_instance" "mongodb" {
 
     systemctl restart mongod
   EOM
+
 
   tags = {
     Name = "terraform-mongodb"
