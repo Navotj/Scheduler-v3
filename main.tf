@@ -30,20 +30,24 @@ resource "aws_security_group" "mongodb_access" {
   description = "Allow MongoDB access"
   vpc_id      = data.aws_vpc.default.id
 
-  ingress {
-    description = "MongoDB from anywhere (TEMPORARY for testing)"
-    from_port   = 27017
-    to_port     = 27017
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"] # ⚠️ Replace with your IP in production
-  }
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
+ingress {
+    from_port = 22
+    to_port   = 22
+    protocol  = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
+  ingress {
+    from_port = 27017
+    to_port   = 27017
+    protocol  = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  egress {
+    from_port = 0
+    to_port = 0
+    protocol = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+   }
 
   tags = {
     Name = "mongodb-access"
@@ -55,29 +59,21 @@ resource "aws_instance" "mongodb" {
   instance_type          = "t3.micro"
   vpc_security_group_ids = [aws_security_group.mongodb_access.id]
 
-  user_data = <<-EOM
-    #!/bin/bash
-    set -e
+  user_data = <<-EOF
+              #!/bin/bash
+              apt-get update
+              apt-get install gnupg curl
+              curl -fsSL https://pgp.mongodb.com/server-7.0.asc | \
+              gpg -o /usr/share/keyrings/mongodb-server-7.0.gpg \
+              --dearmor
+              echo "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-7.0.gpg ] https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/7.0 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-7.0.list
+              apt-get update
+              apt-get install -y mongodb-org
+              systemctl start mongod
+              systemctl enable mongodb
+              EOF
 
-    # Install MongoDB 6.0 from official MongoDB repo
-    tee /etc/yum.repos.d/mongodb-org-6.0.repo > /dev/null <<EOF
-    [mongodb-org-6.0]
-    name=MongoDB Repository
-    baseurl=https://repo.mongodb.org/yum/amazon/2023/mongodb-org/6.0/x86_64/
-    gpgcheck=1
-    enabled=1
-    gpgkey=https://pgp.mongodb.com/server-6.0.asc
-    EOF
-
-    yum install -y mongodb-org
-
-    sed -i 's/^  bindIp:.*$/  bindIp: 0.0.0.0/' /etc/mongod.conf
-    echo -e "\\nsecurity:\\n  authorization: enabled" >> /etc/mongod.conf
-
-    systemctl start mongod
-    systemctl enable mongod
-
-    sleep 10
+    sleep 5
 
     mongo admin --eval 'db.createUser({user:"${var.mongodb_user}",pwd:"${var.mongodb_password}",roles:[{role:"root",db:"admin"}]})'
 
