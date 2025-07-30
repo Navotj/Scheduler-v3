@@ -71,14 +71,11 @@ resource "aws_instance" "mongodb" {
               apt-get install -y mongodb-org
               systemctl start mongod
               systemctl enable mongodb
+              sleep 10
+              mongo admin --eval 'db.createUser({user:"${var.mongodb_user}",pwd:"${var.mongodb_password}",roles:[{role:"root",db:"admin"}]})'
               EOF
 
-    sleep 5
 
-    mongo admin --eval 'db.createUser({user:"${var.mongodb_user}",pwd:"${var.mongodb_password}",roles:[{role:"root",db:"admin"}]})'
-
-    systemctl restart mongod
-  EOM
 
 
   tags = {
