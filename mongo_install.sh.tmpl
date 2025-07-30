@@ -1,0 +1,36 @@
+#!/bin/bash
+set -euxo pipefail
+
+# Log all output for debug
+exec > >(tee /var/log/user_data.log | logger -t user-data -s 2>/dev/console) 2>&1
+
+# Update and install dependencies
+yum update -y
+yum install -y gnupg2 curl
+
+# Import MongoDB GPG key
+curl -fsSL https://pgp.mongodb.com/server-8.0.asc | \
+gpg --dearmor -o /etc/pki/rpm-gpg/mongodb-org-8.0.gpg
+
+# Add MongoDB repo
+cat <<REPO > /etc/yum.repos.d/mongodb-org-8.0.repo
+[mongodb-org-8.0]
+name=MongoDB Repository
+baseurl=https://repo.mongodb.org/yum/amazon/2023/mongodb-org/8.0/x86_64/
+gpgcheck=1
+enabled=1
+gpgkey=file:///etc/pki/rpm-gpg/mongodb-org-8.0.gpg
+REPO
+
+# Install MongoDB
+yum install -y mongodb-org
+
+# Enable and start mongod
+systemctl enable mongod
+systemctl start mongod
+
+# Wait a bit for Mongo to come up
+sleep 10
+
+# Create admin user
+mongo admin --eval "db.createUser({ user: \"${mongodb_user}\", pwd: \"${mongodb_password}\", roles:[{role:'root', db:'admin'}] });"
