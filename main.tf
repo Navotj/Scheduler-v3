@@ -69,3 +69,22 @@ resource "aws_instance" "mongodb" {
   }
 }
 
+resource "aws_ebs_volume" "mongo_data" {
+  availability_zone = aws_instance.mongodb.availability_zone
+  size              = 20  # GB
+  type              = "gp3"
+  tags = {
+    Name = "MongoDBDataVolume"
+  }
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "aws_volume_attachment" "mongo_data_attachment" {
+  device_name = "/dev/xvdf"
+  volume_id   = aws_ebs_volume.mongo_data.id
+  instance_id = aws_instance.mongodb.id
+  force_detach = true
+}
+

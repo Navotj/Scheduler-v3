@@ -28,8 +28,33 @@ REPO
 # Install MongoDB
 yum install -y mongodb-org
 
+# Prepare persistent EBS volume
+DEVICE="/dev/xvdf"
+MOUNT_POINT="/data/db"
+
+# Format only if no filesystem exists
+if ! blkid "$DEVICE"; then
+  echo "Formatting $DEVICE as XFS..."
+  mkfs.xfs "$DEVICE"
+else
+  echo "$DEVICE already has a filesystem, skipping format."
+fi
+
+# Create and mount the directory
+mkdir -p "$MOUNT_POINT"
+mount "$DEVICE" "$MOUNT_POINT"
+
+# Persist the mount in fstab
+if ! grep -qs "$MOUNT_POINT" /etc/fstab; then
+  echo "$DEVICE $MOUNT_POINT xfs defaults,nofail 0 2" >> /etc/fstab
+fi
+
+# Set proper ownership for MongoDB
+chown -R mongod:mongod "$MOUNT_POINT"
+
 # Change settings
 sed -i 's/^  bindIp:.*$/  bindIp: 0.0.0.0/' /etc/mongod.conf
+sed -i 's|dbPath: /var/lib/mongo|dbPath: /data/db|' /etc/mongod.conf
 
 # Enable and start mongod
 systemctl enable mongod
