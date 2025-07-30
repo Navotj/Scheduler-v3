@@ -39,6 +39,6 @@ systemctl start mongod
 sleep 10
 
 # Create admin user
-mongo admin --eval "db.createUser({ user: \"${mongodb_user}\", pwd: \"${mongodb_password}\", roles:[{role:'root', db:'admin'}] });"
+mongosh admin --eval "db.createUser({ user: '${mongodb_user}', pwd: '${mongodb_password}', roles:[{role:'root', db:'admin'}] })"
 echo -e "\nsecurity:\n  authorization: enabled" >> /etc/mongod.conf
 systemctl restart mongod
