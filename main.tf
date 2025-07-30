@@ -30,7 +30,7 @@ resource "aws_security_group" "mongodb_access" {
   description = "Allow MongoDB access"
   vpc_id      = data.aws_vpc.default.id
 
-ingress {
+  ingress {
     from_port = 22
     to_port   = 22
     protocol  = "tcp"
@@ -59,42 +59,42 @@ resource "aws_instance" "mongodb" {
   instance_type          = "t3.micro"
   vpc_security_group_ids = [aws_security_group.mongodb_access.id]
 
-  user_data = <<EOF
-#!/bin/bash
-set -e
+  user_data = <<-EOF
+    #!/bin/bash
+    set -e
 
-# Update OS
-yum update -y
+    # Update OS
+    yum update -y
 
-# Install prerequisites
-yum install -y gnupg2 curl
+    # Install prerequisites
+    yum install -y gnupg2 curl
 
-# Import MongoDB public GPG key
-curl -fsSL https://pgp.mongodb.com/server-8.0.asc | \
-  gpg --dearmor -o /etc/pki/rpm-gpg/mongodb-org-8.0.gpg
+    # Import MongoDB public GPG key
+    curl -fsSL https://pgp.mongodb.com/server-8.0.asc | \
+    gpg --dearmor -o /etc/pki/rpm-gpg/mongodb-org-8.0.gpg
 
-# Create MongoDB repo file
-cat <<REPO > /etc/yum.repos.d/mongodb-org-8.0.repo
-[mongodb-org-8.0]
-name=MongoDB Repository
-baseurl=https://repo.mongodb.org/yum/amazon/2023/mongodb-org/8.0/x86_64/
-gpgcheck=1
-enabled=1
-gpgkey=file:///etc/pki/rpm-gpg/mongodb-org-8.0.gpg
-REPO
+    # Create MongoDB repo file
+    cat <<REPO > /etc/yum.repos.d/mongodb-org-8.0.repo
+    [mongodb-org-8.0]
+    name=MongoDB Repository
+    baseurl=https://repo.mongodb.org/yum/amazon/2023/mongodb-org/8.0/x86_64/
+    gpgcheck=1
+    enabled=1
+    gpgkey=file:///etc/pki/rpm-gpg/mongodb-org-8.0.gpg
+    REPO
 
-# Install MongoDB
-yum install -y mongodb-org
+    # Install MongoDB
+    yum install -y mongodb-org
 
-# Enable and start MongoDB service
-systemctl enable mongod
-systemctl start mongod
+    # Enable and start MongoDB service
+    systemctl enable mongod
+    systemctl start mongod
 
-# Wait for MongoDB to start
-sleep 10
+    # Wait for MongoDB to start
+    sleep 10
 
-# Create admin user
-mongo admin --eval "db.createUser({ user: '${var.mongodb_user}', pwd: '${var.mongodb_password}', roles:[{role:'root',db:'admin'}] });"
+    # Create admin user
+    mongo admin --eval "db.createUser({ user: '${var.mongodb_user}', pwd: '${var.mongodb_password}', roles:[{role:'root',db:'admin'}] });"
 EOF
 
   tags = {
