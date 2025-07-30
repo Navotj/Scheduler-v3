@@ -4,9 +4,12 @@ set -euxo pipefail
 # Log all output for debug
 exec > >(tee /var/log/user_data.log | logger -t user-data -s 2>/dev/console) 2>&1
 
-# Update and install dependencies
+# Update package metadata
 yum update -y
-yum install -y gnupg2 curl
+
+# Confirm required tools exist (minimal versions are already installed)
+command -v curl
+command -v gpg2
 
 # Import MongoDB GPG key
 curl -fsSL https://pgp.mongodb.com/server-8.0.asc | \
