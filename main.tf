@@ -58,7 +58,6 @@ resource "aws_instance" "mongodb" {
   ami                    = "ami-0c1b03e30bca3b373" # Amazon Linux 2023 x86_64 in eu-central-1
   instance_type          = "t3.micro"
   vpc_security_group_ids = [aws_security_group.mongodb_access.id]
-
   user_data = <<-EOF
               #!/bin/bash
               apt-get update
@@ -74,10 +73,6 @@ resource "aws_instance" "mongodb" {
               sleep 10
               mongo admin --eval 'db.createUser({user:"${var.mongodb_user}",pwd:"${var.mongodb_password}",roles:[{role:"root",db:"admin"}]})'
               EOF
-
-
-
-
   tags = {
     Name = "terraform-mongodb"
   }
