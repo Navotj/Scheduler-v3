@@ -59,26 +59,3 @@ jobs:
     - name: Terraform Apply
       if: github.ref == 'refs/heads/main' && github.event_name == 'push'
       run: terraform apply -auto-approve -input=false
-
-    # Extract MongoDB EC2 instance ID to env (after apply)
-    - name: Get MongoDB Instance ID
-      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-      id: get_instance_id
-      run: |
-        INSTANCE_ID=$(terraform output -raw mongodb_instance_id)
-        echo "INSTANCE_ID=$INSTANCE_ID" >> $GITHUB_ENV
-
-    # Use AWS SSM to restart mongod via instance ID
-    - name: Restart MongoDB via SSM
-      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-      run: |
-        aws ssm send-command \
-          --document-name "AWS-RunShellScript" \
-          --comment "Restart mongod" \
-          --instance-ids "$INSTANCE_ID" \
-          --parameters commands=["sudo systemctl restart mongod"] \
-          --region eu-central-1
-      env:
-        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        INSTANCE_ID: ${{ env.INSTANCE_ID }}
