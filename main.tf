@@ -58,23 +58,47 @@ resource "aws_instance" "mongodb" {
   ami                    = "ami-0c1b03e30bca3b373" # Amazon Linux 2023 x86_64 in eu-central-1
   instance_type          = "t3.micro"
   vpc_security_group_ids = [aws_security_group.mongodb_access.id]
-  user_data = <<-EOF
+
+  user_data = <<EOF
 #!/bin/bash
-apt-get update
-apt-get install -y gnupg curl
+set -e
+
+# Update OS
+yum update -y
+
+# Install prerequisites
+yum install -y gnupg2 curl
+
+# Import MongoDB public GPG key
 curl -fsSL https://pgp.mongodb.com/server-8.0.asc | \
-gpg -o /usr/share/keyrings/mongodb-server-8.0.gpg \
---dearmor
-echo "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-8.0.gpg ] https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/8.0 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-8.0.list
-apt-get update
-apt-get install -y mongodb-org
+  gpg --dearmor -o /etc/pki/rpm-gpg/mongodb-org-8.0.gpg
+
+# Create MongoDB repo file
+cat <<REPO > /etc/yum.repos.d/mongodb-org-8.0.repo
+[mongodb-org-8.0]
+name=MongoDB Repository
+baseurl=https://repo.mongodb.org/yum/amazon/2023/mongodb-org/8.0/x86_64/
+gpgcheck=1
+enabled=1
+gpgkey=file:///etc/pki/rpm-gpg/mongodb-org-8.0.gpg
+REPO
+
+# Install MongoDB
+yum install -y mongodb-org
+
+# Enable and start MongoDB service
+systemctl enable mongod
 systemctl start mongod
-systemctl enable mongodb
+
+# Wait for MongoDB to start
 sleep 10
-mongo admin --eval 'db.createUser({user="${var.mongodb_user}",pwd="${var.mongodb_password}",roles:[{role:"root",db:"admin"}]})'
+
+# Create admin user
+mongo admin --eval "db.createUser({ user: '${var.mongodb_user}', pwd: '${var.mongodb_password}', roles:[{role:'root',db:'admin'}] });"
 EOF
 
   tags = {
     Name = "terraform-mongodb"
   }
 }
+
