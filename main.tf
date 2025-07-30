@@ -17,7 +17,7 @@ data "aws_vpc" "default" {
 
 terraform {
   backend "s3" {
-    bucket         = "navot-teraform-state-1"
+    bucket         = "navot-terraform-state-1"
     key            = "mongodb/terraform.tfstate"
     region         = "eu-central-1"
     dynamodb_table = "terraform-lock-table"
