@@ -58,14 +58,14 @@ resource "aws_instance" "mongodb" {
   ami                    = "ami-0c1b03e30bca3b373" # Amazon Linux 2023 x86_64 in eu-central-1
   instance_type          = "t3.micro"
   vpc_security_group_ids = [aws_security_group.mongodb_access.id]
-  user_data = <<EOF
+  user_data = <<-EOF
 #!/bin/bash
 apt-get update
 apt-get install -y gnupg curl
 curl -fsSL https://pgp.mongodb.com/server-8.0.asc | \
 gpg -o /usr/share/keyrings/mongodb-server-8.0.gpg \
 --dearmor
-echo "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-7.0.gpg ] https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/7.0 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-7.0.list
+echo "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-8.0.gpg ] https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/8.0 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-8.0.list
 apt-get update
 apt-get install -y mongodb-org
 systemctl start mongod
@@ -73,6 +73,7 @@ systemctl enable mongodb
 sleep 10
 mongo admin --eval 'db.createUser({user="${var.mongodb_user}",pwd="${var.mongodb_password}",roles:[{role:"root",db:"admin"}]})'
 EOF
+
   tags = {
     Name = "terraform-mongodb"
   }
