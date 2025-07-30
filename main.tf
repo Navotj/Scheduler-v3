@@ -59,20 +59,20 @@ resource "aws_instance" "mongodb" {
   instance_type          = "t3.micro"
   vpc_security_group_ids = [aws_security_group.mongodb_access.id]
   user_data = <<-EOF
-              #!/bin/bash
-              apt-get update
-              apt-get install gnupg curl
-              curl -fsSL https://pgp.mongodb.com/server-7.0.asc | \
-              gpg -o /usr/share/keyrings/mongodb-server-7.0.gpg \
-              --dearmor
-              echo "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-7.0.gpg ] https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/7.0 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-7.0.list
-              apt-get update
-              apt-get install -y mongodb-org
-              systemctl start mongod
-              systemctl enable mongodb
-              sleep 10
-              mongo admin --eval 'db.createUser({user:"${var.mongodb_user}",pwd:"${var.mongodb_password}",roles:[{role:"root",db:"admin"}]})'
-              EOF
+    #!/bin/bash
+    apt-get update
+    apt-get install gnupg curl
+    curl -fsSL https://pgp.mongodb.com/server-7.0.asc | \
+    gpg -o /usr/share/keyrings/mongodb-server-7.0.gpg \
+    --dearmor
+    echo "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-7.0.gpg ] https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/7.0 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-7.0.list
+    apt-get update
+    apt-get install -y mongodb-org
+    systemctl start mongod
+    systemctl enable mongodb
+    sleep 10
+    mongo admin --eval 'db.createUser({user:"${var.mongodb_user}",pwd:"${var.mongodb_password}",roles:[{role:"root",db:"admin"}]})'
+    EOF
   tags = {
     Name = "terraform-mongodb"
   }
