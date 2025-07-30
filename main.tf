@@ -64,7 +64,7 @@ resource "aws_instance" "mongodb" {
     set -e
 
     # Update OS
-    yum update -y
+    yum updsate -y
 
     # Install prerequisites
     yum install -y gnupg2 curl
