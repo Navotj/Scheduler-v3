@@ -10,7 +10,7 @@ yum install -y gnupg2 curl
 
 # Import MongoDB GPG key
 curl -fsSL https://pgp.mongodb.com/server-8.0.asc | \
-gpg --dearmor -o /etc/pki/rpm-gpg/mongodb-org-8.0.gpg
+gpg2 --dearmor -o /etc/pki/rpm-gpg/mongodb-org-8.0.gpg
 
 # Add MongoDB repo
 cat <<REPO > /etc/yum.repos.d/mongodb-org-8.0.repo
