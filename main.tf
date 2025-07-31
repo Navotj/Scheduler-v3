@@ -50,7 +50,7 @@ data "aws_subnet" "eu_central_1b" {
 ###########
 
 resource "aws_security_group" "full_access" {
-  name        = "mongodb-access"
+  name        = "full-access"
   description = "Allow MongoDB access"
   vpc_id      = data.aws_vpc.default.id
 
@@ -76,7 +76,7 @@ resource "aws_security_group" "full_access" {
   }
 
   tags = {
-    Name = "mongodb-access"
+    Name = "full-access"
   }
 }
 
