@@ -1,0 +1,40 @@
+name: Deploy Backend to EC2
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - 'backend/app/**'
+      - 'backend/service'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    env:
+      SSH_KEY_PATH: ${{ secrets.SSH_KEY_PATH }}
+      BACKEND_USER: ec2-user
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Get backend EC2 IP from Terraform output
+        working-directory: infrastructure/terraform
+        run: |
+          echo "BACKEND_IP=$(terraform output -raw backend_instance_ip)" >> $GITHUB_ENV
+
+      - name: Copy backend app and service file to EC2
+        run: |
+          chmod 600 $SSH_KEY_PATH
+          scp -o StrictHostKeyChecking=no -i $SSH_KEY_PATH -r backend/app $BACKEND_USER@$BACKEND_IP:/opt/app
+          scp -o StrictHostKeyChecking=no -i $SSH_KEY_PATH backend/service $BACKEND_USER@$BACKEND_IP:/tmp/myapp.service
+
+      - name: Move service file and restart backend
+        run: |
+          ssh -o StrictHostKeyChecking=no -i $SSH_KEY_PATH $BACKEND_USER@$BACKEND_IP << 'EOF'
+            sudo mv /tmp/myapp.service /etc/systemd/system/myapp.service
+            sudo systemctl daemon-reexec
+            sudo systemctl daemon-reload
+            sudo systemctl enable --now myapp
+          EOF

@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Mongo Query Test</title>
+</head>
+<body>
+  <h1>Find Person</h1>
+  <input type="text" id="nameInput" placeholder="Enter name..." />
+  <button onclick="search()">Search</button>
+  <pre id="output"></pre>
+
+  <script>
+    async function search() {
+      const name = document.getElementById('nameInput').value;
+      const res = await fetch('http://YOUR_BACKEND_PUBLIC_IP:3000/query', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name })
+      });
+      const data = await res.json();
+      document.getElementById('output').textContent = JSON.stringify(data, null, 2);
+    }
+  </script>
+</body>
+</html>
