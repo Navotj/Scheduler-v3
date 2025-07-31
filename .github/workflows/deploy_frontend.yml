@@ -36,9 +36,9 @@ jobs:
         --output text)
         echo "ip=$BACKEND_IP" >> $GITHUB_OUTPUT
 
-    - name: Inject backend IP into index.html
+    - name: Replace backend IP in frontend index.html
       run: |
-        sed -i 's|http://PUBLIC_IP_BACKEND:3000|http://${{ steps.backend_ip.outputs.ip }}:3000|' frontend/index.html
+        sed -i "s|{{PUBLIC_IP_BACKEND}}|${{ env.BACKEND_IP }}|g" frontend/index.html
 
     - name: Upload frontend to S3
       run: |
