@@ -2,10 +2,6 @@ name: Clear Terraform Lock
 
 on:
   workflow_dispatch:
-    inputs:
-      state_key:
-        description: 'Exact S3 key used in backend config (e.g. mongodb/terraform.tfstate)'
-        required: true
 
 jobs:
   clear-lock:
