@@ -63,14 +63,25 @@ jobs:
       if: github.ref == 'refs/heads/main' && github.event_name == 'push'
       run: terraform apply -auto-approve -input=false
 
-    # Get backend IP
     - name: Export Terraform Outputs
       id: export_outputs
+      working-directory: infrastructure/terraform
       run: |
-        echo "BACKEND_IP=$(terraform output -raw backend_instance_ip 2>/dev/null)" >> $GITHUB_ENV
-        echo "MONGODB_IP=$(terraform output -raw mongodb_instance_ip 2>/dev/null)" >> $GITHUB_ENV
-        echo "BACKEND_PRIVATE_IP=$(terraform output -raw backend_instance_private_ip 2>/dev/null)" >> $GITHUB_ENV
-        echo "MONGODB_PRIVATE_IP=$(terraform output -raw mongodb_instance_private_ip 2>/dev/null)" >> $GITHUB_ENV
-        echo "BACKEND_INSTANCE_ID=$(terraform output -raw backend_instance_id 2>/dev/null)" >> $GITHUB_ENV
-        echo "MONGODB_INSTANCE_ID=$(terraform output -raw mongodb_instance_id 2>/dev/null)" >> $GITHUB_ENV
-        echo "MONGODB_EBS_VOLUME_ID=$(terraform output -raw mongodb_ebs_volume_id 2>/dev/null)" >> $GITHUB_ENV || true
+        set -euo pipefail
+
+        declare -A outputs=(
+          ["BACKEND_IP"]="backend_instance_ip"
+          ["MONGODB_IP"]="mongodb_instance_ip"
+          ["BACKEND_PRIVATE_IP"]="backend_instance_private_ip"
+          ["MONGODB_PRIVATE_IP"]="mongodb_instance_private_ip"
+          ["BACKEND_INSTANCE_ID"]="backend_instance_id"
+          ["MONGODB_INSTANCE_ID"]="mongodb_instance_id"
+          ["MONGODB_EBS_VOLUME_ID"]="mongodb_ebs_volume_id"
+        )
+
+        for key in "${!outputs[@]}"; do
+          value=$(terraform output -raw "${outputs[$key]}" 2>/dev/null || echo "")
+          # Sanitize line breaks and colons that break GitHub env format
+          clean_value=$(echo "$value" | tr -d '\r\n')
+          echo "$key=$clean_value" >> "$GITHUB_ENV"
+        done
