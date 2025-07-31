@@ -12,7 +12,6 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      SSH_KEY_PATH: ${{ secrets.SSH_KEY_PATH }}
       BACKEND_USER: ec2-user
 
     steps:
@@ -24,17 +23,25 @@ jobs:
         run: |
           echo "BACKEND_IP=$(terraform output -raw backend_instance_ip)" >> $GITHUB_ENV
 
-      - name: Copy backend app and service file to EC2
+      - name: Write SSH private key to file
         run: |
-          chmod 600 $SSH_KEY_PATH
-          scp -o StrictHostKeyChecking=no -i $SSH_KEY_PATH -r backend/app $BACKEND_USER@$BACKEND_IP:/opt/app
-          scp -o StrictHostKeyChecking=no -i $SSH_KEY_PATH backend/service $BACKEND_USER@$BACKEND_IP:/tmp/myapp.service
+          echo "${{ secrets.SSH_KEY }}" > private_key.pem
+          chmod 600 private_key.pem
+
+      - name: Copy backend app and service to EC2
+        run: |
+          scp -o StrictHostKeyChecking=no -i private_key.pem -r backend/app $BACKEND_USER@$BACKEND_IP:/opt/app
+          scp -o StrictHostKeyChecking=no -i private_key.pem backend/service $BACKEND_USER@$BACKEND_IP:/tmp/myapp.service
 
       - name: Move service file and restart backend
         run: |
-          ssh -o StrictHostKeyChecking=no -i $SSH_KEY_PATH $BACKEND_USER@$BACKEND_IP << 'EOF'
+          ssh -o StrictHostKeyChecking=no -i private_key.pem $BACKEND_USER@$BACKEND_IP << 'EOF'
             sudo mv /tmp/myapp.service /etc/systemd/system/myapp.service
             sudo systemctl daemon-reexec
             sudo systemctl daemon-reload
             sudo systemctl enable --now myapp
           EOF
+
+      - name: Cleanup key file
+        if: always()
+        run: rm -f private_key.pem

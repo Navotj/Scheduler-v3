@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   terraform:
-    name: 'Terraform'
+    name: 'Deploy Terraform Infrastructure'
     runs-on: ubuntu-latest
 
     env:
