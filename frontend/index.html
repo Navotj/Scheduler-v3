@@ -34,7 +34,7 @@
 
       const name = document.getElementById('nameInput').value;
       try {
-        const res = await fetch('https://{{BACKEND_IP}}:3000/query', {
+        const res = await fetch('http://{{BACKEND_IP}}:3000/query', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name })
