@@ -153,26 +153,20 @@ resource "aws_volume_attachment" "mongo_data_attachment" {
 # S3 Buckets #
 ##############
 
-resource "random_id" "rand" {
-  byte_length = 4
+resource "aws_s3_bucket" "navot_scheduler_frontend" {
+  bucket = "navot-scheduler-frontend-2025"
+  force_destroy = true
 }
 
-resource "aws_s3_bucket" "scheduler-frontend" {
-  bucket = "scheduler-frontend-${random_id.rand.hex}"
-  acl    = "public-read"
-
-  website {
-    index_document = "index.html"
-    error_document = "index.html"
-  }
-
-  tags = {
-    Name = "Frontend S3"
+resource "aws_s3_bucket_ownership_controls" "frontend" {
+  bucket = aws_s3_bucket.navot_scheduler_frontend.id
+  rule {
+    object_ownership = "BucketOwnerPreferred"
   }
 }
 
-resource "aws_s3_bucket_public_access_block" "frontend_block" {
-  bucket = aws_s3_bucket.scheduler-frontend.id
+resource "aws_s3_bucket_public_access_block" "frontend" {
+  bucket = aws_s3_bucket.navot_scheduler_frontend.id
 
   block_public_acls       = false
   block_public_policy     = false
@@ -180,9 +174,8 @@ resource "aws_s3_bucket_public_access_block" "frontend_block" {
   restrict_public_buckets = false
 }
 
-resource "aws_s3_bucket_policy" "frontend_policy" {
-  bucket = aws_s3_bucket.scheduler-frontend.id
-
+resource "aws_s3_bucket_policy" "frontend" {
+  bucket = aws_s3_bucket.navot_scheduler_frontend.id
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
@@ -190,17 +183,25 @@ resource "aws_s3_bucket_policy" "frontend_policy" {
       Effect    = "Allow"
       Principal = "*"
       Action    = "s3:GetObject"
-      Resource  = "${aws_s3_bucket.scheduler-frontend.arn}/*"
+      Resource  = "${aws_s3_bucket.navot_scheduler_frontend.arn}/*"
     }]
   })
 }
 
-output "scheduler-frontend_name" {
-  value       = aws_s3_bucket.scheduler-frontend.bucket
-  description = "Bucket name for the frontend"
+resource "aws_s3_bucket_website_configuration" "frontend" {
+  bucket = aws_s3_bucket.navot_scheduler_frontend.id
+  index_document {
+    suffix = "index.html"
+  }
+  error_document {
+    key = "index.html"
+  }
+}
+
+output "navot_scheduler_frontend_name" {
+  value = aws_s3_bucket.navot_scheduler_frontend.bucket
 }
 
 output "s3_website_url" {
-  value       = aws_s3_bucket.scheduler-frontend.website_endpoint
-  description = "URL to access the static website"
+  value = aws_s3_bucket_website_configuration.frontend.website_endpoint
 }
