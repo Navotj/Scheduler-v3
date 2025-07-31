@@ -34,7 +34,7 @@ jobs:
         --filters "Name=tag:Name,Values=terraform-backend" "Name=instance-state-name,Values=running" \
         --query "Reservations[*].Instances[*].PublicIpAddress" \
         --output text)
-        echo "ip=$BACKEND_IP" >> $GITHUB_ENV
+        echo "BACKEND_IP=$BACKEND_IP" >> $GITHUB_ENV
 
     - name: Echo IP for debug
       run: |
