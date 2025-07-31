@@ -1,0 +1,39 @@
+name: Deploy Frontend to S3
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - "frontend/**"
+      - ".github/workflows/deploy_frontend.yml"
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup AWS credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: eu-central-1
+
+    - name: Set Terraform output variables
+      id: tf_outputs
+      run: |
+        BUCKET_NAME=$(terraform -chdir=terraform output -raw frontend_bucket_name 2>/dev/null || echo "")
+        WEBSITE_URL=$(terraform -chdir=terraform output -raw s3_website_url 2>/dev/null || echo "")
+        echo "bucket_name=$BUCKET_NAME" >> $GITHUB_OUTPUT
+        echo "website_url=$WEBSITE_URL" >> $GITHUB_OUTPUT
+
+    - name: Upload index.html to S3
+      run: |
+        aws s3 cp frontend/ s3://${{ steps.tf_outputs.outputs.bucket_name }}/ --recursive --acl public-read
+
+    - name: Output Website URL
+      run: echo "Deployed to ${{ steps.tf_outputs.outputs.website_url }}"

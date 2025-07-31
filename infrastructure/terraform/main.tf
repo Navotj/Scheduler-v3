@@ -148,3 +148,59 @@ resource "aws_volume_attachment" "mongo_data_attachment" {
   instance_id = aws_instance.mongodb.id
   force_detach = true
 }
+
+##############
+# S3 Buckets #
+##############
+
+resource "random_id" "rand" {
+  byte_length = 4
+}
+
+resource "aws_s3_bucket" "scheduler-frontend" {
+  bucket = "scheduler-frontend-${random_id.rand.hex}"
+  acl    = "public-read"
+
+  website {
+    index_document = "index.html"
+    error_document = "index.html"
+  }
+
+  tags = {
+    Name = "Frontend S3"
+  }
+}
+
+resource "aws_s3_bucket_public_access_block" "frontend_block" {
+  bucket = aws_s3_bucket.scheduler-frontend.id
+
+  block_public_acls       = false
+  block_public_policy     = false
+  ignore_public_acls      = false
+  restrict_public_buckets = false
+}
+
+resource "aws_s3_bucket_policy" "frontend_policy" {
+  bucket = aws_s3_bucket.scheduler-frontend.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid       = "PublicReadGetObject"
+      Effect    = "Allow"
+      Principal = "*"
+      Action    = "s3:GetObject"
+      Resource  = "${aws_s3_bucket.scheduler-frontend.arn}/*"
+    }]
+  })
+}
+
+output "scheduler-frontend_name" {
+  value       = aws_s3_bucket.scheduler-frontend.bucket
+  description = "Bucket name for the frontend"
+}
+
+output "s3_website_url" {
+  value       = aws_s3_bucket.scheduler-frontend.website_endpoint
+  description = "URL to access the static website"
+}
