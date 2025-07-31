@@ -119,7 +119,7 @@ resource "aws_instance" "backend" {
   availability_zone           = "eu-central-1b"
   vpc_security_group_ids      = [aws_security_group.mongodb_access.id]
 
-  user_data = templatefile("${path.module}/backend_install.sh.tmpl")
+  user_data = templatefile("${path.module}/backend_install.sh.tmpl", {})
 
   tags = {
     Name = "terraform-backend"
