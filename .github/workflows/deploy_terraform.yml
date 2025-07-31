@@ -1,4 +1,4 @@
-name: 'Terraform'
+name: 'Deploy Terraform Infrastructure'
 
 on:
   push:
@@ -62,3 +62,15 @@ jobs:
     - name: Terraform Apply
       if: github.ref == 'refs/heads/main' && github.event_name == 'push'
       run: terraform apply -auto-approve -input=false
+
+    # Get backend IP
+    - name: Export Terraform Outputs
+      id: export_outputs
+      run: |
+        echo "BACKEND_IP=$(terraform output -raw backend_instance_ip)" >> $GITHUB_ENV
+        echo "MONGODB_IP=$(terraform output -raw mongodb_instance_ip)" >> $GITHUB_ENV
+        echo "BACKEND_PRIVATE_IP=$(terraform output -raw backend_instance_private_ip)" >> $GITHUB_ENV
+        echo "MONGODB_PRIVATE_IP=$(terraform output -raw mongodb_instance_private_ip)" >> $GITHUB_ENV
+        echo "BACKEND_INSTANCE_ID=$(terraform output -raw backend_instance_id)" >> $GITHUB_ENV
+        echo "MONGODB_INSTANCE_ID=$(terraform output -raw mongodb_instance_id)" >> $GITHUB_ENV
+        echo "MONGODB_EBS_VOLUME_ID=$(terraform output -raw mongodb_ebs_volume_id)" >> $GITHUB_ENV || true

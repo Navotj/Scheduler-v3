@@ -19,10 +19,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Get backend EC2 IP from Terraform output
+      - name: Get backend EC2 private IP from Terraform output
         working-directory: infrastructure/terraform
         run: |
-          echo "BACKEND_IP=$(terraform output -raw backend_instance_ip)" >> $GITHUB_ENV
+          echo "BACKEND_IP=$(terraform output -raw backend_instance_private_ip)" >> $GITHUB_ENV
 
       - name: Write SSH private key to file
         run: |
