@@ -1,3 +1,7 @@
+#############
+# Variables #
+#############
+
 variable "mongodb_user" {
   type = string
 }
@@ -6,6 +10,10 @@ variable "mongodb_password" {
   type      = string
   sensitive = true
 }
+
+############
+# Settings #
+############
 
 provider "aws" {
   region = "eu-central-1"
@@ -35,15 +43,13 @@ data "aws_subnet" "eu_central_1b" {
     name   = "default-for-az"
     values = ["true"]
   }
-
-  # Optional: filter by VPC to ensure correct subnet
-  # filter {
-  #   name   = "vpc-id"
-  #   values = [data.aws_vpc.default.id]
-  # }
 }
 
-resource "aws_security_group" "mongodb_access" {
+###########
+# Network #
+###########
+
+resource "aws_security_group" "full_access" {
   name        = "mongodb-access"
   description = "Allow MongoDB access"
   vpc_id      = data.aws_vpc.default.id
@@ -74,12 +80,20 @@ resource "aws_security_group" "mongodb_access" {
   }
 }
 
+
+
+#################
+# EC2 Instances #
+#################
+
+# MongoDB Instance
 resource "aws_instance" "mongodb" {
   ami                         = "ami-0c1b03e30bca3b373"
   instance_type               = "t3.micro"
   subnet_id                   = data.aws_subnet.eu_central_1b.id
   availability_zone           = "eu-central-1b"
-  vpc_security_group_ids      = [aws_security_group.mongodb_access.id]
+  vpc_security_group_ids      = [aws_security_group.full_access.id]
+  key_name = "terraform-ec2"
 
   user_data = templatefile("${path.module}/mongo_install.sh.tmpl", {
     mongodb_user     = var.mongodb_user
@@ -91,6 +105,28 @@ resource "aws_instance" "mongodb" {
   }
 }
 
+# Python/Node.js Instance
+resource "aws_instance" "backend" {
+  ami                         = "ami-0c1b03e30bca3b373"
+  instance_type               = "t3.micro"
+  subnet_id                   = data.aws_subnet.eu_central_1b.id
+  availability_zone           = "eu-central-1b"
+  vpc_security_group_ids      = [aws_security_group.full_access.id]
+  key_name = "terraform-ec2"
+
+  user_data = templatefile("${path.module}/backend_install.sh.tmpl", {})
+
+
+  tags = {
+    Name = "terraform-backend"
+  }
+}
+
+######################
+# Persistent Storage #
+######################
+
+# MongoDB Storage Volume
 resource "aws_ebs_volume" "mongo_data" {
   availability_zone = "eu-central-1b"
   size              = 20
@@ -105,23 +141,10 @@ resource "aws_ebs_volume" "mongo_data" {
   }
 }
 
+# MongoDB Storage Attachment
 resource "aws_volume_attachment" "mongo_data_attachment" {
   device_name = "/dev/xvdf"
   volume_id   = aws_ebs_volume.mongo_data.id
   instance_id = aws_instance.mongodb.id
   force_detach = true
-}
-
-resource "aws_instance" "backend" {
-  ami                         = "ami-0c1b03e30bca3b373"
-  instance_type               = "t3.micro"
-  subnet_id                   = data.aws_subnet.eu_central_1b.id
-  availability_zone           = "eu-central-1b"
-  vpc_security_group_ids      = [aws_security_group.mongodb_access.id]
-
-  user_data = templatefile("${path.module}/backend_install.sh.tmpl", {})
-
-  tags = {
-    Name = "terraform-backend"
-  }
 }
