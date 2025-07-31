@@ -35,6 +35,16 @@ jobs:
           echo "BACKEND_IP=$BACKEND_IP" >> $GITHUB_ENV
           echo "Resolved backend IP: $BACKEND_IP"
 
+      - name: Fetch MongoDB private IP from AWS
+        run: |
+            MONGODB_IP=$(aws ec2 describe-instances \
+            --filters "Name=tag:Name,Values=terraform-mongodb" "Name=instance-state-name,Values=running" \
+            --query "Reservations[0].Instances[0].PrivateIpAddress" \
+            --output text)
+            echo "MONGODB_IP=$MONGODB_IP" >> $GITHUB_ENV
+            echo "Resolved MongoDB IP: $MONGODB_IP"
+
+
       - name: Write SSH private key to file
         run: |
           echo "${{ secrets.SSH_KEY }}" | tr -d '\r' | awk '{gsub(/\\n/,"\n")}1' > private_key.pem
@@ -50,9 +60,13 @@ jobs:
           echo "Deploying to $BACKEND_USER@${{ env.BACKEND_IP }}"
           scp -o StrictHostKeyChecking=no -i private_key.pem -r backend/app/. $BACKEND_USER@${{ env.BACKEND_IP }}:/opt/app
 
+      - name: Inject MongoDB IP into systemd service file
+        run: |
+            sed "s|\${MONGODB_IP}|${{ env.MONGODB_IP }}|g" backend/service > myapp.service
+
       - name: Copy systemd service file to EC2
         run: |
-          scp -o StrictHostKeyChecking=no -i private_key.pem backend/service $BACKEND_USER@${{ env.BACKEND_IP }}:/tmp/myapp.service
+            scp -o StrictHostKeyChecking=no -i private_key.pem myapp.service $BACKEND_USER@${{ env.BACKEND_IP }}:/tmp/myapp.service
 
       - name: Install systemd service and restart app
         run: |
@@ -66,3 +80,5 @@ jobs:
       - name: Cleanup private key
         if: always()
         run: rm -f private_key.pem
+
+        

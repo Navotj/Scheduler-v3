@@ -7,6 +7,7 @@ User=ec2-user
 WorkingDirectory=/opt/app
 ExecStart=/usr/bin/node index.js
 Restart=always
+Environment=MONGODB_HOST=${MONGODB_IP}
 
 [Install]
 WantedBy=multi-user.target
