@@ -8,16 +8,18 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v2
-      with:
-        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        aws-region: eu-central-1
+      - name: Set up AWS CLI
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: eu-central-1
 
-    - name: Delete Terraform lock from DynamoDB
-      run: |
-        echo "Deleting Terraform lock for state key: ${{ github.event.inputs.state_key }}"
-        aws dynamodb delete-item \
-          --table-name terraform-lock-table \
-          --key "{\"LockID\": {\"S\": \"${{ github.event.inputs.state_key }}\"}}"
+      - name: Delete lock from DynamoDB
+        run: |
+          LOCK_ID="mongodb/terraform.tfstate"
+          echo "Attempting to delete Terraform lock with LockID: $LOCK_ID"
+
+          aws dynamodb delete-item \
+            --table-name terraform-lock-table \
+            --key "{\"LockID\": {\"S\": \"$LOCK_ID\"}}"
