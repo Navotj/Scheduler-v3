@@ -34,13 +34,12 @@ jobs:
 
       - name: Fetch MongoDB private IP from AWS
         run: |
-            MONGODB_IP=$(aws ec2 describe-instances \
+          MONGODB_IP=$(aws ec2 describe-instances \
             --filters "Name=tag:Name,Values=terraform-mongodb" "Name=instance-state-name,Values=running" \
             --query "Reservations[0].Instances[0].PrivateIpAddress" \
             --output text)
-            echo "MONGODB_IP=$MONGODB_IP" >> $GITHUB_ENV
-            echo "Resolved MongoDB IP: $MONGODB_IP"
-
+          echo "MONGODB_IP=$MONGODB_IP" >> $GITHUB_ENV
+          echo "Resolved MongoDB IP: $MONGODB_IP"
 
       - name: Write SSH private key to file
         run: |
@@ -49,21 +48,28 @@ jobs:
 
       - name: Create target directory on remote
         run: |
-            ssh -o StrictHostKeyChecking=no -i private_key.pem $BACKEND_USER@${{ env.BACKEND_IP }} \
-            "sudo mkdir -p /opt/app && sudo chown -R $BACKEND_USER /opt/app"
+          ssh -o StrictHostKeyChecking=no -i private_key.pem $BACKEND_USER@${{ env.BACKEND_IP }} \
+          "sudo mkdir -p /opt/app && sudo chown -R $BACKEND_USER /opt/app"
 
-      - name: Copy backend app to EC2
+      - name: Generate .env file with secret
         run: |
-          echo "Deploying to $BACKEND_USER@${{ env.BACKEND_IP }}"
-          scp -o StrictHostKeyChecking=no -i private_key.pem -r backend/app/. $BACKEND_USER@${{ env.BACKEND_IP }}:/opt/app
+          echo "MONGO_URI=mongodb://s3:${{ secrets.MONGO_PASSWORD }}@${{ env.MONGODB_IP }}:27017/test?authSource=admin" > backend/.env
 
       - name: Inject MongoDB IP into systemd service file
         run: |
-            sed "s|\${MONGODB_IP}|${{ env.MONGODB_IP }}|g" backend/service > scheduler.service
+          sed "s|\${MONGODB_IP}|${{ env.MONGODB_IP }}|g" backend/service > scheduler.service
+
+      - name: Copy backend app and .env to EC2
+        run: |
+          echo "Deploying to $BACKEND_USER@${{ env.BACKEND_IP }}"
+          scp -o StrictHostKeyChecking=no -i private_key.pem \
+          -r backend/app/. backend/.env \
+          $BACKEND_USER@${{ env.BACKEND_IP }}:/opt/app
 
       - name: Copy systemd service file to EC2
         run: |
-            scp -o StrictHostKeyChecking=no -i private_key.pem scheduler.service $BACKEND_USER@${{ env.BACKEND_IP }}:/tmp/scheduler.service
+          scp -o StrictHostKeyChecking=no -i private_key.pem \
+          scheduler.service $BACKEND_USER@${{ env.BACKEND_IP }}:/tmp/scheduler.service
 
       - name: Install systemd service and restart app
         run: |
@@ -77,5 +83,3 @@ jobs:
       - name: Cleanup private key
         if: always()
         run: rm -f private_key.pem
-
-        

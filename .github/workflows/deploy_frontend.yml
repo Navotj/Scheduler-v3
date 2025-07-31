@@ -40,8 +40,6 @@ jobs:
       run: |
         sed -i 's|http://PUBLIC_IP_BACKEND:3000|http://${{ steps.backend_ip.outputs.ip }}:3000|' frontend/index.html
 
-
-
     - name: Upload frontend to S3
       run: |
         echo "Uploading to bucket: ${{ steps.resolve_bucket.outputs.bucket_name }}"
