@@ -4,9 +4,8 @@ on:
   workflow_dispatch:
 
 jobs:
-  clear-lock:
+  unlock:
     runs-on: ubuntu-latest
-
     steps:
       - name: Set up AWS CLI
         uses: aws-actions/configure-aws-credentials@v4
@@ -15,11 +14,8 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: eu-central-1
 
-      - name: Delete lock from DynamoDB
+      - name: Delete Terraform lock from DynamoDB
         run: |
-          LOCK_ID="mongodb/terraform.tfstate"
-          echo "Attempting to delete Terraform lock with LockID: $LOCK_ID"
-
           aws dynamodb delete-item \
             --table-name terraform-lock-table \
-            --key "{\"LockID\": {\"S\": \"$LOCK_ID\"}}"
+            --key '{"LockID": {"S": "navot-terraform-state-1/mongodb/terraform.tfstate"}}'
