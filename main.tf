@@ -111,3 +111,17 @@ resource "aws_volume_attachment" "mongo_data_attachment" {
   instance_id = aws_instance.mongodb.id
   force_detach = true
 }
+
+resource "aws_instance" "backend" {
+  ami                         = "ami-0c1b03e30bca3b373"
+  instance_type               = "t3.micro"
+  subnet_id                   = data.aws_subnet.eu_central_1b.id
+  availability_zone           = "eu-central-1b"
+  vpc_security_group_ids      = [aws_security_group.mongodb_access.id]
+
+  user_data = templatefile("${path.module}/backend_install.sh.tmpl")
+
+  tags = {
+    Name = "terraform-backend"
+  }
+}
