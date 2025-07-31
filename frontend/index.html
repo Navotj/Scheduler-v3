@@ -3,6 +3,23 @@
 <head>
   <meta charset="UTF-8" />
   <title>Mongo Query Test</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      background: #111;
+      color: #eee;
+      padding: 20px;
+    }
+    input, button {
+      font-size: 16px;
+      padding: 5px;
+    }
+    pre {
+      background: #222;
+      padding: 10px;
+      border: 1px solid #444;
+    }
+  </style>
 </head>
 <body>
   <h1>Find Person</h1>
@@ -12,14 +29,27 @@
 
   <script>
     async function search() {
+      const output = document.getElementById('output');
+      output.textContent = 'Loading...';
+
       const name = document.getElementById('nameInput').value;
-      const res = await fetch('http://YOUR_BACKEND_PUBLIC_IP:3000/query', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name })
-      });
-      const data = await res.json();
-      document.getElementById('output').textContent = JSON.stringify(data, null, 2);
+      try {
+        const res = await fetch('http://YOUR_BACKEND_PUBLIC_IP:3000/query', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name })
+        });
+
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(`Server error ${res.status}: ${text}`);
+        }
+
+        const data = await res.json();
+        output.textContent = JSON.stringify(data, null, 2);
+      } catch (err) {
+        output.textContent = `❌ Error: ${err.message}`;
+      }
     }
   </script>
 </body>
