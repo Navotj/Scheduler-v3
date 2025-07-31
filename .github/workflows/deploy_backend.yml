@@ -30,12 +30,12 @@ jobs:
 
       - name: Copy backend app and service to EC2
         run: |
-          scp -o StrictHostKeyChecking=no -i private_key.pem -r backend/app $BACKEND_USER@$BACKEND_IP:/opt/app
-          scp -o StrictHostKeyChecking=no -i private_key.pem backend/service $BACKEND_USER@$BACKEND_IP:/tmp/myapp.service
+          scp -o StrictHostKeyChecking=no -i private_key.pem -r backend/app $BACKEND_USER@${{ env.BACKEND_IP }}:/opt/app
+          scp -o StrictHostKeyChecking=no -i private_key.pem backend/service $BACKEND_USER@${{ env.BACKEND_IP }}:/tmp/myapp.service
 
       - name: Move service file and restart backend
         run: |
-          ssh -o StrictHostKeyChecking=no -i private_key.pem $BACKEND_USER@$BACKEND_IP << 'EOF'
+          ssh -o StrictHostKeyChecking=no -i private_key.pem $BACKEND_USER@${{ env.BACKEND_IP }} << 'EOF'
             sudo mv /tmp/myapp.service /etc/systemd/system/myapp.service
             sudo systemctl daemon-reexec
             sudo systemctl daemon-reload
