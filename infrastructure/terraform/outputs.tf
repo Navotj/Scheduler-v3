@@ -30,5 +30,5 @@ output "mongodb_instance_id" {
 
 output "mongodb_ebs_volume_id" {
   description = "EBS volume ID attached to the MongoDB instance (if used)"
-  value       = aws_ebs_volume.mongodb_storage.id
+  value       = aws_ebs_volume.mongo_data.id
 }
