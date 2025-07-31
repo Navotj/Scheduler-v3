@@ -37,7 +37,7 @@ jobs:
 
       - name: Write SSH private key to file
         run: |
-          echo "${{ secrets.SSH_KEY }}" > private_key.pem
+          echo "${{ secrets.SSH_KEY }}" | tr -d '\r' | awk '{gsub(/\\n/,"\n")}1' > private_key.pem
           chmod 600 private_key.pem
 
       - name: Copy backend app to EC2
