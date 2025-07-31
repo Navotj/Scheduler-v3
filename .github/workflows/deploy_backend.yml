@@ -6,6 +6,7 @@ on:
     paths:
       - 'backend/app/**'
       - 'backend/service'
+  workflow_dispatch:
 
 jobs:
   deploy:
