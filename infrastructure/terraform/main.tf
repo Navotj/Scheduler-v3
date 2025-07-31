@@ -49,8 +49,8 @@ data "aws_subnet" "eu_central_1b" {
 # Network #
 ###########
 
-resource "aws_security_group" "full_access" {
-  name        = "full-access"
+resource "aws_security_group" "mongodb_access" {
+  name        = "mongodb-access"
   description = "Allow MongoDB access"
   vpc_id      = data.aws_vpc.default.id
 
@@ -76,7 +76,38 @@ resource "aws_security_group" "full_access" {
   }
 
   tags = {
-    Name = "full-access"
+    Name = "mongodb-access"
+  }
+}
+
+resource "aws_security_group" "backend_access" {
+  name        = "backend-access"
+  description = "Allow MongoDB access"
+  vpc_id      = data.aws_vpc.default.id
+
+  ingress {
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    from_port   = 3000
+    to_port     = 3000
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "backend-access"
   }
 }
 
@@ -92,7 +123,7 @@ resource "aws_instance" "mongodb" {
   instance_type               = "t3.micro"
   subnet_id                   = data.aws_subnet.eu_central_1b.id
   availability_zone           = "eu-central-1b"
-  vpc_security_group_ids      = [aws_security_group.full_access.id]
+  vpc_security_group_ids      = [aws_security_group.mongodb_access.id]
   key_name = "terraform-ec2"
 
   user_data = templatefile("${path.module}/mongo_install.sh.tmpl", {
@@ -111,7 +142,7 @@ resource "aws_instance" "backend" {
   instance_type               = "t3.micro"
   subnet_id                   = data.aws_subnet.eu_central_1b.id
   availability_zone           = "eu-central-1b"
-  vpc_security_group_ids      = [aws_security_group.full_access.id]
+  vpc_security_group_ids      = [aws_security_group.backend_access.id]
   key_name = "terraform-ec2"
 
   user_data = templatefile("${path.module}/backend_install.sh.tmpl", {})
