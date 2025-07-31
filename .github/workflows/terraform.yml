@@ -23,7 +23,7 @@ jobs:
     defaults:
       run:
         shell: bash
-        working-directory: infrastructure/terraform  # <- ✅ key fix
+        working-directory: infrastructure/terraform
 
     steps:
     # Checkout repo
