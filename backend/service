@@ -1,5 +1,5 @@
 [Unit]
-Description=DND_Scheduler
+Description=scheduler
 After=network.target
 
 [Service]

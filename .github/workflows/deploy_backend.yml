@@ -62,19 +62,19 @@ jobs:
 
       - name: Inject MongoDB IP into systemd service file
         run: |
-            sed "s|\${MONGODB_IP}|${{ env.MONGODB_IP }}|g" backend/service > myapp.service
+            sed "s|\${MONGODB_IP}|${{ env.MONGODB_IP }}|g" backend/service > scheduler.service
 
       - name: Copy systemd service file to EC2
         run: |
-            scp -o StrictHostKeyChecking=no -i private_key.pem myapp.service $BACKEND_USER@${{ env.BACKEND_IP }}:/tmp/myapp.service
+            scp -o StrictHostKeyChecking=no -i private_key.pem scheduler.service $BACKEND_USER@${{ env.BACKEND_IP }}:/tmp/scheduler.service
 
       - name: Install systemd service and restart app
         run: |
           ssh -o StrictHostKeyChecking=no -i private_key.pem $BACKEND_USER@${{ env.BACKEND_IP }} << 'EOF'
-            sudo mv /tmp/myapp.service /etc/systemd/system/myapp.service
+            sudo mv /tmp/scheduler.service /etc/systemd/system/scheduler.service
             sudo systemctl daemon-reexec
             sudo systemctl daemon-reload
-            sudo systemctl enable --now myapp
+            sudo systemctl enable --now scheduler
           EOF
 
       - name: Cleanup private key
