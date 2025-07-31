@@ -36,6 +36,10 @@ jobs:
         --output text)
         echo "ip=$BACKEND_IP" >> $GITHUB_OUTPUT
 
+    - name: Echo IP for debug
+      run: |
+        echo "Resolved IP is: $BACKEND_IP"
+
     - name: Replace backend IP in frontend index.html
       run: |
         sed -i "s|{{PUBLIC_IP_BACKEND}}|${{ env.BACKEND_IP }}|g" frontend/index.html
@@ -44,3 +48,5 @@ jobs:
       run: |
         echo "Uploading to bucket: ${{ steps.resolve_bucket.outputs.bucket_name }}"
         aws s3 cp frontend/ s3://${{ steps.resolve_bucket.outputs.bucket_name }}/ --recursive --acl public-read
+
+        
