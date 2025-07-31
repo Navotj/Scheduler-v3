@@ -40,6 +40,11 @@ jobs:
           echo "${{ secrets.SSH_KEY }}" | tr -d '\r' | awk '{gsub(/\\n/,"\n")}1' > private_key.pem
           chmod 600 private_key.pem
 
+      - name: Create target directory on remote
+        run: |
+            ssh -o StrictHostKeyChecking=no -i private_key.pem $BACKEND_USER@${{ env.BACKEND_IP }} \
+            "sudo mkdir -p /opt/app && sudo chown -R $BACKEND_USER /opt/app"
+
       - name: Copy backend app to EC2
         run: |
           echo "Deploying to $BACKEND_USER@${{ env.BACKEND_IP }}"
