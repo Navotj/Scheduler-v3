@@ -19,6 +19,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Initialize Terraform (for output access)
+        working-directory: infrastructure/terraform
+        run: |
+          terraform init -input=false
+          terraform refresh -input=false
+
       - name: Get backend EC2 private IP from Terraform output
         working-directory: infrastructure/terraform
         run: |
