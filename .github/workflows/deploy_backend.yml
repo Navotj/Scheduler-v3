@@ -22,7 +22,14 @@ jobs:
       - name: Get backend EC2 private IP from Terraform output
         working-directory: infrastructure/terraform
         run: |
-          echo "BACKEND_IP=$(terraform output -raw backend_instance_private_ip)" >> $GITHUB_ENV
+          set -euo pipefail
+          IP=$(terraform output -raw backend_instance_private_ip 2>/dev/null || echo "")
+          echo "BACKEND_IP=$IP" >> $GITHUB_ENV
+          echo "DEBUG: BACKEND_IP=$IP"
+
+      - name: Confirm GITHUB_ENV populated
+        run: |
+          echo "Debug: BACKEND_IP is $BACKEND_IP"
 
       - name: Write SSH private key to file
         run: |
@@ -31,15 +38,18 @@ jobs:
 
       - name: Copy backend app to EC2
         run: |
-          scp -o StrictHostKeyChecking=no -i private_key.pem -r backend/app $BACKEND_USER@${{ env.BACKEND_IP }}:/opt/app
+          echo "Attempting to SCP to $BACKEND_USER@${{ env.BACKEND_IP }}"
+          scp -vvv -o StrictHostKeyChecking=no -i private_key.pem -r backend/app $BACKEND_USER@${{ env.BACKEND_IP }}:/opt/app
 
       - name: Copy systemd service file to EC2
         run: |
-          scp -o StrictHostKeyChecking=no -i private_key.pem backend/service $BACKEND_USER@${{ env.BACKEND_IP }}:/tmp/myapp.service
+          echo "Attempting to SCP service file to $BACKEND_USER@${{ env.BACKEND_IP }}"
+          scp -vvv -o StrictHostKeyChecking=no -i private_key.pem backend/service $BACKEND_USER@${{ env.BACKEND_IP }}:/tmp/myapp.service
 
       - name: Install systemd service and restart app
         run: |
-          ssh -o StrictHostKeyChecking=no -i private_key.pem $BACKEND_USER@${{ env.BACKEND_IP }} << 'EOF'
+          echo "Attempting to SSH into $BACKEND_USER@${{ env.BACKEND_IP }}"
+          ssh -v -o StrictHostKeyChecking=no -i private_key.pem $BACKEND_USER@${{ env.BACKEND_IP }} << 'EOF'
             sudo mv /tmp/myapp.service /etc/systemd/system/myapp.service
             sudo systemctl daemon-reexec
             sudo systemctl daemon-reload
