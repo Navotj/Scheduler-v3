@@ -153,29 +153,31 @@ resource "aws_volume_attachment" "mongo_data_attachment" {
 # S3 Buckets #
 ##############
 
-resource "aws_s3_bucket" "navot_scheduler_frontend" {
-  bucket = "navot-scheduler-frontend-2025"
-  force_destroy = true
+resource "aws_s3_bucket" "frontend" {
+  bucket         = "navot-scheduler-frontend-2025"
+  force_destroy  = true
 }
 
 resource "aws_s3_bucket_ownership_controls" "frontend" {
-  bucket = aws_s3_bucket.navot_scheduler_frontend.id
+  bucket = aws_s3_bucket.frontend.id
+
   rule {
     object_ownership = "BucketOwnerPreferred"
   }
 }
 
 resource "aws_s3_bucket_public_access_block" "frontend" {
-  bucket = aws_s3_bucket.navot_scheduler_frontend.id
+  bucket = aws_s3_bucket.frontend.id
 
   block_public_acls       = false
-  block_public_policy     = false
   ignore_public_acls      = false
+  block_public_policy     = false
   restrict_public_buckets = false
 }
 
 resource "aws_s3_bucket_policy" "frontend" {
-  bucket = aws_s3_bucket.navot_scheduler_frontend.id
+  bucket = aws_s3_bucket.frontend.id
+
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
@@ -183,25 +185,29 @@ resource "aws_s3_bucket_policy" "frontend" {
       Effect    = "Allow"
       Principal = "*"
       Action    = "s3:GetObject"
-      Resource  = "${aws_s3_bucket.navot_scheduler_frontend.arn}/*"
+      Resource  = "${aws_s3_bucket.frontend.arn}/*"
     }]
   })
 }
 
 resource "aws_s3_bucket_website_configuration" "frontend" {
-  bucket = aws_s3_bucket.navot_scheduler_frontend.id
+  bucket = aws_s3_bucket.frontend.id
+
   index_document {
     suffix = "index.html"
   }
+
   error_document {
     key = "index.html"
   }
 }
 
-output "navot_scheduler_frontend_name" {
-  value = aws_s3_bucket.navot_scheduler_frontend.bucket
+output "frontend_bucket_name" {
+  description = "Name of the frontend S3 bucket"
+  value       = aws_s3_bucket.frontend.bucket
 }
 
 output "s3_website_url" {
-  value = aws_s3_bucket_website_configuration.frontend.website_endpoint
+  description = "Static website URL"
+  value       = aws_s3_bucket_website_configuration.frontend.website_endpoint
 }
