@@ -1,0 +1,27 @@
+name: Clear Terraform Lock
+
+on:
+  workflow_dispatch:
+    inputs:
+      state_key:
+        description: 'Exact S3 key used in backend config (e.g. mongodb/terraform.tfstate)'
+        required: true
+
+jobs:
+  clear-lock:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: eu-central-1
+
+    - name: Delete Terraform lock from DynamoDB
+      run: |
+        echo "Deleting Terraform lock for state key: ${{ github.event.inputs.state_key }}"
+        aws dynamodb delete-item \
+          --table-name terraform-lock-table \
+          --key "{\"LockID\": {\"S\": \"${{ github.event.inputs.state_key }}\"}}"
