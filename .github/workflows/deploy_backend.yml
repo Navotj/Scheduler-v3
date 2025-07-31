@@ -48,7 +48,7 @@ jobs:
       - name: Copy backend app to EC2
         run: |
           echo "Deploying to $BACKEND_USER@${{ env.BACKEND_IP }}"
-          scp -o StrictHostKeyChecking=no -i private_key.pem -r backend/app $BACKEND_USER@${{ env.BACKEND_IP }}:/opt/app
+          scp -o StrictHostKeyChecking=no -i private_key.pem -r backend/app/. $BACKEND_USER@${{ env.BACKEND_IP }}:/opt/app
 
       - name: Copy systemd service file to EC2
         run: |
