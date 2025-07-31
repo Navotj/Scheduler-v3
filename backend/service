@@ -1,0 +1,12 @@
+[Unit]
+Description=DND_Scheduler
+After=network.target
+
+[Service]
+User=ec2-user
+WorkingDirectory=/opt/app
+ExecStart=/usr/bin/node index.js
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
