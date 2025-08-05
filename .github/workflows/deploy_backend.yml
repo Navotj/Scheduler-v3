@@ -14,6 +14,8 @@ jobs:
 
     env:
       BACKEND_USER: ec2-user
+      TF_VAR_s3_mongo_user: ${{ secrets.TF_VAR_s3_MONGO_USER }}
+      TF_VAR_s3_mongo_password: ${{ secrets.TF_VAR_s3_MONGO_PASSWORD }}
 
     steps:
       - name: Checkout repository

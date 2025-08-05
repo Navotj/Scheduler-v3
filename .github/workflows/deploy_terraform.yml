@@ -17,8 +17,10 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      TF_VAR_mongodb_user: ${{ secrets.TF_VAR_MONGODB_USER }}
-      TF_VAR_mongodb_password: ${{ secrets.TF_VAR_MONGODB_PASSWORD }}
+      TF_VAR_admin_mongo_user: ${{ secrets.TF_VAR_ADMIN_MONGO_USER }}
+      TF_VAR_admin_mongo_password: ${{ secrets.TF_VAR_ADMIN_MONGO_PASSWORD }}
+      TF_VAR_s3_mongo_user: ${{ secrets.TF_VAR_s3_MONGO_USER }}
+      TF_VAR_s3_mongo_password: ${{ secrets.TF_VAR_s3_MONGO_PASSWORD }}
 
     environment: Development
 
@@ -54,13 +56,6 @@ jobs:
 
     - name: Terraform Format Check
       run: terraform fmt -check
-
-    - name: Export Terraform variables properly
-      run: |
-        echo "TF_VAR_admin_mongo_user=${{ secrets.TF_VAR_ADMIN_MONGO_USER }}" >> $GITHUB_ENV
-        echo "TF_VAR_admin_mongo_password=${{ secrets.TF_VAR_ADMIN_MONGO_PASSWORD }}" >> $GITHUB_ENV
-        echo "TF_VAR_s3_mongo_user=${{ secrets.TF_VAR_S3_MONGO_USER }}" >> $GITHUB_ENV
-        echo "TF_VAR_s3_mongo_password=${{ secrets.TF_VAR_S3_MONGO_PASSWORD }}" >> $GITHUB_ENV
 
     # Terraform Plan (always runs)
     - name: Terraform Plan
