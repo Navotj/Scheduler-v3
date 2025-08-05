@@ -14,8 +14,6 @@ jobs:
 
     env:
       BACKEND_USER: ec2-user
-      S3_MONGO_USER: ${{ secrets.TF_VAR_S3_MONGO_USER }}
-      S3_MONGO_PASSWORD: ${{ secrets.TF_VAR_S3_MONGO_PASSWORD }}
 
     steps:
       - name: Checkout repository
@@ -58,7 +56,7 @@ jobs:
 
       - name: Generate .env file with secret
         run: |
-          echo "MONGO_URI=mongodb://$S3_MONGO_USER:$S3_MONGO_PASSWORD@${{ env.MONGODB_IP }}:27017/test?authSource=admin" > backend/.env
+          echo "MONGO_URI=mongodb://${{ secrets.TF_VAR_S3_MONGO_USER }}:${{ secrets.TF_VAR_S3_MONGO_PASSWORD }}@${{ env.MONGODB_IP }}:27017/test?authSource=admin" > backend/.env
           echo "REPO_DISPATCH_PAT=${{ secrets.REPO_DISPATCH_PAT }}" >> backend/.env
 
 
