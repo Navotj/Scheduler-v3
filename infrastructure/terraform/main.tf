@@ -310,8 +310,11 @@ resource "aws_route53_record" "frontend" {
   zone_id = aws_route53_zone.main.zone_id
   name    = "nat20scheduling.com"
   type    = "A"
-  ttl     = 300
-  records = [aws_eip.backend.public_ip] # TEMP: if backend serves frontend
+  alias {
+    name                   = aws_s3_bucket_website_configuration.frontend.website_endpoint
+    zone_id                = "Z21DNDUVLTQW6Q" # Hosted Zone ID for S3 website in eu-central-1
+    evaluate_target_health = false
+  }
 }
 
 #########################
