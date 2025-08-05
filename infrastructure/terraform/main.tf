@@ -2,7 +2,7 @@
 # Variables #
 #############
 
-variable "admin_mongo_user" {
+variable "ADMIN_MONGO_USER" {
   type = string
 }
 
@@ -136,10 +136,10 @@ resource "aws_instance" "mongodb" {
   key_name = "terraform-ec2"
 
   user_data = templatefile("${path.module}/mongo_install.sh.tmpl", {
-    admin_mongodb_user        = var.admin_mongo_user
-    admin_mongodb_password    = var.admin_mongo_password
-    s3_mongodb_user           = var.s3_mongo_user
-    s3_mongodb_password       = var.s3_mongo_password
+    admin_mongo_user        = var.ADMIN_MONGO_USER
+    admin_mongo_password    = var.admin_mongo_password
+    s3_mongo_user           = var.s3_mongo_user
+    s3_mongo_password       = var.s3_mongo_password
   })
 
   tags = {
