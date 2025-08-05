@@ -274,7 +274,6 @@ resource "aws_s3_bucket_website_configuration" "frontend" {
 
 resource "aws_eip" "mongodb" {
   instance = aws_instance.mongodb.id
-  vpc      = true
   tags = {
     Name = "mongodb-eip"
   }
@@ -282,7 +281,6 @@ resource "aws_eip" "mongodb" {
 
 resource "aws_eip" "backend" {
   instance = aws_instance.backend.id
-  vpc      = true
   tags = {
     Name = "backend-eip"
   }
