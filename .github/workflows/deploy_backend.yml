@@ -14,8 +14,8 @@ jobs:
 
     env:
       BACKEND_USER: ec2-user
-      TF_VAR_s3_mongo_user: ${{ secrets.TF_VAR_S3_MONGO_USER }}
-      TF_VAR_s3_mongo_password: ${{ secrets.TF_VAR_S3_MONGO_PASSWORD }}
+      #TF_VAR_s3_mongo_user: ${{ secrets.TF_VAR_S3_MONGO_USER }}
+      #TF_VAR_s3_mongo_password: ${{ secrets.TF_VAR_S3_MONGO_PASSWORD }}
 
     steps:
       - name: Checkout repository
@@ -58,7 +58,7 @@ jobs:
 
       - name: Generate .env file with secret
         run: |
-          echo "MONGO_URI=mongodb://${{ secrets.TF_VAR_S3_MONGO_USER }}:${{ secrets.TF_VAR_S3_MONGO_PASSWORD }}@${{ env.MONGODB_IP }}:27017/test?authSource=admin" > backend/.env
+          echo "MONGO_URI=mongodb://${{ secrets.S3_MONGO_USER }}:${{ secrets.S3_MONGO_PASSWORD }}@${{ env.MONGODB_IP }}:27017/test?authSource=admin" > backend/.env
 
       - name: Inject MongoDB IP into systemd service file
         run: |
