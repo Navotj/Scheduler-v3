@@ -310,45 +310,45 @@ resource "aws_route53_record" "frontend" {
   zone_id = aws_route53_zone.main.zone_id
   name    = "nat20scheduling.com"
   type    = "A"
+
   alias {
     name                   = aws_s3_bucket_website_configuration.frontend.website_endpoint
-    zone_id                = "Z21DNDUVLTQW6Q" # Hosted Zone ID for S3 website in eu-central-1
+    zone_id                = "Z21DNDUVLTQW6Q" # S3 hosted zone ID for eu-central-1
     evaluate_target_health = false
   }
 }
 
+
 #########################
-# Routes                #
+# Outputs               #
 #########################
 
-resource "aws_route53_zone" "main" {
-  name = "nat20scheduling.com"
+output "frontend_bucket_name" {
+  description = "Name of the frontend S3 bucket"
+  value       = aws_s3_bucket.frontend.bucket
 }
 
-resource "aws_route53_record" "mongo" {
-  zone_id = aws_route53_zone.main.zone_id
-  name    = "mongo.nat20scheduling.com"
-  type    = "A"
-  ttl     = 300
-  records = [aws_eip.mongodb.public_ip]
+output "s3_website_url" {
+  description = "Static website URL"
+  value       = aws_s3_bucket_website_configuration.frontend.website_endpoint
 }
 
-resource "aws_route53_record" "backend" {
-  zone_id = aws_route53_zone.main.zone_id
-  name    = "backend.nat20scheduling.com"
-  type    = "A"
-  ttl     = 300
-  records = [aws_eip.backend.public_ip]
+output "backend_dns" {
+  value = "backend.nat20scheduling.com"
 }
 
-resource "aws_route53_record" "frontend" {
-  zone_id = aws_route53_zone.main.zone_id
-  name    = "nat20scheduling.com"
-  type    = "A"
+output "mongodb_dns" {
+  value = "mongo.nat20scheduling.com"
+}
 
-  alias {
-    name                   = aws_s3_bucket_website_configuration.frontend.website_endpoint
-    zone_id                = "Z21DNDUVLTQW6Q"
-    evaluate_target_health = false
-  }
+output "frontend_dns" {
+  value = "nat20scheduling.com"
+}
+
+output "backend_instance_id" {
+  value = aws_instance.backend.id
+}
+
+output "mongodb_instance_id" {
+  value = aws_instance.mongodb.id
 }
