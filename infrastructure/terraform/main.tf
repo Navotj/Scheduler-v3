@@ -312,8 +312,8 @@ resource "aws_route53_record" "frontend" {
   type    = "A"
 
   alias {
-    name                   = aws_s3_bucket_website_configuration.frontend.website_endpoint
-    zone_id = aws_s3_bucket.frontend.hosted_zone_id
+    name                   = "navot-scheduler-frontend-2025.s3-website.eu-central-1.amazonaws.com"
+    zone_id                = "Z21DNDUVLTQW6Q"
     evaluate_target_health = false
   }
 }
