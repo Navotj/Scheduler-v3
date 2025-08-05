@@ -1,0 +1,39 @@
+name: Monitor Backend IP and Redeploy Frontend
+
+on:
+  schedule:
+    - cron: "*/1 * * * *"  # every 10 minutes
+  workflow_dispatch:
+
+jobs:
+  check-ip:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Get current backend IP
+      id: get_ip
+      run: |
+        BACKEND_IP=$(aws ec2 describe-instances \
+          --filters "Name=tag:Name,Values=terraform-backend" "Name=instance-state-name,Values=running" \
+          --query "Reservations[0].Instances[0].PublicIpAddress" \
+          --output text)
+        echo "ip=$BACKEND_IP" >> $GITHUB_OUTPUT
+
+    - name: Download last known IP
+      id: previous_ip
+      run: |
+        aws s3 cp s3://your-bucket-name/last_backend_ip.txt last_backend_ip.txt || echo "none" > last_backend_ip.txt
+        cat last_backend_ip.txt
+        echo "previous_ip=$(cat last_backend_ip.txt)" >> $GITHUB_OUTPUT
+
+    - name: Compare and redeploy if changed
+      if: steps.get_ip.outputs.ip != steps.previous_ip.outputs.previous_ip
+      run: |
+        echo "IP has changed, triggering redeploy..."
+        curl -X POST https://api.github.com/repos/Navotj/Scheduler/actions/workflows/deploy_frontend.yml/dispatches \
+          -H "Authorization: token ${{ secrets.REPO_DISPATCH_PAT }}" \
+          -H "Accept: application/vnd.github+json" \
+          -d '{"ref": "main"}'
+
+        echo "${{ steps.get_ip.outputs.ip }}" > last_backend_ip.txt
+        aws s3 cp last_backend_ip.txt s3://your-bucket-name/last_backend_ip.txt
