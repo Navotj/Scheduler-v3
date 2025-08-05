@@ -313,7 +313,7 @@ resource "aws_route53_record" "frontend" {
 
   alias {
     name                   = aws_s3_bucket_website_configuration.frontend.website_endpoint
-    zone_id                = "Z21DNDUVLTQW6Q" # S3 hosted zone ID for eu-central-1
+    zone_id = aws_s3_bucket.frontend.hosted_zone_id
     evaluate_target_health = false
   }
 }
