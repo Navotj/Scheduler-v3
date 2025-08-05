@@ -2,11 +2,20 @@
 # Variables #
 #############
 
-variable "mongodb_user" {
+variable "admin_mongodb_user" {
   type = string
 }
 
-variable "mongodb_password" {
+variable "admin_mongodb_password" {
+  type      = string
+  sensitive = true
+}
+
+variable "s3_mongodb_user" {
+  type = string
+}
+
+variable "s3_mongodb_password" {
   type      = string
   sensitive = true
 }
