@@ -29,11 +29,11 @@ async function connectMongoWithRetry(retries = 3) {
   // After max retries, trigger GitHub Actions dispatch
   try {
     await axios.post(
-      'https://api.github.com/repos/YOUR_USERNAME/YOUR_REPO/dispatches',
+      'https://api.github.com/repos/Navotj/Scheduler-v3/dispatches',
       { event_type: 'update-backend-env' },
       {
         headers: {
-          Authorization: `Bearer ${process.env.GH_PAT}`,
+        Authorization: `Bearer ${process.env.REPO_DISPATCH_PAT}`,
           Accept: 'application/vnd.github+json'
         }
       }
