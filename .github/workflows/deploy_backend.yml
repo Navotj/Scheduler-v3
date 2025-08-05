@@ -53,7 +53,7 @@ jobs:
           --parameters 'commands=[
             "mkdir -p /opt/app /tmp/installation",
             "aws s3 cp s3://navot-scheduler-frontend-2025/backend.zip /tmp/installation/backend.zip",
-            "sudo unzip /tmp/installation/backend.zip -df /tmp/installation/",
+            "sudo unzip /tmp/installation/backend.zip -d /tmp/installation/",
             "sudo mv /tmp/installation/app/* /opt/app",
             "sudo mv /tmp/installation/scheduler.service /etc/systemd/system",
             "sudo npm install",
