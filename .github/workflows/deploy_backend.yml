@@ -59,6 +59,8 @@ jobs:
       - name: Generate .env file with secret
         run: |
           echo "MONGO_URI=mongodb://$S3_MONGO_USER:$S3_MONGO_PASSWORD@${{ env.MONGODB_IP }}:27017/test?authSource=admin" > backend/.env
+          echo "REPO_DISPATCH_PAT=${{ secrets.REPO_DISPATCH_PAT }}" >> backend/.env
+
 
       - name: Inject MongoDB IP into systemd service file
         run: |

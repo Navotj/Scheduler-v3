@@ -1,6 +1,9 @@
+// backend/app.js
+
 const express = require('express');
 const { MongoClient } = require('mongodb');
 const cors = require('cors');
+const axios = require('axios');
 require('dotenv').config();
 
 const app = express();
@@ -9,6 +12,39 @@ app.use(cors());
 
 const client = new MongoClient(process.env.MONGO_URI);
 let db;
+
+async function connectMongoWithRetry(retries = 3) {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      await client.connect();
+      db = client.db('test');
+      console.log('✅ MongoDB connected');
+      return true;
+    } catch (err) {
+      console.error(`❌ MongoDB connection failed (attempt ${attempt}):`, err.message);
+      if (attempt < retries) await new Promise(r => setTimeout(r, 3000));
+    }
+  }
+
+  // After max retries, trigger GitHub Actions dispatch
+  try {
+    await axios.post(
+      'https://api.github.com/repos/YOUR_USERNAME/YOUR_REPO/dispatches',
+      { event_type: 'update-backend-env' },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.GH_PAT}`,
+          Accept: 'application/vnd.github+json'
+        }
+      }
+    );
+    console.log('📡 Triggered GitHub workflow to update .env');
+  } catch (dispatchErr) {
+    console.error('⚠️ Failed to trigger GitHub workflow:', dispatchErr.message);
+  }
+
+  return false;
+}
 
 app.post('/query', async (req, res) => {
   try {
@@ -21,9 +57,10 @@ app.post('/query', async (req, res) => {
 });
 
 app.listen(3000, async () => {
-  await client.connect();
-  db = client.db('test');
-  console.log('Backend listening on port 3000');
+  const ok = await connectMongoWithRetry();
+  if (ok) {
+    console.log('Backend listening on port 3000');
+  } else {
+    console.log('🚫 Backend startup failed due to MongoDB connection');
+  }
 });
-
-// commentss

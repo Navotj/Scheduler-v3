@@ -5,9 +5,12 @@ After=network.target
 [Service]
 User=ec2-user
 WorkingDirectory=/opt/app
-ExecStart=/usr/bin/node index.js
+ExecStart=/usr/bin/node /opt/app/app.js
 Restart=always
 Environment=MONGODB_HOST=${MONGODB_IP}
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=scheduler-backend
 
 [Install]
 WantedBy=multi-user.target
