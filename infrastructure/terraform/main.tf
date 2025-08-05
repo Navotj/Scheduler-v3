@@ -268,7 +268,7 @@ resource "aws_s3_bucket_website_configuration" "frontend" {
   }
 }
 
-#######################
+########################
 # Elastic IPs & DNS   #
 #######################
 
