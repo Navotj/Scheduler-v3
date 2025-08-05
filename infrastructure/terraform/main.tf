@@ -127,8 +127,10 @@ resource "aws_instance" "mongodb" {
   key_name = "terraform-ec2"
 
   user_data = templatefile("${path.module}/mongo_install.sh.tmpl", {
-    mongodb_user     = var.mongodb_user
-    mongodb_password = var.mongodb_password
+    admin_mongodb_user        = var.admin_mongodb_user
+    admin_mongodb_password    = var.admin_mongodb_password
+    s3_mongodb_user           = var.s3_mongodb_user
+    s3_mongodb_password       = var.s3_mongodb_password
   })
 
   tags = {

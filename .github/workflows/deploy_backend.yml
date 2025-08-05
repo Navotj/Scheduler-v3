@@ -56,7 +56,7 @@ jobs:
 
       - name: Generate .env file with secret
         run: |
-          echo "MONGO_URI=mongodb://s3:${{ secrets.MONGO_PASSWORD }}@${{ env.MONGODB_IP }}:27017/test?authSource=admin" > backend/.env
+          echo "MONGO_URI=mongodb://${{ secrets.S3_MONGO_USER }}:${{ secrets.S3_MONGO_PASSWORD }}@${{ env.MONGODB_IP }}:27017/test?authSource=admin" > backend/.env
 
       - name: Inject MongoDB IP into systemd service file
         run: |
@@ -68,6 +68,13 @@ jobs:
           scp -o StrictHostKeyChecking=no -i private_key.pem \
           -r backend/app/. backend/.env \
           $BACKEND_USER@${{ env.BACKEND_IP }}:/opt/app
+
+      - name: Install Node.js dependencies
+        run: |
+            ssh -o StrictHostKeyChecking=no -i private_key.pem $BACKEND_USER@${{ env.BACKEND_IP }} << 'EOF'
+            cd /opt/app
+            npm install
+            EOF
 
       - name: Copy systemd service file to EC2
         run: |
