@@ -1,4 +1,4 @@
-name: Deploy Backend to EC2
+name: Deploy Backend to EC2 (SSM)
 
 on:
   push:
@@ -12,86 +12,53 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
 
-    env:
-      BACKEND_USER: ec2-user
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+    - name: Checkout code
+      uses: actions/checkout@v4
 
-      - name: Set up AWS CLI
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: eu-central-1
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: eu-central-1
 
-      - name: Fetch backend public IP from AWS
-        run: |
-          BACKEND_IP=$(aws ec2 describe-instances \
-            --filters "Name=tag:Name,Values=terraform-backend" "Name=instance-state-name,Values=running" \
-            --query "Reservations[0].Instances[0].PublicIpAddress" \
-            --output text)
-          echo "BACKEND_IP=$BACKEND_IP" >> $GITHUB_ENV
-          echo "Resolved backend IP: $BACKEND_IP"
+    - name: Get Backend Instance ID from tag
+      id: backend_instance
+      run: |
+        INSTANCE_ID=$(aws ec2 describe-instances \
+          --filters "Name=tag:Name,Values=terraform-backend" "Name=instance-state-name,Values=running" \
+          --query "Reservations[0].Instances[0].InstanceId" \
+          --output text)
+        echo "INSTANCE_ID=$INSTANCE_ID" >> $GITHUB_ENV
+        echo "instance_id=$INSTANCE_ID" >> $GITHUB_OUTPUT
 
-      - name: Fetch MongoDB private IP from AWS
-        run: |
-          MONGODB_IP=$(aws ec2 describe-instances \
-            --filters "Name=tag:Name,Values=terraform-mongodb" "Name=instance-state-name,Values=running" \
-            --query "Reservations[0].Instances[0].PrivateIpAddress" \
-            --output text)
-          echo "MONGODB_IP=$MONGODB_IP" >> $GITHUB_ENV
-          echo "Resolved MongoDB IP: $MONGODB_IP"
+    - name: Zip backend files
+      run: |
+        cd backend
+        zip -r ../backend.zip .
+        cd ..
 
-      - name: Write SSH private key to file
-        run: |
-          echo "${{ secrets.SSH_KEY }}" | tr -d '\r' | awk '{gsub(/\\n/,"\n")}1' > private_key.pem
-          chmod 600 private_key.pem
+    - name: Upload zip to S3 temp bucket
+      run: |
+        aws s3 cp backend.zip s3://navot-scheduler-frontend-2025/backend.zip
 
-      - name: Create target directory on remote
-        run: |
-          ssh -o StrictHostKeyChecking=no -i private_key.pem $BACKEND_USER@${{ env.BACKEND_IP }} \
-          "sudo mkdir -p /opt/app && sudo chown -R $BACKEND_USER /opt/app"
-
-      - name: Generate .env file with secret
-        run: |
-          echo "MONGO_URI=mongodb://${{ secrets.TF_VAR_S3_MONGO_USER }}:${{ secrets.TF_VAR_S3_MONGO_PASSWORD }}@${{ env.MONGODB_IP }}:27017/test?authSource=admin" > backend/.env
-          echo "REPO_DISPATCH_PAT=${{ secrets.REPO_DISPATCH_PAT }}" >> backend/.env
-
-
-      - name: Inject MongoDB IP into systemd service file
-        run: |
-          sed "s|\${MONGODB_IP}|${{ env.MONGODB_IP }}|g" backend/service > scheduler.service
-
-      - name: Copy backend app and .env to EC2
-        run: |
-          echo "Deploying to $BACKEND_USER@${{ env.BACKEND_IP }}"
-          scp -o StrictHostKeyChecking=no -i private_key.pem \
-          -r backend/app/. backend/.env \
-          $BACKEND_USER@${{ env.BACKEND_IP }}:/opt/app
-
-      - name: Install Node.js dependencies
-        run: |
-            ssh -o StrictHostKeyChecking=no -i private_key.pem $BACKEND_USER@${{ env.BACKEND_IP }} << 'EOF'
-            cd /opt/app
-            npm install
-            EOF
-
-      - name: Copy systemd service file to EC2
-        run: |
-          scp -o StrictHostKeyChecking=no -i private_key.pem \
-          scheduler.service $BACKEND_USER@${{ env.BACKEND_IP }}:/tmp/scheduler.service
-
-      - name: Install systemd service and restart app
-        run: |
-          ssh -o StrictHostKeyChecking=no -i private_key.pem $BACKEND_USER@${{ env.BACKEND_IP }} << 'EOF'
-            sudo mv /tmp/scheduler.service /etc/systemd/system/scheduler.service
-            sudo systemctl daemon-reexec
-            sudo systemctl daemon-reload
-            sudo systemctl enable --now scheduler
-          EOF
-
-      - name: Cleanup private key
-        if: always()
-        run: rm -f private_key.pem
+    - name: Deploy backend via SSM
+      run: |
+        aws ssm send-command \
+          --document-name "AWS-RunShellScript" \
+          --instance-ids ${{ env.INSTANCE_ID }} \
+          --region eu-central-1 \
+          --comment "Deploy backend app" \
+          --parameters 'commands=[
+            "mkdir -p /opt/app",
+            "aws s3 cp s3://navot-scheduler-frontend-2025/backend.zip /opt/app/backend.zip",
+            "cd /opt/app && unzip -o backend.zip",
+            "npm install",
+            "sudo cp scheduler.service /etc/systemd/system/scheduler.service",
+            "sudo systemctl daemon-reexec",
+            "sudo systemctl daemon-reload",
+            "sudo systemctl enable scheduler",
+            "sudo systemctl restart scheduler"
+          ]' \
+          --output text
