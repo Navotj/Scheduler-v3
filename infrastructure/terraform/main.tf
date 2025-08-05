@@ -91,7 +91,7 @@ resource "aws_security_group" "mongodb_access" {
 
 resource "aws_security_group" "backend_access" {
   name        = "backend-access"
-  description = "Allow MongoDB access"
+  description = "Allow backend access"
   vpc_id      = data.aws_vpc.default.id
 
   ingress {
@@ -119,7 +119,6 @@ resource "aws_security_group" "backend_access" {
     Name = "backend-access"
   }
 }
-
 
 ######################
 # IAM for SSM Access #
@@ -149,7 +148,6 @@ resource "aws_iam_instance_profile" "ec2_ssm_instance_profile" {
   name = "EC2SSMInstanceProfile"
   role = aws_iam_role.ec2_ssm_role.name
 }
-
 
 #################
 # EC2 Instances #
@@ -196,7 +194,6 @@ resource "aws_instance" "backend" {
 # Persistent Storage #
 ######################
 
-# MongoDB Storage Volume
 resource "aws_ebs_volume" "mongo_data" {
   availability_zone = "eu-central-1b"
   size              = 20
@@ -211,7 +208,6 @@ resource "aws_ebs_volume" "mongo_data" {
   }
 }
 
-# MongoDB Storage Attachment
 resource "aws_volume_attachment" "mongo_data_attachment" {
   device_name = "/dev/xvdf"
   volume_id   = aws_ebs_volume.mongo_data.id
@@ -272,6 +268,58 @@ resource "aws_s3_bucket_website_configuration" "frontend" {
   }
 }
 
+#######################
+# Elastic IPs & DNS   #
+#######################
+
+resource "aws_eip" "mongodb" {
+  instance = aws_instance.mongodb.id
+  vpc      = true
+  tags = {
+    Name = "mongodb-eip"
+  }
+}
+
+resource "aws_eip" "backend" {
+  instance = aws_instance.backend.id
+  vpc      = true
+  tags = {
+    Name = "backend-eip"
+  }
+}
+
+resource "aws_route53_zone" "main" {
+  name = "nat20scheduling.com"
+}
+
+resource "aws_route53_record" "mongo" {
+  zone_id = aws_route53_zone.main.zone_id
+  name    = "mongo.nat20scheduling.com"
+  type    = "A"
+  ttl     = 300
+  records = [aws_eip.mongodb.public_ip]
+}
+
+resource "aws_route53_record" "backend" {
+  zone_id = aws_route53_zone.main.zone_id
+  name    = "backend.nat20scheduling.com"
+  type    = "A"
+  ttl     = 300
+  records = [aws_eip.backend.public_ip]
+}
+
+resource "aws_route53_record" "frontend" {
+  zone_id = aws_route53_zone.main.zone_id
+  name    = "nat20scheduling.com"
+  type    = "A"
+  ttl     = 300
+  records = [aws_eip.backend.public_ip] # TEMP: if backend serves frontend
+}
+
+#########################
+# Outputs               #
+#########################
+
 output "frontend_bucket_name" {
   description = "Name of the frontend S3 bucket"
   value       = aws_s3_bucket.frontend.bucket
@@ -280,4 +328,24 @@ output "frontend_bucket_name" {
 output "s3_website_url" {
   description = "Static website URL"
   value       = aws_s3_bucket_website_configuration.frontend.website_endpoint
+}
+
+output "backend_dns" {
+  value = "backend.nat20scheduling.com"
+}
+
+output "mongodb_dns" {
+  value = "mongo.nat20scheduling.com"
+}
+
+output "frontend_dns" {
+  value = "nat20scheduling.com"
+}
+
+output "backend_instance_id" {
+  value = aws_instance.backend.id
+}
+
+output "mongodb_instance_id" {
+  value = aws_instance.mongodb.id
 }

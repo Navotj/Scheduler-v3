@@ -27,23 +27,6 @@ jobs:
       id: resolve_bucket
       run: echo "bucket_name=$(aws s3api list-buckets --query 'Buckets[?contains(Name, `frontend`)].Name | [0]' --output text)" >> $GITHUB_OUTPUT
 
-    - name: Get backend IP from AWS
-      id: backend_ip
-      run: |
-        BACKEND_IP=$(aws ec2 describe-instances \
-        --filters "Name=tag:Name,Values=terraform-backend" "Name=instance-state-name,Values=running" \
-        --query "Reservations[*].Instances[*].PublicIpAddress" \
-        --output text)
-        echo "BACKEND_IP=$BACKEND_IP" >> $GITHUB_ENV
-
-    - name: Echo IP for debug
-      run: |
-        echo "Resolved IP is: $BACKEND_IP"
-
-    - name: Replace backend IP in frontend index.html
-      run: |
-        sed -i "s|{{BACKEND_IP}}|${{ env.BACKEND_IP }}|g" frontend/index.html
-
     - name: Upload frontend to S3
       run: |
         echo "Uploading to bucket: ${{ steps.resolve_bucket.outputs.bucket_name }}"
