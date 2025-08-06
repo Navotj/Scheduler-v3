@@ -41,7 +41,7 @@ jobs:
 
     - name: Upload zip to S3 temp bucket
       run: |
-        aws s3 cp backend.zip s3://nat20scheduler.com/backend.zip
+        aws s3 cp backend.zip s3://nat20scheduling.com/backend.zip
 
     - name: Deploy backend via SSM
       run: |
