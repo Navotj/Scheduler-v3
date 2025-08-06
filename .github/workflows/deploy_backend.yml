@@ -33,6 +33,11 @@ jobs:
         echo "INSTANCE_ID=$INSTANCE_ID" >> $GITHUB_ENV
         echo "instance_id=$INSTANCE_ID" >> $GITHUB_OUTPUT
 
+    - name: Create .env file from TF_VAR secrets
+      run: |
+        echo "MONGO_URI=mongodb://${{ secrets.TF_VAR_S3_MONGO_USER }}:${{ secrets.TF_VAR_S3_MONGO_PASSWORD }}@mongo.nat20scheduling.com:27017" >> backend/.env
+
+
     - name: Zip backend files
       run: |
         cd backend
