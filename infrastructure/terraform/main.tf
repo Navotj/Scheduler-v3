@@ -220,7 +220,7 @@ resource "aws_volume_attachment" "mongo_data_attachment" {
 ##############
 
 resource "aws_s3_bucket" "frontend" {
-  bucket         = "navot-scheduler-frontend-2025"
+  bucket         = "nat20scheduling.com"
   force_destroy  = true
 }
 
