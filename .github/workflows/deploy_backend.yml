@@ -35,7 +35,7 @@ jobs:
 
     - name: Create .env file from TF_VAR secrets
       run: |
-        echo "MONGO_URI=mongodb://${{ secrets.TF_VAR_S3_MONGO_USER }}:${{ secrets.TF_VAR_S3_MONGO_PASSWORD }}@mongo.nat20scheduling.com:27017" >> backend/.env
+        echo "MONGO_URI=mongodb://${{ secrets.TF_VAR_S3_MONGO_USER }}:${{ secrets.TF_VAR_S3_MONGO_PASSWORD }}@mongo.nat20scheduling.com:27017" >> backend/app/.env
 
 
     - name: Zip backend files
