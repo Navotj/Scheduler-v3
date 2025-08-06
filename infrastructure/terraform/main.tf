@@ -257,7 +257,7 @@ resource "aws_s3_bucket_policy" "frontend" {
 }
 
 resource "aws_s3_bucket_website_configuration" "frontend" {
-  bucket = aws_s3_bucket.frontend.id
+  bucket = nat20scheduling.com
 
   index_document {
     suffix = "index.html"
@@ -311,7 +311,7 @@ resource "aws_route53_record" "frontend" {
   name    = "nat20scheduling.com"
   type    = "A"
   alias {
-    name                   = aws_s3_bucket_website_configuration.frontend.website_endpoint
+    name                   = nat20scheduling.com.s3-website.eu-central-1.amazonaws.com
     zone_id                = "Z21DNDUVLTQW6Q" # Hosted Zone ID for S3 website in eu-central-1
     evaluate_target_health = false
   }
@@ -328,7 +328,7 @@ output "frontend_bucket_name" {
 
 output "s3_website_url" {
   description = "Static website URL"
-  value       = aws_s3_bucket_website_configuration.frontend.website_endpoint
+  value       = nat20scheduling.com.s3-website.eu-central-1.amazonaws.com
 }
 
 output "backend_dns" {
