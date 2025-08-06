@@ -41,7 +41,7 @@ jobs:
 
     - name: Upload zip to S3 temp bucket
       run: |
-        aws s3 cp backend.zip s3://navot-scheduler-frontend-2025/backend.zip
+        aws s3 cp backend.zip s3://nat20scheduler.com/backend.zip
 
     - name: Deploy backend via SSM
       run: |
@@ -52,7 +52,7 @@ jobs:
           --comment "Deploy backend app" \
           --parameters 'commands=[
             "mkdir -p /opt/app /tmp/installation",
-            "aws s3 cp s3://navot-scheduler-frontend-2025/backend.zip /tmp/installation/backend.zip",
+            "aws s3 cp s3://nat20scheduling.com/backend.zip /tmp/installation/backend.zip",
             "sudo unzip /tmp/installation/backend.zip -d /tmp/installation/",
             "sudo mv /tmp/installation/app/* /opt/app",
             "sudo mv /tmp/installation/scheduler.service /etc/systemd/system/scheduler.service",
