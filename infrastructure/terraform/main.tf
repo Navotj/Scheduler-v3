@@ -268,7 +268,7 @@ resource "aws_s3_bucket_website_configuration" "frontend" {
   }
 }
 
-#######################
+########################
 # Elastic IPs & DNS   #
 #######################
 
@@ -310,12 +310,14 @@ resource "aws_route53_record" "frontend" {
   zone_id = aws_route53_zone.main.zone_id
   name    = "nat20scheduling.com"
   type    = "A"
+
   alias {
     name                   = nat20scheduling.com.s3-website.eu-central-1.amazonaws.com
     zone_id                = "Z21DNDUVLTQW6Q" # Hosted Zone ID for S3 website in eu-central-1
     evaluate_target_health = false
   }
 }
+
 
 #########################
 # Outputs               #
