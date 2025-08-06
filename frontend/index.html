@@ -35,7 +35,7 @@
 
       const name = document.getElementById('nameInput').value;
       try {
-        const res = await fetch('http://backend.nat20scheduling.com/query', {
+        const res = await fetch('http://backend.nat20scheduling.com:3000/query', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name })
