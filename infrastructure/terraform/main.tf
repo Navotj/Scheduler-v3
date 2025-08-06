@@ -312,7 +312,7 @@ resource "aws_route53_record" "frontend" {
   type    = "A"
 
   alias {
-    name                   = nat20scheduling.com.s3-website.eu-central-1.amazonaws.com
+    name                   = "nat20scheduling.com.s3-website.eu-central-1.amazonaws.com"
     zone_id                = "Z21DNDUVLTQW6Q" # Hosted Zone ID for S3 website in eu-central-1
     evaluate_target_health = false
   }
@@ -330,7 +330,7 @@ output "frontend_bucket_name" {
 
 output "s3_website_url" {
   description = "Static website URL"
-  value       = nat20scheduling.com.s3-website.eu-central-1.amazonaws.com
+  value       = "nat20scheduling.com.s3-website.eu-central-1.amazonaws.com"
 }
 
 output "backend_dns" {
