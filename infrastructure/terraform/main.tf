@@ -257,7 +257,7 @@ resource "aws_s3_bucket_policy" "frontend" {
 }
 
 resource "aws_s3_bucket_website_configuration" "frontend" {
-  bucket = nat20scheduling.com
+  bucket = "nat20scheduling.com"
 
   index_document {
     suffix = "index.html"
