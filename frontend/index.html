@@ -30,7 +30,7 @@
   <script>
     (async () => {
       try {
-        const res = await fetch('https://backend.nat20scheduling.com/auth/check', {
+        const res = await fetch('http://backend.nat20scheduling.com/auth/check', {
           credentials: 'include'
         });
         if (res.status !== 200) {
@@ -59,7 +59,7 @@
 
       const name = document.getElementById('nameInput').value;
       try {
-        const res = await fetch('https://backend.nat20scheduling.com/query', {
+        const res = await fetch('http://backend.nat20scheduling.com/query', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
@@ -80,7 +80,7 @@
 
     async function logout() {
       try {
-        await fetch('https://backend.nat20scheduling.com/logout', {
+        await fetch('http://backend.nat20scheduling.com/logout', {
           method: 'POST',
           credentials: 'include'
         });
