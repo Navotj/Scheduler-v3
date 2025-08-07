@@ -23,9 +23,7 @@ jobs:
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws-region: eu-central-1
 
-    - name: Upload frontend to S3
+    - name: Sync frontend to S3 (clean deploy)
       run: |
-        echo "Uploading to bucket: nat20scheduling.com"
-        aws s3 cp frontend/ s3://nat20scheduling.com/ --recursive --acl public-read
-
-            
+        echo "Uploading to bucket: nat20scheduling.com (clean sync)"
+        aws s3 sync frontend/ s3://nat20scheduling.com/ --delete --acl public-read
