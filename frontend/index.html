@@ -87,8 +87,18 @@
         .then(res => res.text())
         .then(html => {
           container.innerHTML = html;
+
+          // Execute scripts if inserted via innerHTML
+          const scripts = container.querySelectorAll('script[src]');
+          scripts.forEach(oldScript => {
+            const newScript = document.createElement('script');
+            newScript.src = oldScript.src;
+            newScript.type = 'text/javascript';
+            document.body.appendChild(newScript);
+          });
         });
     }
+
 
     function closeModal() {
       const overlay = document.getElementById('modal-overlay');

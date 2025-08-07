@@ -25,7 +25,8 @@
       const password = document.getElementById('password').value;
       const errorDisplay = document.getElementById('error');
 
-      errorDisplay.textContent = ''; // clear previous error
+      errorDisplay.textContent = '';
+      errorDisplay.style.color = '#f55';
 
       try {
         const res = await fetch('http://backend.nat20scheduling.com/login', {
@@ -40,15 +41,17 @@
           errorDisplay.textContent = '✅ Sign-in successful. Loading...';
           setTimeout(() => {
             window.closeModal();
-            location.reload();
+            if (typeof window.updateAuthUI === 'function') {
+              window.isAuthenticated = true;
+              window.currentUsername = username;
+              window.updateAuthUI();
+            }
           }, 1000);
         } else {
-          errorDisplay.style.color = '#f55';
           const data = await res.json();
           errorDisplay.textContent = data.error || 'Login failed';
         }
       } catch (err) {
-        errorDisplay.style.color = '#f55';
         errorDisplay.textContent = 'Connection error';
       }
     });
