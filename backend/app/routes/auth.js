@@ -21,7 +21,10 @@ router.post('/register',
     const existingUsername = await userModel.findOne({ username });
     if (existingUsername) return res.status(400).json({ error: 'username already taken' });
 
-    const user = new userModel({ email, username });
+    const user = new userModel({
+    email: email.trim().toLowerCase(),
+    username: username.trim()
+    });
     await user.setPassword(password);
     await user.save();
 
