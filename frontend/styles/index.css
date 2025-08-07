@@ -37,34 +37,25 @@ pre {
   color: #aaa;
 }
 
-/* Modal styles */
-#login-modal {
+/* Modal system */
+#modal-overlay {
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  top: 0; left: 0; right: 0; bottom: 0;
   background: rgba(0, 0, 0, 0.7);
   backdrop-filter: blur(5px);
   display: flex;
-  align-items: center;
   justify-content: center;
+  align-items: center;
   z-index: 1000;
 }
 
-.modal-content {
+#modal-container {
   background: #222;
   padding: 30px;
   border-radius: 8px;
-  box-shadow: 0 0 10px #000;
-  width: 300px;
-  text-align: center;
-}
-
-#login-error {
-  color: #f55;
-  font-size: 14px;
-  min-height: 1.2em;
+  width: 340px;
+  max-width: 90%;
+  box-shadow: 0 0 15px #000;
 }
 
 #main-content {
