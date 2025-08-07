@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Login</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <h1>Login</h1>
+  <form id="login-form">
+    <label for="email">Email:</label><br />
+    <input type="email" id="email" required /><br />
+    <label for="password">Password:</label><br />
+    <input type="password" id="password" required /><br />
+    <button type="submit">Login</button>
+  </form>
+  <p id="error" style="color:red;"></p>
+
+  <script>
+    document.getElementById('login-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const email = document.getElementById('email').value;
+      const password = document.getElementById('password').value;
+      const errorDisplay = document.getElementById('error');
+
+      try {
+        const res = await fetch('https://backend.nat20scheduling.com/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ email, password })
+        });
+
+        if (res.ok) {
+          window.location.href = '/index.html';
+        } else {
+          const data = await res.json();
+          errorDisplay.textContent = data.error || 'Login failed';
+        }
+      } catch (err) {
+        errorDisplay.textContent = 'Connection error';
+      }
+    });
+  </script>
+</body>
+</html>

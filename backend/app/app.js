@@ -1,35 +1,53 @@
-// backend/app.js (Native MongoDB connection)
-
 const express = require('express');
 const cors = require('cors');
-const { MongoClient } = require('mongodb');
+const mongoose = require('mongoose');
+const cookieParser = require('cookie-parser');
 require('dotenv').config();
 
-const app = express();
-app.use(express.json());
-app.use(cors());
+const authRoutes = require('./routes/auth');
 
-const MONGO_URI = process.env.MONGO_URI || 'mongodb://mongo.nat20scheduling.com:27017';
+const app = express();
+
+app.use(cors({
+  origin: 'https://nat20scheduling.com',
+  credentials: true
+}));
+
+app.use(express.json());
+app.use(cookieParser());
+
+const MONGO_URI = process.env.MONGO_URI || 'mongodb://mongo.nat20scheduling.com:27017/test';
 const DB_NAME = process.env.MONGO_DB_NAME || 'test';
 const COLLECTION_NAME = process.env.MONGO_COLLECTION || 'people';
 
-let mongoClient;
-let collection;
-
-async function initMongo() {
-  mongoClient = new MongoClient(MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true });
-  await mongoClient.connect();
-  const db = mongoClient.db(DB_NAME);
-  collection = db.collection(COLLECTION_NAME);
+// connect to mongodb
+mongoose.connect(MONGO_URI, {
+  dbName: DB_NAME,
+  useNewUrlParser: true,
+  useUnifiedTopology: true
+}).then(() => {
   console.log(`Connected to MongoDB at ${MONGO_URI}`);
-}
+}).catch((err) => {
+  console.error('Failed to connect to MongoDB:', err);
+  process.exit(1);
+});
+
+// attach auth routes
+app.use(authRoutes);
+
+// mongoose-based query endpoint
+const personSchema = new mongoose.Schema({
+  name: String
+}, { collection: COLLECTION_NAME });
+
+const Person = mongoose.model('Person', personSchema);
 
 app.post('/query', async (req, res) => {
   try {
     const { name } = req.body;
     if (!name) return res.status(400).json({ error: 'Name required' });
 
-    const result = await collection.findOne({ name });
+    const result = await Person.findOne({ name }).lean();
     res.json(result || {});
   } catch (err) {
     console.error('Query error:', err);
@@ -37,12 +55,6 @@ app.post('/query', async (req, res) => {
   }
 });
 
-app.listen(3000, async () => {
-  try {
-    await initMongo();
-    console.log('Backend listening on port 3000 (native MongoDB mode)');
-  } catch (err) {
-    console.error('Failed to connect to MongoDB:', err);
-    process.exit(1);
-  }
+app.listen(3000, () => {
+  console.log('Backend listening on port 3000');
 });
