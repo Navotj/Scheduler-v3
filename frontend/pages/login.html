@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <title>Login</title>
-  <link rel="stylesheet" href="/styles/styles.css" />
+  <link rel="stylesheet" href="../styles/styles.css" />
 </head>
 <body>
   <h1>Login</h1>
@@ -14,7 +14,7 @@
     <input type="password" id="password" required /><br />
     <button type="submit">Login</button>
   </form>
-  <p id="error" style="color:red;"></p>
+  <p id="error" style="color:red; min-height: 1.2em;"></p>
   <p>Don't have an account? <a href="#" onclick="window.swapModal('/pages/register.html'); return false;">Register here</a></p>
   <p><a href="#" onclick="window.closeModal(); return false;">Cancel</a></p>
 
@@ -25,6 +25,8 @@
       const password = document.getElementById('password').value;
       const errorDisplay = document.getElementById('error');
 
+      errorDisplay.textContent = ''; // clear previous error
+
       try {
         const res = await fetch('http://backend.nat20scheduling.com/login', {
           method: 'POST',
@@ -34,13 +36,19 @@
         });
 
         if (res.ok) {
-          window.closeModal();
-          location.reload();
+          errorDisplay.style.color = '#0f0';
+          errorDisplay.textContent = '✅ Sign-in successful. Loading...';
+          setTimeout(() => {
+            window.closeModal();
+            location.reload();
+          }, 1000);
         } else {
+          errorDisplay.style.color = '#f55';
           const data = await res.json();
           errorDisplay.textContent = data.error || 'Login failed';
         }
       } catch (err) {
+        errorDisplay.style.color = '#f55';
         errorDisplay.textContent = 'Connection error';
       }
     });
