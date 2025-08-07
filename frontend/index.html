@@ -4,60 +4,153 @@
   <meta charset="UTF-8" />
   <title>Mongo Query Test</title>
   <link rel="icon" href="/assets/favicon.ico" type="image/x-icon">
-
-  <script>
-    // Quick redirect check
-    const controller = new AbortController();
-    setTimeout(() => controller.abort(), 3000); // fail fast if backend is slow
-
-    fetch('http://backend.nat20scheduling.com/auth/check', {
-      credentials: 'include',
-      cache: 'no-cache',
-      signal: controller.signal
-    })
-    .then(res => {
-      if (res.status !== 200) window.location.href = '/pages/login.html';
-    })
-    .catch(() => {
-      window.location.href = '/pages/login.html';
-    });
-  </script>
-
   <style>
     body {
       font-family: sans-serif;
       background: #111;
       color: #eee;
       padding: 20px;
+      margin: 0;
     }
+
     input, button {
       font-size: 16px;
       padding: 5px;
+      margin: 5px 0;
     }
+
     pre {
       background: #222;
       padding: 10px;
       border: 1px solid #444;
     }
+
     .top-bar {
       display: flex;
       justify-content: space-between;
       align-items: center;
       margin-bottom: 20px;
     }
+
+    /* Modal styles */
+    #login-modal {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0, 0, 0, 0.7);
+      backdrop-filter: blur(5px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+    }
+
+    .modal-content {
+      background: #222;
+      padding: 30px;
+      border-radius: 8px;
+      box-shadow: 0 0 10px #000;
+      width: 300px;
+      text-align: center;
+    }
+
+    #login-error {
+      color: #f55;
+      font-size: 14px;
+      min-height: 1.2em;
+    }
+
+    #main-content {
+      filter: none;
+      pointer-events: auto;
+    }
+
+    body.modal-active #main-content {
+      filter: blur(4px);
+      pointer-events: none;
+    }
   </style>
 </head>
 <body>
-  <div class="top-bar">
-    <h1>Find Person</h1>
-    <button onclick="logout()">Logout</button>
+  <div id="login-modal" style="display: none;">
+    <div class="modal-content">
+      <h2>Login</h2>
+      <form id="login-form">
+        <input type="text" id="username" placeholder="Username" required /><br />
+        <input type="password" id="password" placeholder="Password" required /><br />
+        <div id="login-error"></div>
+        <button type="submit">Login</button>
+        <button type="button" id="continue-btn">Continue Without Login</button><br /><br />
+        <a href="/register.html" style="color: #0af;">Register</a>
+      </form>
+    </div>
   </div>
 
-  <input type="text" id="nameInput" placeholder="Enter name..." />
-  <button onclick="search()">Search</button>
-  <pre id="output"></pre>
+  <div id="main-content">
+    <div class="top-bar">
+      <h1>Find Person</h1>
+      <button onclick="logout()">Logout</button>
+    </div>
+
+    <input type="text" id="nameInput" placeholder="Enter name..." />
+    <button onclick="search()">Search</button>
+    <pre id="output"></pre>
+  </div>
 
   <script>
+    // Show modal if not authenticated
+    async function checkAuth() {
+      const controller = new AbortController();
+      setTimeout(() => controller.abort(), 3000);
+
+      try {
+        const res = await fetch('http://backend.nat20scheduling.com/auth/check', {
+          credentials: 'include',
+          cache: 'no-cache',
+          signal: controller.signal
+        });
+
+        if (res.status !== 200) throw new Error("unauthorized");
+      } catch {
+        document.body.classList.add("modal-active");
+        document.getElementById("login-modal").style.display = "flex";
+      }
+    }
+
+    checkAuth();
+
+    // Handle login form submission
+    document.getElementById("login-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const username = document.getElementById("username").value;
+      const password = document.getElementById("password").value;
+      const errorDisplay = document.getElementById("login-error");
+
+      try {
+        const res = await fetch("http://backend.nat20scheduling.com/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ username, password })
+        });
+
+        if (res.ok) {
+          document.getElementById("login-modal").style.display = "none";
+          document.body.classList.remove("modal-active");
+        } else {
+          const data = await res.json();
+          errorDisplay.textContent = data.error || "Login failed";
+        }
+      } catch {
+        errorDisplay.textContent = "Connection error";
+      }
+    });
+
+    // Continue without login
+    document.getElementById("continue-btn").addEventListener("click", () => {
+      document.getElementById("login-modal").style.display = "none";
+      document.body.classList.remove("modal-active");
+    });
+
     async function search() {
       const output = document.getElementById('output');
       output.textContent = 'Loading...';
@@ -90,7 +183,7 @@
           credentials: 'include'
         });
       } catch {}
-      window.location.href = '/pages/login.html';
+      location.reload();
     }
   </script>
 </body>
