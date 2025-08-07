@@ -4,6 +4,25 @@
   <meta charset="UTF-8" />
   <title>Mongo Query Test</title>
   <link rel="icon" href="/assets/favicon.ico" type="image/x-icon">
+
+  <script>
+    // Quick redirect check
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), 3000); // fail fast if backend is slow
+
+    fetch('http://backend.nat20scheduling.com/auth/check', {
+      credentials: 'include',
+      cache: 'no-cache',
+      signal: controller.signal
+    })
+    .then(res => {
+      if (res.status !== 200) window.location.href = '/pages/login.html';
+    })
+    .catch(() => {
+      window.location.href = '/pages/login.html';
+    });
+  </script>
+
   <style>
     body {
       font-family: sans-serif;
@@ -27,20 +46,6 @@
       margin-bottom: 20px;
     }
   </style>
-  <script>
-    (async () => {
-      try {
-        const res = await fetch('http://backend.nat20scheduling.com/auth/check', {
-          credentials: 'include'
-        });
-        if (res.status !== 200) {
-          window.location.href = '/pages/login.html';
-        }
-      } catch {
-        window.location.href = '/pages/login.html';
-      }
-    })();
-  </script>
 </head>
 <body>
   <div class="top-bar">
