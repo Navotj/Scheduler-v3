@@ -9,7 +9,7 @@ const authRoutes = require('./routes/auth');
 const app = express();
 
 app.use(cors({
-  origin: 'https://nat20scheduling.com',
+  origin: 'http://nat20scheduling.com',
   credentials: true
 }));
 
