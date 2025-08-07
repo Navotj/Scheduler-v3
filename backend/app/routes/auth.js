@@ -37,11 +37,11 @@ router.post('/register',
 
 // login and set jwt cookie -
 router.post('/login',
-  body('email').isEmail(),
+  body('username').isString().notEmpty(),
   body('password').notEmpty(),
   async (req, res) => {
-    const { email, password } = req.body;
-    const user = await userModel.findOne({ email });
+    const { username, password } = req.body;
+    const user = await userModel.findOne({ username });
     if (!user || !(await user.validatePassword(password)))
       return res.status(401).json({ error: 'invalid credentials' });
 
