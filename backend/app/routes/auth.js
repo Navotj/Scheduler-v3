@@ -35,7 +35,7 @@ router.post('/register',
   }
 );
 
-// login and set jwt cookie
+// login and set jwt cookie -
 router.post('/login',
   body('email').isEmail(),
   body('password').notEmpty(),
