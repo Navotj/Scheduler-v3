@@ -1,4 +1,4 @@
-document.addEventListener('DOMContentLoaded', () => {
+window.initRegisterForm = function () {
   const passwordInput = document.getElementById('password');
   const confirmInput = document.getElementById('confirm-password');
   const usernameInput = document.getElementById('username');
@@ -106,4 +106,4 @@ document.addEventListener('DOMContentLoaded', () => {
       errorDisplay.textContent = 'Connection error';
     }
   });
-});
+}

@@ -17,44 +17,5 @@
   <p id="error" style="color:red; min-height: 1.2em;"></p>
   <p>Don't have an account? <a href="#" onclick="window.swapModal('/pages/register.html'); return false;">Register here</a></p>
   <p><a href="#" onclick="window.closeModal(); return false;">Cancel</a></p>
-
-  <script>
-    document.getElementById('login-form').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const username = document.getElementById('username').value;
-      const password = document.getElementById('password').value;
-      const errorDisplay = document.getElementById('error');
-
-      errorDisplay.textContent = '';
-      errorDisplay.style.color = '#f55';
-
-      try {
-        const res = await fetch('http://backend.nat20scheduling.com/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({ username, password })
-        });
-
-        if (res.ok) {
-          errorDisplay.style.color = '#0f0';
-          errorDisplay.textContent = '✅ Sign-in successful. Loading...';
-          setTimeout(() => {
-            window.closeModal();
-            if (typeof window.updateAuthUI === 'function') {
-              window.isAuthenticated = true;
-              window.currentUsername = username;
-              window.updateAuthUI();
-            }
-          }, 1000);
-        } else {
-          const data = await res.json();
-          errorDisplay.textContent = data.error || 'Login failed';
-        }
-      } catch (err) {
-        errorDisplay.textContent = 'Connection error';
-      }
-    });
-  </script>
 </body>
 </html>

@@ -87,18 +87,16 @@
         .then(res => res.text())
         .then(html => {
           container.innerHTML = html;
+          document.body.classList.add('modal-active');
 
-          // Execute scripts if inserted via innerHTML
-          const scripts = container.querySelectorAll('script[src]');
-          scripts.forEach(oldScript => {
-            const newScript = document.createElement('script');
-            newScript.src = oldScript.src;
-            newScript.type = 'text/javascript';
-            document.body.appendChild(newScript);
-          });
+          // Re-run correct JS setup after modal HTML load
+          if (path.includes('register.html') && window.initRegisterForm) {
+            window.initRegisterForm();
+          } else if (path.includes('login.html') && window.initLoginForm) {
+            window.initLoginForm();
+          }
         });
     }
-
 
     function closeModal() {
       const overlay = document.getElementById('modal-overlay');
