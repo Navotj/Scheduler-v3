@@ -25,6 +25,9 @@ router.post('/register',
     email: email.trim().toLowerCase(),
     username: username.trim()
     });
+
+    console.log('Saving user:', user);
+    
     await user.setPassword(password);
     await user.save();
 
