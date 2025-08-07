@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <title>Register</title>
-  <link rel="stylesheet" href="../styles/styles.css" />
+  <link rel="stylesheet" href="/styles/styles.css" />
   <style>
     .warning {
       color: #f55;
@@ -34,7 +34,8 @@
   </form>
 
   <p id="error" style="color:red;"></p>
-  <p>Already have an account? <a href="/login.html">Login</a></p>
+  <p>Already have an account? <a href="#" onclick="window.swapModal('/pages/login.html'); return false;">Login</a></p>
+  <p><a href="#" onclick="window.closeModal(); return false;">Cancel</a></p>
 
   <script>
     const passwordInput = document.getElementById('password');
@@ -127,7 +128,7 @@
       }
 
       try {
-        const res = await fetch('http://backend.nat20scheduling.com:3000/register', {
+        const res = await fetch('http://backend.nat20scheduling.com/register', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
@@ -135,7 +136,7 @@
         });
 
         if (res.ok) {
-          window.location.href = '/login.html';
+          window.swapModal('/pages/login.html');
         } else {
           const data = await res.json();
           errorDisplay.textContent = data.error || 'Registration failed';

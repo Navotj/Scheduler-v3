@@ -81,6 +81,15 @@
         });
     }
 
+    function swapModal(path) {
+      const container = document.getElementById('modal-container');
+      fetch(path)
+        .then(res => res.text())
+        .then(html => {
+          container.innerHTML = html;
+        });
+    }
+
     function closeModal() {
       const overlay = document.getElementById('modal-overlay');
       const container = document.getElementById('modal-container');
@@ -89,6 +98,8 @@
       container.innerHTML = '';
     }
 
+    window.openModal = openModal;
+    window.swapModal = swapModal;
     window.closeModal = closeModal;
 
     async function logout() {

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <title>Login</title>
-  <link rel="stylesheet" href="../styles/styles.css" />
+  <link rel="stylesheet" href="/styles/styles.css" />
 </head>
 <body>
   <h1>Login</h1>
@@ -15,7 +15,8 @@
     <button type="submit">Login</button>
   </form>
   <p id="error" style="color:red;"></p>
-  <p>Don't have an account? <a href="/register.html">Register here</a></p>
+  <p>Don't have an account? <a href="#" onclick="window.swapModal('/pages/register.html'); return false;">Register here</a></p>
+  <p><a href="#" onclick="window.closeModal(); return false;">Cancel</a></p>
 
   <script>
     document.getElementById('login-form').addEventListener('submit', async (e) => {
@@ -25,7 +26,7 @@
       const errorDisplay = document.getElementById('error');
 
       try {
-        const res = await fetch('http://backend.nat20scheduling.com:3000/login', {
+        const res = await fetch('http://backend.nat20scheduling.com/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
@@ -33,7 +34,8 @@
         });
 
         if (res.ok) {
-          window.location.href = '/index.html';
+          window.closeModal();
+          location.reload();
         } else {
           const data = await res.json();
           errorDisplay.textContent = data.error || 'Login failed';
