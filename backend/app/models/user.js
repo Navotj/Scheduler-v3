@@ -7,13 +7,18 @@ const userSchema = new mongoose.Schema({
     unique: true,
     required: true
   },
+  username: {
+    type: String,
+    unique: true,
+    required: true
+  },
   passwordHash: {
     type: String,
     required: true
   },
   isVerified: {
     type: Boolean,
-    default: true // change to false if you plan to implement email verification
+    default: true
   },
   createdAt: {
     type: Date,

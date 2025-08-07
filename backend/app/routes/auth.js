@@ -7,16 +7,21 @@ const { body, validationResult } = require('express-validator');
 // register new user
 router.post('/register',
   body('email').isEmail(),
+  body('username').isLength({ min: 3 }),
   body('password').isLength({ min: 6 }),
   async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
-    const { email, password } = req.body;
-    const existing = await userModel.findOne({ email });
-    if (existing) return res.status(400).json({ error: 'email already registered' });
+    const { email, username, password } = req.body;
 
-    const user = new userModel({ email });
+    const existingEmail = await userModel.findOne({ email });
+    if (existingEmail) return res.status(400).json({ error: 'email already registered' });
+
+    const existingUsername = await userModel.findOne({ username });
+    if (existingUsername) return res.status(400).json({ error: 'username already taken' });
+
+    const user = new userModel({ email, username });
     await user.setPassword(password);
     await user.save();
 
