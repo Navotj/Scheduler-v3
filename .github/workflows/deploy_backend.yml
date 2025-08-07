@@ -60,6 +60,7 @@ jobs:
             "mkdir -p /opt/app /tmp/installation",
             "aws s3 cp s3://nat20scheduling.com/backend.zip /tmp/installation/backend.zip",
             "sudo unzip /tmp/installation/backend.zip -d /tmp/installation/",
+            "sudo rm -rf /opt/app/*",
             "sudo mv /tmp/installation/app/* /opt/app",
             "sudo mv /tmp/installation/app/.env /opt/app",
             "sudo mv /tmp/installation/scheduler.service /etc/systemd/system/scheduler.service",
