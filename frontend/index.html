@@ -68,6 +68,15 @@
       }
     }
 
+    function runModalInit(path) {
+      // Ensure the right initializer runs after HTML is injected
+      if (path.includes('register.html') && window.initRegisterForm) {
+        window.initRegisterForm();
+      } else if (path.includes('login.html') && window.initLoginForm) {
+        window.initLoginForm();
+      }
+    }
+
     function openModal(path) {
       const overlay = document.getElementById('modal-overlay');
       const container = document.getElementById('modal-container');
@@ -78,6 +87,7 @@
           container.innerHTML = html;
           overlay.style.display = 'flex';
           document.body.classList.add('modal-active');
+          runModalInit(path);
         });
     }
 
@@ -88,13 +98,7 @@
         .then(html => {
           container.innerHTML = html;
           document.body.classList.add('modal-active');
-
-          // Re-run correct JS setup after modal HTML load
-          if (path.includes('register.html') && window.initRegisterForm) {
-            window.initRegisterForm();
-          } else if (path.includes('login.html') && window.initLoginForm) {
-            window.initLoginForm();
-          }
+          runModalInit(path);
         });
     }
 
@@ -146,7 +150,14 @@
         output.textContent = `❌ Error: ${err.message}`;
       }
     }
+  </script>
 
+  <!-- Ensure modal form logic is available globally, then we call init after injecting HTML -->
+  <script src="/scripts/login.js"></script>
+  <script src="/scripts/register.js"></script>
+
+  <script>
+    // Kick off initial auth state
     checkAuth();
   </script>
 </body>
