@@ -1,90 +1,142 @@
 (function () {
-  // 24h with 30-min intervals; hour labels only (half-hour labels appear when zoomed in via CSS)
-  const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-  const SLOTS_PER_HOUR = 2;         // 30-minute steps
-  const HOURS_START = 0;            // 00:00
-  const HOURS_END = 24;             // up to 24:00 (exclusive)
-  const SLOT_SEC = 30 * 60;         // 1800 seconds
+  const SLOTS_PER_HOUR = 2;
+  const HOURS_START = 0;
+  const HOURS_END = 24;
+  const SLOT_SEC = 30 * 60;
 
-  let weekOffset = 0;               // 0 = current week, -1 previous, +1 next
-  let paintMode = 'add';            // 'add' | 'subtract'
+  let weekOffset = 0;
+  let paintMode = 'add';
   let isAuthenticated = false;
 
-  // Zoom state
-  let zoomFactor = 1.0;
+  const DEFAULT_SETTINGS = { timezone: 'auto', clock: '24', weekStart: 'sun', defaultZoom: 1.0, highlightWeekends: false };
+
+  let settings = { ...DEFAULT_SETTINGS };
+  let tz = resolveTimezone(settings.timezone);
+  let hour12 = settings.clock === '12';
+  let weekStartIdx = settings.weekStart === 'mon' ? 1 : 0;
+  let highlightWeekends = !!settings.highlightWeekends;
+
+  let zoomFactor = clamp(typeof settings.defaultZoom === 'number' ? settings.defaultZoom : 1.0, 0.6, 2.0);
   const ZOOM_MIN = 0.6;
   const ZOOM_MAX = 2.0;
   const ZOOM_STEP = 0.1;
 
-  // Selection data: store epoch seconds (number) for each 30-min slot
   const selected = new Set();
 
-  // Box selection state
   let isDragging = false;
-  let dragStart = null;  // { row, col }
-  let dragEnd = null;    // { row, col }
+  let dragStart = null;
+  let dragEnd = null;
 
-  // Cached DOM
   let table;
   let grid;
 
-  function getStartOfWeek(date) {
-    // Week starts on Sunday in local time
-    const d = new Date(date);
-    const day = d.getDay(); // 0..6 with 0=Sun
-    const diff = -day; // days to go back to Sunday
-    const start = new Date(d);
-    start.setHours(0,0,0,0);
-    start.setDate(d.getDate() + diff);
-    return start;
+  function resolveTimezone(val) {
+    if (!val || val === 'auto') return (Intl.DateTimeFormat().resolvedOptions().timeZone) || 'UTC';
+    return val;
   }
 
-  function addDays(date, days) {
-    const d = new Date(date);
-    d.setDate(d.getDate() + days);
-    return d;
+  function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+  function loadLocal() {
+    try {
+      const raw = localStorage.getItem('nat20_settings');
+      return raw ? JSON.parse(raw) : null;
+    } catch { return null; }
   }
 
-  function formatDateLabel(d) {
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${y}-${m}-${day}`;
+  async function fetchRemoteSettings() {
+    try {
+      const res = await fetch('http://backend.nat20scheduling.com:3000/settings', { credentials: 'include', cache: 'no-cache' });
+      if (res.ok) return await res.json();
+    } catch {}
+    return null;
   }
 
-  function toEpochLocal(date, hour, half) {
-    // Local time -> epoch seconds (UTC)
-    const d = new Date(date);
-    d.setHours(hour, half ? 30 : 0, 0, 0);
-    return Math.floor(d.getTime() / 1000);
+  function saveLocal(obj) {
+    localStorage.setItem('nat20_settings', JSON.stringify(obj));
+    window.dispatchEvent(new StorageEvent('storage', { key: 'nat20_settings', newValue: JSON.stringify(obj) }));
   }
 
-  function renderWeekLabel(start) {
-    const end = addDays(start, 6);
-    const fmt = (dt) => dt.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-    const year = start.getFullYear() === end.getFullYear() ? start.getFullYear() : `${start.getFullYear()}–${end.getFullYear()}`;
-    document.getElementById('week-label').textContent = `${fmt(start)} – ${fmt(end)}, ${year}`;
+  function tzOffsetMinutes(tzName, date) {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: tzName,
+      hour12: false,
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit'
+    }).formatToParts(date);
+    const map = {};
+    for (const p of parts) map[p.type] = p.value;
+    const asUTC = Date.UTC(Number(map.year), Number(map.month) - 1, Number(map.day), Number(map.hour), Number(map.minute), Number(map.second));
+    return Math.round((asUTC - date.getTime()) / 60000);
+  }
+
+  function epochFromZoned(y, m, d, hh, mm, tzName) {
+    const guess = Date.UTC(y, m - 1, d, hh, mm, 0, 0);
+    let off = tzOffsetMinutes(tzName, new Date(guess));
+    let ts = guess - off * 60000;
+    off = tzOffsetMinutes(tzName, new Date(ts));
+    ts = guess - off * 60000;
+    return Math.floor(ts / 1000);
+  }
+
+  function getTodayYMDInTZ(tzName) {
+    const parts = new Intl.DateTimeFormat('en-US', { timeZone: tzName, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
+    const map = {};
+    for (const p of parts) map[p.type] = p.value;
+    return { y: Number(map.year), m: Number(map.month), d: Number(map.day) };
+  }
+
+  function ymdAddDays(ymd, add) {
+    const tmp = new Date(Date.UTC(ymd.y, ymd.m - 1, ymd.d));
+    tmp.setUTCDate(tmp.getUTCDate() + add);
+    return { y: tmp.getUTCFullYear(), m: tmp.getUTCMonth() + 1, d: tmp.getUTCDate() };
+  }
+
+  function weekdayIndexInTZ(epochSec, tzName) {
+    const wd = new Intl.DateTimeFormat('en-US', { timeZone: tzName, weekday: 'short' }).format(new Date(epochSec * 1000));
+    return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(wd);
+  }
+
+  function formatHourLabel(hour) {
+    if (!hour12) return `${String(hour).padStart(2, '0')}:00`;
+    const h = (hour % 12) || 12;
+    const ampm = hour < 12 ? 'AM' : 'PM';
+    return `${h} ${ampm}`;
+  }
+
+  function renderWeekLabel(startEpoch) {
+    const startDate = new Date(startEpoch * 1000);
+    const endDate = new Date((startEpoch + 6 * 86400) * 1000);
+    const fmt = (dt) => new Intl.DateTimeFormat(undefined, { timeZone: tz, month: 'short', day: 'numeric' }).format(dt);
+    const startYear = new Intl.DateTimeFormat('en-US', { timeZone: tz, year: 'numeric' }).format(startDate);
+    const endYear = new Intl.DateTimeFormat('en-US', { timeZone: tz, year: 'numeric' }).format(endDate);
+    const year = startYear === endYear ? startYear : `${startYear}–${endYear}`;
+    document.getElementById('week-label').textContent = `${fmt(startDate)} – ${fmt(endDate)}, ${year}`;
   }
 
   function applyZoomStyles() {
     const root = document.documentElement;
-    const baseRow = 18;     // px
-    const baseCol = 110;    // px
-    const baseFont = 12;    // px
+    const baseRow = 18;
+    const baseFont = 12;
 
     root.style.setProperty('--row-height', `${(baseRow * zoomFactor).toFixed(2)}px`);
-    root.style.setProperty('--col-width', `${(baseCol * zoomFactor).toFixed(2)}px`);
     root.style.setProperty('--font-size', `${(baseFont * zoomFactor).toFixed(2)}px`);
 
     const body = document.body;
     body.classList.remove('zoom-dense', 'zoom-medium', 'zoom-large');
-    if (zoomFactor < 1.1) {
-      body.classList.add('zoom-dense');   // only hours visible
-    } else if (zoomFactor < 1.5) {
-      body.classList.add('zoom-medium');  // still only hours
-    } else {
-      body.classList.add('zoom-large');   // show :30 labels
-    }
+    if (zoomFactor < 1.1) body.classList.add('zoom-dense');
+    else if (zoomFactor < 1.5) body.classList.add('zoom-medium');
+    else body.classList.add('zoom-large');
+  }
+
+  function getWeekStartEpochAndYMD() {
+    const todayYMD = getTodayYMDInTZ(tz);
+    const todayMid = epochFromZoned(todayYMD.y, todayYMD.m, todayYMD.d, 0, 0, tz);
+    const todayIdx = weekdayIndexInTZ(todayMid, tz);
+    const diff = (todayIdx - weekStartIdx + 7) % 7;
+    const baseYMD = ymdAddDays(todayYMD, -diff + weekOffset * 7);
+    const baseEpoch = epochFromZoned(baseYMD.y, baseYMD.m, baseYMD.d, 0, 0, tz);
+    return { baseEpoch, baseYMD };
   }
 
   function buildGrid() {
@@ -92,12 +144,9 @@
     grid = document.getElementById('grid');
     table.innerHTML = '';
 
-    const today = new Date();
-    const base = getStartOfWeek(today);
-    base.setDate(base.getDate() + weekOffset * 7);
-    renderWeekLabel(base);
+    const { baseEpoch, baseYMD } = getWeekStartEpochAndYMD();
+    renderWeekLabel(baseEpoch);
 
-    // Header
     const thead = document.createElement('thead');
     const hr = document.createElement('tr');
 
@@ -106,11 +155,16 @@
     thTime.textContent = 'Time';
     hr.appendChild(thTime);
 
+    const dayEpochs = [];
     for (let i = 0; i < 7; i++) {
-      const cur = addDays(base, i);
+      const ymd = ymdAddDays(baseYMD, i);
+      const dayEpoch = epochFromZoned(ymd.y, ymd.m, ymd.d, 0, 0, tz);
+      dayEpochs.push({ ymd, epoch: dayEpoch });
+
       const th = document.createElement('th');
-      th.textContent = `${DAYS[cur.getDay()]} ${cur.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
-      th.dataset.date = formatDateLabel(cur);
+      const label = new Intl.DateTimeFormat(undefined, { timeZone: tz, weekday: 'short', month: 'short', day: 'numeric' }).format(new Date(dayEpoch * 1000));
+      th.textContent = label;
+      th.dataset.col = String(i);
       hr.appendChild(th);
     }
     thead.appendChild(hr);
@@ -118,31 +172,28 @@
 
     const tbody = document.createElement('tbody');
 
-    const totalRows = (HOURS_END - HOURS_START) * SLOTS_PER_HOUR; // 48
+    const totalRows = (HOURS_END - HOURS_START) * SLOTS_PER_HOUR;
     for (let r = 0; r < totalRows; r++) {
       const tr = document.createElement('tr');
 
       const hour = Math.floor(r / SLOTS_PER_HOUR) + HOURS_START;
-      const half = r % SLOTS_PER_HOUR === 1; // 0 => :00, 1 => :30
+      const half = r % SLOTS_PER_HOUR === 1;
       tr.className = half ? 'row-half' : 'row-hour';
 
       if (!half) {
-        // Hour row: create a time cell that spans both this row and the next half-hour row
         const timeCell = document.createElement('td');
         timeCell.className = 'time-col hour';
         timeCell.rowSpan = 2;
-        const hh = String(hour).padStart(2, '0');
         const spanHour = document.createElement('span');
         spanHour.className = 'time-label hour';
-        spanHour.textContent = `${hh}:00`;
+        spanHour.textContent = formatHourLabel(hour);
         timeCell.appendChild(spanHour);
         tr.appendChild(timeCell);
       }
-      // For half rows, we DO NOT append a time cell (rowSpan=2 above covers it)
 
       for (let c = 0; c < 7; c++) {
-        const cur = addDays(base, c);
-        const epoch = toEpochLocal(cur, hour, half);
+        const ymd = dayEpochs[c].ymd;
+        const epoch = epochFromZoned(ymd.y, ymd.m, ymd.d, hour, half ? 30 : 0, tz);
 
         const td = document.createElement('td');
         td.className = 'slot-cell';
@@ -150,9 +201,12 @@
         td.dataset.row = r;
         td.dataset.col = c;
 
-        if (selected.has(epoch)) {
-          td.classList.add('selected');
+        if (highlightWeekends) {
+          const weekdayStr = new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'short' }).format(new Date(dayEpochs[c].epoch * 1000));
+          if (weekdayStr === 'Sat' || weekdayStr === 'Sun') td.classList.add('col-weekend');
         }
+
+        if (selected.has(epoch)) td.classList.add('selected');
 
         td.addEventListener('mousedown', (e) => {
           if (!isAuthenticated) return;
@@ -164,15 +218,13 @@
         });
 
         td.addEventListener('mouseenter', () => {
-          if (!isAuthenticated) return;
-          if (!isDragging) return;
+          if (!isAuthenticated || !isDragging) return;
           dragEnd = { row: r, col: c };
           updatePreview();
         });
 
         td.addEventListener('mouseup', () => {
-          if (!isAuthenticated) return;
-          if (!isDragging) return;
+          if (!isAuthenticated || !isDragging) return;
           dragEnd = { row: r, col: c };
           applyBoxSelection();
           clearPreview();
@@ -207,7 +259,6 @@
     const r2 = Math.max(dragStart.row, dragEnd.row);
     const c1 = Math.min(dragStart.col, dragEnd.col);
     const c2 = Math.max(dragStart.col, dragEnd.col);
-
     for (let r = r1; r <= r2; r++) {
       for (let c = c1; c <= c2; c++) {
         const cell = table.querySelector(`td.slot-cell[data-row="${r}"][data-col="${c}"]`);
@@ -219,11 +270,8 @@
   function updatePreview() {
     clearPreview();
     forEachCellInBox((cell) => {
-      if (paintMode === 'add') {
-        cell.classList.add('preview-add');
-      } else {
-        cell.classList.add('preview-sub');
-      }
+      if (paintMode === 'add') cell.classList.add('preview-add');
+      else cell.classList.add('preview-sub');
     });
   }
 
@@ -252,30 +300,21 @@
   }
 
   function getWeekBoundsEpoch() {
-    const today = new Date();
-    const base = getStartOfWeek(today);
-    base.setDate(base.getDate() + weekOffset * 7);
-    const startEpoch = Math.floor(base.getTime() / 1000);
-    const endEpoch = startEpoch + 7 * 24 * 3600; // next Sunday 00:00 local
-    return { startEpoch, endEpoch, baseDate: base };
+    const { baseEpoch, baseYMD } = getWeekStartEpochAndYMD();
+    const endYMD = ymdAddDays(baseYMD, 7);
+    const end = epochFromZoned(endYMD.y, endYMD.m, endYMD.d, 0, 0, tz);
+    return { startEpoch: baseEpoch, endEpoch: end };
   }
 
   function compressToIntervals(sortedEpochs) {
     const intervals = [];
     if (!sortedEpochs.length) return intervals;
-
     let curFrom = sortedEpochs[0];
     let prev = sortedEpochs[0];
-
     for (let i = 1; i < sortedEpochs.length; i++) {
       const t = sortedEpochs[i];
-      if (t === prev + SLOT_SEC) {
-        prev = t;
-      } else {
-        intervals.push({ from: curFrom, to: prev + SLOT_SEC });
-        curFrom = t;
-        prev = t;
-      }
+      if (t === prev + SLOT_SEC) prev = t;
+      else { intervals.push({ from: curFrom, to: prev + SLOT_SEC }); curFrom = t; prev = t; }
     }
     intervals.push({ from: curFrom, to: prev + SLOT_SEC });
     return intervals;
@@ -284,21 +323,14 @@
   async function saveWeek() {
     if (!isAuthenticated) return;
     const { startEpoch, endEpoch } = getWeekBoundsEpoch();
-
-    // Collect all selected slots inside the week and compress to intervals
     const inside = Array.from(selected).filter(t => t >= startEpoch && t < endEpoch).sort((a, b) => a - b);
     const intervals = compressToIntervals(inside);
-
     try {
       const res = await fetch('http://backend.nat20scheduling.com:3000/availability/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({
-          from: startEpoch,
-          to: endEpoch,
-          intervals
-        })
+        body: JSON.stringify({ from: startEpoch, to: endEpoch, intervals, sourceTimezone: tz })
       });
       if (!res.ok) {
         const text = await res.text();
@@ -320,25 +352,16 @@
       });
       if (res.ok) {
         const data = await res.json();
-        // data.intervals = [{from, to}, ...] in epoch seconds
         if (Array.isArray(data.intervals)) {
-          // Remove current week's entries first
-          for (const t of Array.from(selected)) {
-            if (t >= startEpoch && t < endEpoch) selected.delete(t);
-          }
-          // Expand intervals back into 30-min slots
+          for (const t of Array.from(selected)) if (t >= startEpoch && t < endEpoch) selected.delete(t);
           for (const iv of data.intervals) {
             const from = Number(iv.from);
             const to = Number(iv.to);
-            for (let t = from; t < to; t += SLOT_SEC) {
-              selected.add(t);
-            }
+            for (let t = from; t < to; t += SLOT_SEC) selected.add(t);
           }
         }
       }
-    } catch {
-      // ignore if not available or not authenticated
-    }
+    } catch {}
   }
 
   function attachEvents() {
@@ -354,55 +377,66 @@
       await loadWeekSelections();
       buildGrid();
     });
-    document.getElementById('mode-add').addEventListener('click', () => {
-      if (!isAuthenticated) return;
-      setMode('add');
-    });
-    document.getElementById('mode-subtract').addEventListener('click', () => {
-      if (!isAuthenticated) return;
-      setMode('subtract');
-    });
+    document.getElementById('mode-add').addEventListener('click', () => { if (!isAuthenticated) return; setMode('add'); });
+    document.getElementById('mode-subtract').addEventListener('click', () => { if (!isAuthenticated) return; setMode('subtract'); });
     document.getElementById('save').addEventListener('click', saveWeek);
-  }
 
-  function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+    window.addEventListener('storage', (e) => {
+      if (e.key === 'nat20_settings') {
+        const s = loadLocal();
+        if (!s) return;
+        settings = { ...DEFAULT_SETTINGS, ...s };
+        tz = resolveTimezone(settings.timezone);
+        hour12 = settings.clock === '12';
+        weekStartIdx = settings.weekStart === 'mon' ? 1 : 0;
+        highlightWeekends = !!settings.highlightWeekends;
+        zoomFactor = clamp(typeof settings.defaultZoom === 'number' ? settings.defaultZoom : zoomFactor, ZOOM_MIN, ZOOM_MAX);
+        applyZoomStyles();
+        buildGrid();
+      }
+    });
+  }
 
   function setupZoomHandlers() {
     if (!grid) grid = document.getElementById('grid');
-
     grid.addEventListener('wheel', (e) => {
-      if (!e.shiftKey) return; // normal scroll to pan
+      if (!e.shiftKey) return; // normal vertical panning
       e.preventDefault();
-      const delta = Math.sign(e.deltaY); // 1 for down, -1 for up
+      const delta = Math.sign(e.deltaY);
       zoomFactor = clamp(zoomFactor - delta * ZOOM_STEP, ZOOM_MIN, ZOOM_MAX);
       applyZoomStyles();
     }, { passive: false });
 
     window.addEventListener('keydown', (e) => {
       if (!e.shiftKey) return;
-      if (e.key === '=' || e.key === '+') {
-        zoomFactor = clamp(zoomFactor + ZOOM_STEP, ZOOM_MIN, ZOOM_MAX);
-        applyZoomStyles();
-      } else if (e.key === '-' || e.key === '_') {
-        zoomFactor = clamp(zoomFactor - ZOOM_STEP, ZOOM_MIN, ZOOM_MAX);
-        applyZoomStyles();
-      } else if (e.key === '0') {
-        zoomFactor = 1.0;
-        applyZoomStyles();
-      }
+      if (e.key === '=' || e.key === '+') { zoomFactor = clamp(zoomFactor + ZOOM_STEP, ZOOM_MIN, ZOOM_MAX); applyZoomStyles(); }
+      else if (e.key === '-' || e.key === '_') { zoomFactor = clamp(zoomFactor - ZOOM_STEP, ZOOM_MIN, ZOOM_MAX); applyZoomStyles(); }
+      else if (e.key === '0') { zoomFactor = 1.0; applyZoomStyles(); }
     });
   }
 
   async function init() {
+    // Load settings: prefer remote, fallback to local/defaults
+    const remote = await fetchRemoteSettings();
+    const local = loadLocal();
+    const s = remote || local || DEFAULT_SETTINGS;
+    settings = { ...DEFAULT_SETTINGS, ...s };
+    tz = resolveTimezone(settings.timezone);
+    hour12 = settings.clock === '12';
+    weekStartIdx = settings.weekStart === 'mon' ? 1 : 0;
+    highlightWeekends = !!settings.highlightWeekends;
+    zoomFactor = clamp(typeof settings.defaultZoom === 'number' ? settings.defaultZoom : 1.0, ZOOM_MIN, ZOOM_MAX);
+
+    // keep local in sync (helps other tabs update immediately)
+    saveLocal(settings);
+
     applyZoomStyles();
     attachEvents();
     await loadWeekSelections();
     buildGrid();
   }
 
-  function setAuth(authenticated) {
-    isAuthenticated = !!authenticated;
-  }
+  function setAuth(authenticated) { isAuthenticated = !!authenticated; }
 
   window.schedule = { init, setAuth };
 })();

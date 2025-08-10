@@ -6,6 +6,7 @@ require('dotenv').config();
 
 const authRoutes = require('./routes/auth');
 const availabilityRoutes = require('./routes/availability');
+const settingsRoutes = require('./routes/settings');
 
 const app = express();
 
@@ -21,7 +22,6 @@ const MONGO_URI = process.env.MONGO_URI || 'mongodb://mongo.nat20scheduling.com:
 const DB_NAME = process.env.MONGO_DB_NAME || 'test';
 const COLLECTION_NAME = process.env.MONGO_COLLECTION || 'people';
 
-// connect to mongodb
 mongoose.connect(MONGO_URI, {
   dbName: DB_NAME,
   useNewUrlParser: true,
@@ -33,11 +33,11 @@ mongoose.connect(MONGO_URI, {
   process.exit(1);
 });
 
-// attach routes
 app.use(authRoutes);
 app.use(availabilityRoutes);
+app.use(settingsRoutes);
 
-// legacy mongoose-based query endpoint used for initial testing
+// legacy test endpoint
 const personSchema = new mongoose.Schema({
   name: String
 }, { collection: COLLECTION_NAME });

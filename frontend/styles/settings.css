@@ -1,0 +1,75 @@
+.settings-form {
+  background: #171717;
+  border: 1px solid #2a2a2a;
+  border-radius: 12px;
+  padding: 16px;
+  max-width: 720px;
+  margin: 20px auto;
+}
+
+.field {
+  margin-bottom: 16px;
+}
+
+.field label {
+  display: block;
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+
+.field .row {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+}
+
+#timezone {
+  width: 100%;
+  max-width: 460px;
+  background: #0f0f0f;
+  color: #eee;
+  border: 1px solid #333;
+  border-radius: 8px;
+  padding: 8px;
+}
+
+input[type="radio"], input[type="checkbox"] {
+  transform: scale(1.1);
+  margin-right: 6px;
+}
+
+#defaultZoom {
+  width: 240px;
+}
+
+.range-readout {
+  display: inline-block;
+  margin-left: 10px;
+  color: #bbb;
+}
+
+.hint {
+  color: #aaa;
+  font-size: 12px;
+  display: block;
+  margin-top: 4px;
+}
+
+.actions {
+  margin-top: 12px;
+}
+
+.actions button {
+  background: #2d6cdf;
+  color: #fff;
+  border: 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.save-status {
+  height: 18px;
+  margin-top: 8px;
+  color: #9ecbff;
+}
