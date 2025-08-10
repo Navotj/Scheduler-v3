@@ -32,7 +32,6 @@
   // cached elements
   let table;
   let grid;
-  let gridContent;
   let resultsEl;
   let nowMarkerEl;
 
@@ -62,7 +61,7 @@
     let ts = guess - off * 60000;
     off = tzOffsetMinutes(tzName, new Date(ts));
     ts = guess - off * 60000;
-    return Math.floor(ts / 1000); // return SECONDS (backend expects seconds)
+    return Math.floor(ts / 1000); // seconds
   }
 
   function getYMDInTZ(date, tzName) {
@@ -71,7 +70,6 @@
     for (const p of parts) map[p.type] = p.value;
     return { y: Number(map.year), m: Number(map.month), d: Number(map.day) };
   }
-
   function getTodayYMDInTZ(tzName) { return getYMDInTZ(new Date(), tzName); }
 
   function ymdAddDays(ymd, add) {
@@ -82,7 +80,6 @@
 
   function getWeekStartEpochAndYMD() {
     const today = getTodayYMDInTZ(tz);
-    // get local weekday in tz
     const tmpMid = epochFromZoned(today.y, today.m, today.d, 0, 0, tz);
     const localMidDate = new Date(tmpMid * 1000);
     const dow = localMidDate.getUTCDay(); // 0..6 (Sun..Sat) at local midnight
@@ -147,20 +144,24 @@
     for (let r = 0; r < totalRows; r++) {
       const tr = document.createElement('tr');
 
-      // time column: label on full hours, blank on half-hours
-      const minutes = (HOURS_START * 60) + r * (60 / SLOTS_PER_HOUR);
-      const hh = Math.floor(minutes / 60);
-      const mm = minutes % 60;
-      const th = document.createElement('th');
-      th.className = 'time-col' + (mm === 0 ? ' hour' : '');
-      th.textContent = (mm === 0) ? fmtTime(hh, 0) : '';
-      tr.appendChild(th);
+      // hour label cell spans two rows (both half-hours)
+      if (r % 2 === 0) {
+        const minutes = (HOURS_START * 60) + r * (60 / SLOTS_PER_HOUR);
+        const hh = Math.floor(minutes / 60);
+        const th = document.createElement('th');
+        th.className = 'time-col hour';
+        th.rowSpan = 2;
+        th.textContent = fmtTime(hh, 0);
+        tr.appendChild(th);
+      }
 
       for (let day = 0; day < 7; day++) {
         const td = document.createElement('td');
         td.className = 'slot-cell';
         const epoch = (getDayStartSec(day) + r * SLOT_SEC);
         td.dataset.epoch = String(epoch);
+        td.dataset.day = String(day);
+        td.dataset.row = String(r);
         td.dataset.c = '0';
         td.addEventListener('mousemove', onCellHoverMove);
         td.addEventListener('mouseleave', hideTooltip);
@@ -171,8 +172,8 @@
     }
 
     table.appendChild(tbody);
-    setupZoomHandlers();
-    updateLegend();
+
+    applyZoomStyles();
     paintCounts();
     shadePast();
     positionNowMarker();
@@ -211,13 +212,11 @@
           credentials: 'include',
           body: JSON.stringify(payload)
         });
-        if (res.status === 404) { console.warn('404 on', url, '— trying next path'); continue; }
-        if (!res.ok) { console.warn('Request failed', res.status, 'on', url); continue; }
+        if (res.status === 404) { continue; }
+        if (!res.ok) { continue; }
         data = await res.json();
         break;
-      } catch (err) {
-        console.warn('Request error on', url, err);
-      }
+      } catch {}
     }
 
     userSlotSets.clear();
@@ -274,7 +273,7 @@
     }
   }
 
-  // --- NOW marker ---
+  // --- NOW marker (restricted to current day column; bubble to the LEFT of the line) ---
   function positionNowMarker() {
     const nowSec = Math.floor(Date.now() / 1000);
     const { baseEpoch } = getWeekStartEpochAndYMD();
@@ -294,8 +293,26 @@
     const thead = table.querySelector('thead');
     const headerH = thead ? thead.offsetHeight : 0;
     const topPx = headerH + rowsIntoDay * rowHeightPx();
-
     nowMarkerEl.style.top = `${topPx}px`;
+
+    // restrict the marker to current day column
+    const firstCell = table.querySelector(`tbody tr:first-child td.slot-cell[data-day="${dayIdx}"][data-row="0"]`);
+    if (firstCell) {
+      const colLeft = firstCell.offsetLeft;
+      const colWidth = firstCell.offsetWidth;
+      nowMarkerEl.style.left = `${colLeft}px`;
+      nowMarkerEl.style.width = `${colWidth}px`;
+
+      // place bubble to the LEFT of the line (outside the column), pointer on right edge
+      const bubble = nowMarkerEl.querySelector('.bubble');
+      if (bubble) {
+        // ensure layout measurement
+        const w = bubble.offsetWidth;
+        const bubbleLeft = colLeft - w - 8; // 8px gap to the line
+        bubble.style.left = `${bubbleLeft}px`;
+        bubble.style.right = '';
+      }
+    }
   }
 
   function bindMarkerReposition() {
@@ -497,16 +514,23 @@
     return { available, unavailable };
   }
 
-  // --- Legend ---
+  // --- Legend (dynamic 0..members.length) ---
   function updateLegend() {
     const steps = document.getElementById('legend-steps');
     const labels = document.getElementById('legend-labels');
     steps.innerHTML = '';
     labels.innerHTML = '';
-    for (let i = 0; i < 8; i++) {
+
+    const maxVal = members.length; // show 0..N (inclusive)
+    const count = Math.max(1, maxVal + 1); // at least show 0
+
+    steps.style.gridTemplateColumns = `repeat(${count}, 1fr)`;
+    labels.style.gridTemplateColumns = `repeat(${count}, 1fr)`;
+
+    for (let i = 0; i < count; i++) {
       const chip = document.createElement('div');
       chip.className = 'chip slot-cell';
-      chip.dataset.c = String(i);
+      chip.dataset.c = String(Math.min(i, 7)); // palette defined up to 7
       steps.appendChild(chip);
 
       const lab = document.createElement('span');
@@ -566,7 +590,6 @@
   async function init() {
     table = document.getElementById('scheduler-table');
     grid = document.getElementById('grid');
-    gridContent = document.getElementById('grid-content');
     resultsEl = document.getElementById('results');
     nowMarkerEl = document.getElementById('now-marker');
 
@@ -618,7 +641,7 @@
     // candidates
     document.getElementById('find-btn').addEventListener('click', findCandidates);
 
-    // load settings (optionally from backend)
+    // load settings (requires auth for remote; falls back to defaults)
     await loadSettings();
 
     // restore previous members
@@ -635,6 +658,7 @@
       sessionStorage.setItem('nat20_members', JSON.stringify(members));
     });
 
+    setupZoomHandlers();
     bindMarkerReposition();
   }
 
