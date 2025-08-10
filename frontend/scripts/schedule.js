@@ -458,22 +458,22 @@
     window.addEventListener('resize', () => requestAnimationFrame(updateNowMarker));
   }
 
-  // --- NOW MARKER (pixel-accurate; stable across scroll/zoom) ---
-  function ymdUTC(ymd) { return Date.UTC(ymd.y, ymd.m - 1, ymd.d); }
-  function diffDays(aYMD, bYMD) { return Math.round((ymdUTC(bYMD) - ymdUTC(aYMD)) / 86400000); }
-
+  // --- NOW MARKER (stable across scroll/zoom) ---
   function updateNowMarker() {
     ensureNowMarker();
     if (!grid || !table || !nowMarker) return;
 
     const { baseYMD } = getWeekStartEpochAndYMD();
     const todayYMD = getTodayYMDInTZ(tz);
-    const dayOffset = diffDays(baseYMD, todayYMD);
+
+    // show only if today is inside the rendered week
+    const dayOffset = Math.round((Date.UTC(todayYMD.y, todayYMD.m - 1, todayYMD.d) - Date.UTC(baseYMD.y, baseYMD.m - 1, baseYMD.d)) / 86400000);
     if (dayOffset < 0 || dayOffset > 6) {
       nowMarker.style.display = 'none';
       return;
     }
 
+    // current time in tz
     const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour12: false, hour: '2-digit', minute: '2-digit' }).formatToParts(new Date());
     const hh = Number(parts.find(p => p.type === 'hour').value);
     const mm = Number(parts.find(p => p.type === 'minute').value);
@@ -481,20 +481,22 @@
     const rowIndex = hh * 2 + (mm >= 30 ? 1 : 0);
     const frac = (mm % 30) / 30;
 
-    const cell = table.querySelector(`td.slot-cell[data-col="${dayOffset}"][data-row="${rowIndex}"]`);
-    const dayStart = table.querySelector(`td.slot-cell[data-col="${dayOffset}"][data-row="0"]`);
-    if (!cell || !dayStart) {
+    const dayStartCell = table.querySelector(`td.slot-cell[data-col="${dayOffset}"][data-row="0"]`);
+    if (!dayStartCell) {
       nowMarker.style.display = 'none';
       return;
     }
 
-    const gridRect = grid.getBoundingClientRect();
-    const cellRect = cell.getBoundingClientRect();
-    const colRect = dayStart.getBoundingClientRect();
+    // derive sizes from CSS variables / layout
+    const rowH = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--row-height')) || 18;
 
-    const top = (cellRect.top - gridRect.top) + (cellRect.height * frac);
-    const left = (colRect.left - gridRect.left);
-    const width = colRect.width;
+    // Use bounding rects DIFFERENCE to make the marker position invariant to scrolling and sticky headers.
+    const gridRect = grid.getBoundingClientRect();
+    const dayStartRect = dayStartCell.getBoundingClientRect();
+
+    const top = (dayStartRect.top - gridRect.top) + (rowIndex * rowH) + (frac * rowH);
+    const left = (dayStartRect.left - gridRect.left);
+    const width = dayStartRect.width;
 
     nowMarker.style.display = 'block';
     nowMarker.style.top = `${top}px`;
@@ -520,6 +522,7 @@
     await loadWeekSelections();
     buildGrid();
 
+    // keep "now" in sync every minute
     setInterval(updateNowMarker, 60000);
   }
 
