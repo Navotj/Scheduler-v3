@@ -145,7 +145,7 @@ tr.row-hour > th {
 /* "Now" pointer: circle + triangle, placed to the LEFT of the red line */
 .now-marker .label {
   position: absolute;
-  right: calc(100% + 12px); /* to the left of the line */
+  right: calc(100% + 10px); /* to the left of the line */
   top: -10px;               /* vertically centered around the 2px line */
   color: #e53935;
   font-size: 11px;
@@ -158,7 +158,7 @@ tr.row-hour > th {
 .now-marker .label::before {
   content: "";
   position: absolute;
-  right: calc(100% + 8px);
+  right: calc(100% + 6px);
   top: 50%;
   transform: translateY(-50%);
   width: 12px;
