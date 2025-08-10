@@ -73,11 +73,11 @@
   width: 110px;
   height: var(--row-height);
   cursor: crosshair;
-  background: #121212;
+  background-color: #121212;
 }
-.slot-cell.selected { background: #234b1f; }
-.slot-cell.preview-add { background: #1f3e7a; }
-.slot-cell.preview-sub { background: #6b1e1e; }
+.slot-cell.selected { background-color: #234b1f; }
+.slot-cell.preview-add { background-color: #1f3e7a; }
+.slot-cell.preview-sub { background-color: #6b1e1e; }
 
 /* Thicker separators at hour rows */
 tr.row-hour > td,
@@ -86,9 +86,18 @@ tr.row-hour > th {
   border-top-color: #3a3a3a;
 }
 
-/* Optional weekend shading (applied when JS adds .col-weekend) */
-.slot-cell.col-weekend {
-  background: #101315;
+/* Weekend shading — do not override selection color */
+.slot-cell.col-weekend:not(.selected) {
+  background-image: repeating-linear-gradient(
+    135deg,
+    rgba(255,255,255,0.045) 0px,
+    rgba(255,255,255,0.045) 8px,
+    rgba(255,255,255,0.02) 8px,
+    rgba(255,255,255,0.02) 16px
+  );
+}
+.slot-cell.col-weekend.selected {
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06);
 }
 
 /* Floating tooltip that follows mouse when not signed in */
