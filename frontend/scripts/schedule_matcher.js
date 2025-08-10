@@ -1,570 +1,687 @@
 (function () {
+  'use strict';
+
+  // --- Constants ---
   const BASE_URL = 'http://backend.nat20scheduling.com:3000';
-  const SLOTS_PER_HOUR = 2;        // 30-min steps
+  const SLOTS_PER_HOUR = 2;           // 30-minute slots
+  const SLOT_SEC = 30 * 60;
   const HOURS_START = 0;
   const HOURS_END = 24;
-  const SLOT_SEC = 1800;
 
-  // state
-  let weekOffset = 0;
+  // --- State ---
+  let weekOffset = 0;                 // 0 = current week
+  let zoom = 1;                       // vertical zoom multiplier
+  let members = [];                   // [{username}]
+  let availabilityByUser = new Map(); // username -> array of {start,end} epoch ms
   let isAuthenticated = false;
   let currentUsername = null;
 
-  // settings
-  const DEFAULT_SETTINGS = { timezone: 'auto', clock: '24', weekStart: 'sun', defaultZoom: 1.0 };
-  let settings = { ...DEFAULT_SETTINGS };
-  let tz = resolveTimezone(settings.timezone);
-  let hour12 = settings.clock === '12';
-  let weekStartIdx = settings.weekStart === 'mon' ? 1 : 0;
+  // Settings (from localStorage if present)
+  const DEFAULT_SETTINGS = { timezone: 'auto', clock: '24', weekStart: 'sun' };
+  let settings = loadLocal('nat20_settings') || DEFAULT_SETTINGS;
+  if (!settings.timezone) settings.timezone = 'auto';
+  if (!settings.clock) settings.clock = '24';
+  if (!settings.weekStart) settings.weekStart = 'sun';
 
-  // vertical zoom only
-  let zoomFactor = 1.0;
-  const ZOOM_MIN = 0.6, ZOOM_MAX = 2.0, ZOOM_STEP = 0.1;
+  const tz = settings.timezone === 'auto'
+    ? Intl.DateTimeFormat().resolvedOptions().timeZone
+    : settings.timezone;
+  const hour12 = settings.clock === '12';
+  const weekStartIdx = settings.weekStart === 'mon' ? 1 : 0;
 
-  // members and availability
-  let members = []; // array of usernames
-  const userSlotSets = new Map(); // username -> Set(epoch)
-  let totalMembers = 0;
+  // --- Elements ---
+  let tableEl, gridEl, gridContentEl, dayHeadersEl, dateRangeEl, resultsEl;
 
-  // cached
-  let table;
-  let grid;
-
-  // utils
-  function resolveTimezone(val) {
-    if (!val || val === 'auto') return (Intl.DateTimeFormat().resolvedOptions().timeZone) || 'UTC';
-    return val;
-  }
-  function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
-
-  function tzOffsetMinutes(tzName, date) {
+  // --- Utils: timezone-safe epoch helpers ---
+  function tzOffsetMinutes(tzName, dateMs) {
+    const d = new Date(dateMs);
     const parts = new Intl.DateTimeFormat('en-US', {
       timeZone: tzName,
       hour12: false,
       year: 'numeric', month: '2-digit', day: '2-digit',
       hour: '2-digit', minute: '2-digit', second: '2-digit'
-    }).formatToParts(date);
+    }).formatToParts(d);
     const map = {};
     for (const p of parts) map[p.type] = p.value;
-    const asUTC = Date.UTC(Number(map.year), Number(map.month) - 1, Number(map.day), Number(map.hour), Number(map.minute), Number(map.second));
-    return Math.round((asUTC - date.getTime()) / 60000);
+    const utcGuess = Date.UTC(+map.year, +map.month - 1, +map.day, +map.hour, +map.minute, +map.second);
+    return Math.round((utcGuess - dateMs) / 60000);
   }
 
   function epochFromZoned(y, m, d, hh, mm, tzName) {
-    const guess = Date.UTC(y, m - 1, d, hh, mm, 0, 0);
-    let off = tzOffsetMinutes(tzName, new Date(guess));
-    let ts = guess - off * 60000;
-    off = tzOffsetMinutes(tzName, new Date(ts));
-    ts = guess - off * 60000;
-    return Math.floor(ts / 1000);
+    const guessUtc = Date.UTC(y, m - 1, d, hh, mm, 0, 0);
+    let off = tzOffsetMinutes(tzName, guessUtc);
+    let ts = guessUtc - off * 60000;
+    // one more pass for DST boundaries
+    off = tzOffsetMinutes(tzName, ts);
+    ts = guessUtc - off * 60000;
+    return ts;
   }
 
-  function getYMDInTZ(date, tzName) {
-    const parts = new Intl.DateTimeFormat('en-US', { timeZone: tzName, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(date);
+  function startOfWeekEpoch(ms, tzName, weekStart) {
+    const d = new Date(ms);
+    // get local Y/M/D in tz
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: tzName, hour12: false,
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      weekday: 'short'
+    }).formatToParts(d);
     const map = {};
     for (const p of parts) map[p.type] = p.value;
-    return { y: Number(map.year), m: Number(map.month), d: Number(map.day) };
+    const local = new Date(epochFromZoned(+map.year, +map.month, +map.day, 0, 0, tzName));
+    const dow = (local.getUTCDay()); // 0..6 (Sun..Sat) but computed in UTC at local midnight
+    const target = weekStart; // 0 Sun or 1 Mon
+    const diff = (dow - target + 7) % 7;
+    const weekStartLocal = new Date(local.getTime() - diff * 24 * 3600 * 1000);
+    // return epoch of local midnight of the first day of week
+    const y = weekStartLocal.getUTCFullYear();
+    const m = weekStartLocal.getUTCMonth() + 1;
+    const d2 = weekStartLocal.getUTCDate();
+    return epochFromZoned(y, m, d2, 0, 0, tzName);
   }
 
-  function getTodayYMDInTZ(tzName) { return getYMDInTZ(new Date(), tzName); }
-
-  function ymdAddDays(ymd, add) {
-    const tmp = new Date(Date.UTC(ymd.y, ymd.m - 1, ymd.d));
-    tmp.setUTCDate(tmp.getUTCDate() + add);
-    return { y: tmp.getUTCFullYear(), m: tmp.getUTCMonth() + 1, d: tmp.getUTCDate() };
-  }
-
-  function weekdayIndexInTZ(epochSec, tzName) {
-    const wd = new Intl.DateTimeFormat('en-US', { timeZone: tzName, weekday: 'short' }).format(new Date(epochSec * 1000));
-    return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(wd);
-  }
-
-  function getWeekStartEpochAndYMD() {
-    const todayYMD = getTodayYMDInTZ(tz);
-    const todayMid = epochFromZoned(todayYMD.y, todayYMD.m, todayYMD.d, 0, 0, tz);
-    const todayIdx = weekdayIndexInTZ(todayMid, tz);
-    const diff = (todayIdx - weekStartIdx + 7) % 7;
-    const baseYMD = ymdAddDays(todayYMD, -diff + weekOffset * 7);
-    const baseEpoch = epochFromZoned(baseYMD.y, baseYMD.m, baseYMD.d, 0, 0, tz);
-    return { baseEpoch, baseYMD };
-  }
-
-  function formatHourLabel(hour) {
-    if (!hour12) return `${String(hour).padStart(2, '0')}:00`;
-    const h = (hour % 12) || 12;
-    const ampm = hour < 12 ? 'AM' : 'PM';
-    return `${h} ${ampm}`;
-  }
-
-  function palette(total) {
-    const arr = ['#2a2a2a']; // 0 available
-    const hue = 140, sat = 55;
-    const base = 18, steps = 22; // lightness 18%..40%
-    if (total <= 0) return arr;
-    for (let i = 1; i <= total; i++) {
-      const light = base + Math.round((steps * i) / total);
-      arr.push(`hsl(${hue}, ${sat}%, ${light}%)`);
+  function fmtTime(h, m) {
+    if (hour12) {
+      const ampm = h >= 12 ? 'pm' : 'am';
+      let hr = h % 12; if (hr === 0) hr = 12;
+      const mm = String(m).padStart(2, '0');
+      return `${hr}:${mm} ${ampm}`;
     }
-    return arr;
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
   }
 
-  function colorFor(count, total) {
-    const pal = palette(total);
-    const idx = Math.max(0, Math.min(count, pal.length - 1));
-    return pal[idx];
+  function fmtRange(startMs, endMs) {
+    const a = new Date(startMs);
+    const b = new Date(endMs);
+    const dow = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][a.getUTCDay()];
+    const sh = a.getUTCHours(); const sm = a.getUTCMinutes();
+    const eh = b.getUTCHours(); const em = b.getUTCMinutes();
+    return `${dow}, ${fmtTime(sh, sm)} – ${fmtTime(eh, em)}`;
   }
 
-  function minutesToHhmm(mins) {
-    const h = Math.floor(mins / 60);
-    const m = mins % 60;
-    return `${h}h ${String(m).padStart(2, '0')}m`;
+  function loadLocal(key) {
+    try { return JSON.parse(localStorage.getItem(key)); } catch { return null; }
   }
 
-  function renderWeekLabel(startEpoch) {
-    const startDate = new Date(startEpoch * 1000);
-    const endDate = new Date((startEpoch + 6 * 86400) * 1000);
-    const fmt = (dt) => new Intl.DateTimeFormat(undefined, { timeZone: tz, month: 'short', day: 'numeric' }).format(dt);
-    const startYear = new Intl.DateTimeFormat('en-US', { timeZone: tz, year: 'numeric' }).format(startDate);
-    const endYear = new Intl.DateTimeFormat('en-US', { timeZone: tz, year: 'numeric' }).format(endDate);
-    const year = startYear === endYear ? startYear : `${startYear}–${endYear}`;
-    document.getElementById('week-label').textContent = `${fmt(startDate)} – ${fmt(endDate)}, ${year}`;
-  }
+  function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
 
-  function applyZoomStyles() {
-    const root = document.documentElement;
-    const baseRow = 18, baseFont = 12;
-    zoomFactor = clamp(zoomFactor, ZOOM_MIN, ZOOM_MAX);
-    root.style.setProperty('--row-height', `${(baseRow * zoomFactor).toFixed(2)}px`);
-    root.style.setProperty('--font-size', `${(baseFont * zoomFactor).toFixed(2)}px`);
-  }
-
+  // --- Grid build ---
   function buildGrid() {
-    table = document.getElementById('scheduler-table');
-    grid = document.getElementById('grid');
-    table.innerHTML = '';
-
-    const { baseEpoch, baseYMD } = getWeekStartEpochAndYMD();
-    renderWeekLabel(baseEpoch);
-
-    const thead = document.createElement('thead');
-    const hr = document.createElement('tr');
-
-    const thTime = document.createElement('th');
-    thTime.className = 'time-col';
-    thTime.textContent = 'Time';
-    hr.appendChild(thTime);
-
-    const dayEpochs = [];
+    // headers
+    dayHeadersEl.innerHTML = '';
+    const now = Date.now();
+    const curWeekStart = startOfWeekEpoch(now, tz, weekStartIdx);
+    const start = curWeekStart + weekOffset * 7 * 24 * 3600 * 1000;
+    const days = [];
     for (let i = 0; i < 7; i++) {
-      const ymd = ymdAddDays(baseYMD, i);
-      const dayEpoch = epochFromZoned(ymd.y, ymd.m, ymd.d, 0, 0, tz);
-      dayEpochs.push({ ymd, epoch: dayEpoch });
-
-      const th = document.createElement('th');
-      const label = new Intl.DateTimeFormat(undefined, { timeZone: tz, weekday: 'short', month: 'short', day: 'numeric' }).format(new Date(dayEpoch * 1000));
-      th.textContent = label;
-      th.dataset.col = String(i);
-      hr.appendChild(th);
+      const d = new Date(start + i * 86400000);
+      const label = new Intl.DateTimeFormat('en-GB', {
+        timeZone: tz, weekday: 'short', day: '2-digit', month: 'short'
+      }).format(d);
+      const div = document.createElement('div');
+      div.className = 'day';
+      div.textContent = label;
+      dayHeadersEl.appendChild(div);
+      days.push(start + i * 86400000);
     }
-    thead.appendChild(hr);
-    table.appendChild(thead);
 
-    const tbody = document.createElement('tbody');
+    // date range label
+    const first = new Date(days[0]);
+    const last = new Date(days[6]);
+    dateRangeEl.textContent = ` ${new Intl.DateTimeFormat('en-GB', { day:'2-digit', month:'short' }).format(first)} – ${new Intl.DateTimeFormat('en-GB', { day:'2-digit', month:'short', year:'numeric' }).format(last)}`;
+
+    // body
+    gridContentEl.innerHTML = gridContentEl.innerHTML; // preserve now marker element
+    // remove everything except now-marker
+    for (const el of Array.from(gridContentEl.children)) {
+      if (el.id !== 'now-marker') el.remove();
+    }
 
     const totalRows = (HOURS_END - HOURS_START) * SLOTS_PER_HOUR;
     for (let r = 0; r < totalRows; r++) {
-      const tr = document.createElement('tr');
-      const hour = Math.floor(r / SLOTS_PER_HOUR) + HOURS_START;
-      const half = r % SLOTS_PER_HOUR === 1;
-      tr.className = half ? 'row-half' : 'row-hour';
+      const row = document.createElement('div');
+      row.className = 'row';
 
-      if (!half) {
-        const timeCell = document.createElement('td');
-        timeCell.className = 'time-col hour';
-        timeCell.rowSpan = 2;
-        const spanHour = document.createElement('span');
-        spanHour.className = 'time-label hour';
-        spanHour.textContent = formatHourLabel(hour);
-        timeCell.appendChild(spanHour);
-        tr.appendChild(timeCell);
-      }
+      // time label
+      const minutes = (HOURS_START * 60) + r * (60 / SLOTS_PER_HOUR);
+      const hh = Math.floor(minutes / 60);
+      const mm = minutes % 60;
+      const t = document.createElement('div');
+      t.className = 'timecell';
+      t.textContent = (mm === 0) ? fmtTime(hh, 0) : '';
+      row.appendChild(t);
 
       for (let c = 0; c < 7; c++) {
-        const ymd = dayEpochs[c].ymd;
-        const epoch = epochFromZoned(ymd.y, ymd.m, ymd.d, hour, half ? 30 : 0, tz);
+        const cell = document.createElement('div');
+        cell.className = 'cell';
+        cell.dataset.day = String(c);
+        cell.dataset.row = String(r);
 
-        const td = document.createElement('td');
-        td.className = 'slot-cell';
-        td.dataset.epoch = String(epoch);
-        td.dataset.row = r;
-        td.dataset.col = c;
-        td.style.background = colorFor(slotCount(epoch), totalMembers);
+        // default availability count
+        cell.dataset.c = '0';
 
-        td.addEventListener('mousemove', onCellHoverMove);
-        td.addEventListener('mouseleave', hideTooltip);
-
-        tr.appendChild(td);
+        row.appendChild(cell);
       }
-
-      tbody.appendChild(tr);
+      gridContentEl.appendChild(row);
     }
 
-    table.appendChild(tbody);
-    setupZoomHandlers();
+    applyZoom();
+    shadePast();
+    paintAvailability();
     applyFilterDimming();
-    renderLegend();
+    positionNowMarker(); // also updates visibility
   }
 
-  function onCellHoverMove(e) {
-    const td = e.currentTarget;
-    const epoch = Number(td.dataset.epoch);
-    const lists = availabilityListsAt(epoch);
-    const tip = document.getElementById('cell-tooltip');
-    const avail = lists.available.length ? `Available: ${lists.available.join(', ')}` : 'Available: —';
-    const unavail = lists.unavailable.length ? `Unavailable: ${lists.unavailable.join(', ')}` : 'Unavailable: —';
-    tip.innerHTML = `<div>${avail}</div><div style="margin-top:6px; color:#bbb;">${unavail}</div>`;
-    tip.style.display = 'block';
-    tip.style.left = (e.clientX + 14) + 'px';
-    tip.style.top = (e.clientY + 16) + 'px';
+  function gridRows() {
+    return Array.from(gridContentEl.querySelectorAll('.row'));
   }
 
-  function hideTooltip() {
-    const tip = document.getElementById('cell-tooltip');
-    tip.style.display = 'none';
+  function cells() {
+    return Array.from(gridContentEl.querySelectorAll('.cell'));
   }
 
-  function slotCount(epoch) {
-    let count = 0;
-    for (const u of members) {
-      const set = userSlotSets.get(u);
-      if (set && set.has(epoch)) count++;
-    }
-    return count;
+  function rowHeightPx() {
+    const v = getComputedStyle(document.documentElement).getPropertyValue('--row-height').trim();
+    return parseFloat(v.replace('px',''));
   }
 
-  function availabilityListsAt(epoch) {
-    const available = [];
-    const unavailable = [];
-    for (const u of members) {
-      const set = userSlotSets.get(u);
-      if (set && set.has(epoch)) available.push(u);
-      else unavailable.push(u);
-    }
-    return { available, unavailable };
-  }
+  // --- Availability painting ---
+  function paintAvailability() {
+    // reset counts
+    for (const cell of cells()) cell.dataset.c = '0';
 
-  async function fetchRemoteSettings() {
-    try {
-      const res = await fetch(`${BASE_URL}/settings`, { credentials: 'include', cache: 'no-cache' });
-      if (res.ok) return await res.json();
-    } catch {}
-    return null;
-  }
+    // Build per-slot counts
+    const start = getWeekStartEpoch();
+    const totalRows = (HOURS_END - HOURS_START) * SLOTS_PER_HOUR;
 
-  async function loadSettings() {
-    const remote = await fetchRemoteSettings();
-    const s = remote || DEFAULT_SETTINGS;
-    settings = { ...DEFAULT_SETTINGS, ...s };
-    tz = resolveTimezone(settings.timezone);
-    hour12 = settings.clock === '12';
-    weekStartIdx = settings.weekStart === 'mon' ? 1 : 0;
-    zoomFactor = clamp(typeof settings.defaultZoom === 'number' ? settings.defaultZoom : 1.0, ZOOM_MIN, ZOOM_MAX);
-    applyZoomStyles();
-  }
+    for (const [user, ranges] of availabilityByUser) {
+      for (const rng of ranges) {
+        // clamp to week
+        const a = Math.max(rng.start, start);
+        const b = Math.min(rng.end, start + 7 * 86400000);
+        if (b <= a) continue;
 
-  async function fetchMembersAvail() {
-    if (!members.length) {
-      userSlotSets.clear();
-      totalMembers = 0;
-      return;
-    }
-    const { baseEpoch, baseYMD } = getWeekStartEpochAndYMD();
-    const endYMD = ymdAddDays(baseYMD, 7);
-    const endEpoch = epochFromZoned(endYMD.y, endYMD.m, endYMD.d, 0, 0, tz);
+        // iterate slots
+        for (let day = 0; day < 7; day++) {
+          const dayStart = start + day * 86400000;
+          const dayEnd = dayStart + 86400000;
+          const s = Math.max(a, dayStart);
+          const e = Math.min(b, dayEnd);
+          if (e <= s) continue;
 
-    const payload = { from: baseEpoch, to: endEpoch, usernames: members };
-    // try normal path first; if 404, fall back to double-prefixed path
-    const tryPaths = [`${BASE_URL}/availability/get_many`, `${BASE_URL}/availability/availability/get_many`];
-    let data = { intervals: {} };
-    for (const url of tryPaths) {
-      try {
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify(payload)
-        });
-        if (res.status === 404) { console.warn('404 on', url, '— trying next path'); continue; }
-        if (!res.ok) { console.warn('Request failed', res.status, 'on', url); continue; }
-        data = await res.json();
-        break;
-      } catch (err) {
-        console.warn('Request error on', url, err);
-      }
-    }
+          const firstSlot = Math.max(0, Math.floor(((s - dayStart) / 1000) / SLOT_SEC));
+          const lastSlotExclusive = Math.min(totalRows, Math.ceil(((e - dayStart) / 1000) / SLOT_SEC));
 
-    userSlotSets.clear();
-
-    for (const uname of members) {
-      const intervals = (data.intervals && data.intervals[uname]) || [];
-      const set = new Set();
-      for (const iv of intervals) {
-        const from = Math.max(iv.from, baseEpoch);
-        const to = Math.min(iv.to, endEpoch);
-        let t = Math.ceil(from / SLOT_SEC) * SLOT_SEC;
-        for (; t < to; t += SLOT_SEC) set.add(t);
-      }
-      userSlotSets.set(uname, set);
-    }
-    totalMembers = members.length;
-  }
-
-  function setupZoomHandlers() {
-    if (!grid) grid = document.getElementById('grid');
-    grid.addEventListener('wheel', (e) => {
-      if (!e.shiftKey) return; // normal scroll
-      e.preventDefault();
-      const delta = Math.sign(e.deltaY);
-      zoomFactor = clamp(zoomFactor - delta * ZOOM_STEP, ZOOM_MIN, ZOOM_MAX);
-      applyZoomStyles();
-    }, { passive: false });
-
-    window.addEventListener('keydown', (e) => {
-      if (!e.shiftKey) return;
-      if (e.key === '=' || e.key === '+') { zoomFactor = clamp(zoomFactor + ZOOM_STEP, ZOOM_MIN, ZOOM_MAX); applyZoomStyles(); }
-      else if (e.key === '-' || e.key === '_') { zoomFactor = clamp(zoomFactor - ZOOM_STEP, ZOOM_MIN, ZOOM_MAX); applyZoomStyles(); }
-      else if (e.key === '0') { zoomFactor = 1.0; applyZoomStyles(); }
-    });
-  }
-
-  function attachUI() {
-    document.getElementById('prev-week').addEventListener('click', async () => {
-      weekOffset -= 1;
-      await fetchMembersAvail();
-      buildGrid();
-    });
-    document.getElementById('next-week').addEventListener('click', async () => {
-      weekOffset += 1;
-      await fetchMembersAvail();
-      buildGrid();
-    });
-
-    document.getElementById('add-user-btn').addEventListener('click', addUserFromInput);
-    document.getElementById('add-username').addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') { e.preventDefault(); addUserFromInput(); }
-    });
-    const addMeBtn = document.getElementById('add-me-btn');
-    addMeBtn.addEventListener('click', () => {
-      if (!currentUsername) return;
-      if (!members.includes(currentUsername)) {
-        members.push(currentUsername);
-        renderMemberList();
-        rebuild();
-      }
-    });
-
-    document.getElementById('find-btn').addEventListener('click', () => {
-      const results = computeCandidates();
-      renderResults(results);
-    });
-  }
-
-  function addUserFromInput() {
-    const inp = document.getElementById('add-username');
-    const val = inp.value.trim();
-    if (!val) return;
-    if (!members.includes(val)) {
-      members.push(val);
-      renderMemberList();
-      rebuild();
-    }
-    inp.value = '';
-  }
-
-  function removeMember(uname) {
-    members = members.filter(u => u !== uname);
-    renderMemberList();
-    rebuild();
-  }
-
-  async function rebuild() {
-    await fetchMembersAvail();
-    buildGrid();
-  }
-
-  function renderMemberList() {
-    const ul = document.getElementById('member-list');
-    ul.innerHTML = '';
-    for (const u of members) {
-      const li = document.createElement('li');
-      li.innerHTML = `<span>${u}</span>`;
-      const btn = document.createElement('button');
-      btn.textContent = 'Remove';
-      btn.addEventListener('click', () => removeMember(u));
-      li.appendChild(btn);
-      ul.appendChild(li);
-    }
-    const maxMissing = document.getElementById('max-missing');
-    maxMissing.max = String(Math.max(0, members.length));
-    renderLegend();
-  }
-
-  function renderLegend() {
-    const wrap = document.getElementById('legend-steps');
-    const lblTotal = document.getElementById('legend-total');
-    if (!wrap) return;
-    wrap.innerHTML = '';
-    const pal = palette(totalMembers);
-    for (let i = 0; i < pal.length; i++) {
-      const chip = document.createElement('span');
-      chip.className = 'chip';
-      chip.style.background = pal[i];
-      wrap.appendChild(chip);
-    }
-    lblTotal.textContent = totalMembers > 0 ? String(totalMembers) : 'All';
-  }
-
-  function applyFilterDimming() {
-    const maxMissingEl = document.getElementById('max-missing');
-    const maxMissing = Math.max(0, Number(maxMissingEl.value || 0));
-    const cells = table.querySelectorAll('td.slot-cell');
-    for (const td of cells) {
-      const epoch = Number(td.dataset.epoch);
-      const count = slotCount(epoch);
-      const missing = totalMembers - count;
-      if (totalMembers > 0 && missing > maxMissing) td.classList.add('dim');
-      else td.classList.remove('dim');
-    }
-  }
-
-  function computeCandidates() {
-    const maxMissing = Math.max(0, Number(document.getElementById('max-missing').value || 0));
-    const minHours = Math.max(0, Number(document.getElementById('min-hours').value || 0));
-    const minMins = Math.max(0, Number(document.getElementById('min-mins').value || 0));
-    const minDurationSec = (minHours * 60 + minMins) * 60;
-    const sortMethod = document.getElementById('sort-method').value;
-
-    const { baseEpoch, baseYMD } = getWeekStartEpochAndYMD();
-    const endYMD = ymdAddDays(baseYMD, 7);
-    const endEpoch = epochFromZoned(endYMD.y, endYMD.m, endYMD.d, 0, 0, tz);
-
-    const slots = [];
-    for (let t = baseEpoch; t < endEpoch; t += SLOT_SEC) {
-      const available = [];
-      for (const u of members) {
-        const set = userSlotSets.get(u);
-        if (set && set.has(t)) available.push(u);
-      }
-      const key = available.slice().sort().join('|'); // constant set key
-      slots.push({ t, available, key });
-    }
-
-    const segments = [];
-    let segStart = null, segKey = null, segAvail = null;
-    for (const s of slots) {
-      if (segKey === null) {
-        segStart = s.t;
-        segKey = s.key;
-        segAvail = s.available;
-      } else if (s.key !== segKey) {
-        const segEnd = s.t;
-        if (segAvail) {
-          const participants = segAvail.length;
-          const missing = totalMembers - participants;
-          const duration = segEnd - segStart;
-          if (participants > 0 && missing <= maxMissing && duration >= minDurationSec) {
-            segments.push({ from: segStart, to: segEnd, participants, missing, users: segAvail.slice() });
+          for (let r = firstSlot; r < lastSlotExclusive; r++) {
+            const cell = gridContentEl.querySelector(`.cell[data-day="${day}"][data-row="${r}"]`);
+            if (cell) {
+              const cur = +cell.dataset.c;
+              cell.dataset.c = String(Math.min(7, cur + 1)); // cap to 7+ for palette
+            }
           }
         }
-        segStart = s.t;
-        segKey = s.key;
-        segAvail = s.available;
       }
     }
-    if (segKey !== null) {
-      const segEnd = endEpoch;
-      if (segAvail) {
-        const participants = segAvail.length;
-        const missing = totalMembers - participants;
-        const duration = segEnd - segStart;
-        if (participants > 0 && missing <= maxMissing && duration >= minDurationSec) {
-          segments.push({ from: segStart, to: segEnd, participants, missing, users: segAvail.slice() });
+  }
+
+  // --- Past shading ---
+  function shadePast() {
+    // clear past flags
+    for (const cell of cells()) cell.classList.remove('past');
+
+    const now = Date.now();
+    const weekStart = getWeekStartEpoch();
+    const weekEnd = weekStart + 7 * 86400000;
+
+    if (now < weekStart || now > weekEnd) return; // not in this week
+
+    const dayIdx = Math.floor((now - weekStart) / 86400000);
+    const dayStart = weekStart + dayIdx * 86400000;
+    const slotIdx = Math.floor(((now - dayStart) / 1000) / SLOT_SEC);
+
+    // days before today -> past
+    for (let d = 0; d < dayIdx; d++) {
+      for (const cell of gridContentEl.querySelectorAll(`.cell[data-day="${d}"]`)) cell.classList.add('past');
+    }
+    // current day, slots before current slot
+    for (let r = 0; r < slotIdx; r++) {
+      const cell = gridContentEl.querySelector(`.cell[data-day="${dayIdx}"][data-row="${r}"]`);
+      if (cell) cell.classList.add('past');
+    }
+  }
+
+  // --- Now marker ---
+  function positionNowMarker() {
+    const marker = document.getElementById('now-marker');
+    const now = Date.now();
+    const weekStart = getWeekStartEpoch();
+    const weekEnd = weekStart + 7 * 86400000;
+
+    if (now < weekStart || now > weekEnd) {
+      marker.style.display = 'none';
+      return;
+    }
+    marker.style.display = 'block';
+
+    const dayIdx = Math.floor((now - weekStart) / 86400000);
+    const dayStart = weekStart + dayIdx * 86400000;
+    const secondsIntoDay = Math.floor((now - dayStart) / 1000);
+    const rowsIntoDay = secondsIntoDay / SLOT_SEC;
+    const topPx = rowsIntoDay * rowHeightPx();
+
+    marker.style.top = `${topPx}px`;
+  }
+
+  // Keep marker aligned on scroll/zoom/resize
+  function bindMarkerReposition() {
+    gridEl.addEventListener('scroll', () => positionNowMarker());
+    window.addEventListener('resize', () => positionNowMarker());
+    setInterval(positionNowMarker, 30000); // update roughly every 30s
+  }
+
+  // --- Filter dimming (threshold + min session length) ---
+  function applyFilterDimming() {
+    const maxMissing = parseInt(document.getElementById('max-missing').value || '0', 10);
+    const minHours = parseFloat(document.getElementById('min-hours').value || '1');
+    const needed = Math.max(0, members.length - maxMissing);
+    const minSlots = Math.max(1, Math.round(minHours * SLOTS_PER_HOUR)); // 0.5h -> 1 slot, etc.
+
+    // Clear existing dim flags
+    for (const cell of cells()) cell.classList.remove('dim');
+
+    if (members.length === 0) return;
+
+    const totalRows = (HOURS_END - HOURS_START) * SLOTS_PER_HOUR;
+
+    for (let day = 0; day < 7; day++) {
+      // For each row, compute contiguous streak where count >= needed
+      let r = 0;
+      while (r < totalRows) {
+        const cell = gridContentEl.querySelector(`.cell[data-day="${day}"][data-row="${r}"]`);
+        const ok = cell && (+cell.dataset.c) >= needed;
+        if (!ok) {
+          if (cell) cell.classList.add('dim');
+          r++;
+          continue;
         }
+        // count streak
+        let len = 0;
+        let rr = r;
+        for (; rr < totalRows; rr++) {
+          const c = gridContentEl.querySelector(`.cell[data-day="${day}"][data-row="${rr}"]`);
+          if (!c || (+c.dataset.c) < needed) break;
+          len++;
+        }
+        // mark as dim if streak shorter than minSlots
+        if (len < minSlots) {
+          for (let k = r; k < rr; k++) {
+            const c = gridContentEl.querySelector(`.cell[data-day="${day}"][data-row="${k}"]`);
+            if (c) c.classList.add('dim');
+          }
+        }
+        r = rr;
+      }
+    }
+  }
+
+  // --- Candidate finding ---
+  function findCandidates() {
+    const maxMissing = parseInt(document.getElementById('max-missing').value || '0', 10);
+    const minHours = parseFloat(document.getElementById('min-hours').value || '1');
+    const needed = Math.max(0, members.length - maxMissing);
+    const minSlots = Math.max(1, Math.round(minHours * SLOTS_PER_HOUR));
+    const start = getWeekStartEpoch();
+
+    const totalRows = (HOURS_END - HOURS_START) * SLOTS_PER_HOUR;
+    const sessions = [];
+
+    for (let day = 0; day < 7; day++) {
+      let r = 0;
+      while (r < totalRows) {
+        const cell = gridContentEl.querySelector(`.cell[data-day="${day}"][data-row="${r}"]`);
+        if (!cell || (+cell.dataset.c) < needed) { r++; continue; }
+
+        let rr = r;
+        while (rr < totalRows) {
+          const c = gridContentEl.querySelector(`.cell[data-day="${day}"][data-row="${rr}"]`);
+          if (!c || (+c.dataset.c) < needed) break;
+          rr++;
+        }
+
+        const streak = rr - r;
+        if (streak >= minSlots) {
+          // determine participating users (those available for entire streak)
+          const sessionStart = start + day * 86400000 + r * SLOT_SEC * 1000;
+          const sessionEnd = start + day * 86400000 + rr * SLOT_SEC * 1000;
+
+          const users = [];
+          for (const [uname, ranges] of availabilityByUser) {
+            let okWhole = false;
+            for (const rng of ranges) {
+              if (rng.start <= sessionStart && rng.end >= sessionEnd) { okWhole = true; break; }
+            }
+            if (okWhole) users.push(uname);
+          }
+
+          sessions.push({
+            day, rStart: r, rEnd: rr,
+            start: sessionStart, end: sessionEnd,
+            participants: users.length, users
+          });
+        }
+
+        r = rr + 1;
       }
     }
 
-    segments.sort((a, b) => {
-      if (sortMethod === 'earliest') return a.from - b.from;
-      if (sortMethod === 'latest') return b.from - a.from;
-      if (sortMethod === 'longest') return (b.to - b.from) - (a.to - a.from) || a.from - b.from;
-      if (sortMethod === 'most') return (b.participants - a.participants) || ((b.to - b.from) - (a.to - a.from)) || (a.from - b.from);
-      return a.from - b.from;
+    const sortMode = document.getElementById('sort').value;
+    sessions.sort((a,b) => {
+      if (sortMode === 'most_participants') {
+        if (b.participants !== a.participants) return b.participants - a.participants;
+        // tie-breaker: earliest in week
+        return a.start - b.start;
+      }
+      if (sortMode === 'earliest_in_week') return a.start - b.start;
+      if (sortMode === 'latest_in_week') return b.start - a.start;
+      if (sortMode === 'earliest_start') {
+        // compare by time of day (rStart)
+        if (a.rStart !== b.rStart) return a.rStart - b.rStart;
+        return a.start - b.start; // tie-break by earliest in week
+      }
+      if (sortMode === 'latest_start') {
+        if (a.rStart !== b.rStart) return b.rStart - a.rStart;
+        return a.start - b.start; // tie-break by earliest in week
+      }
+      return a.start - b.start;
     });
 
-    return segments.slice(0, 50);
-    }
-
-  function formatRangeLocal(fromSec, toSec) {
-    const opts = { timeZone: tz, hour12, weekday: 'short', month: 'short', day: 'numeric',
-                   hour: '2-digit', minute: '2-digit' };
-    const fmt = new Intl.DateTimeFormat(undefined, opts);
-    const a = fmt.format(new Date(fromSec * 1000));
-    const b = new Intl.DateTimeFormat(undefined, { timeZone: tz, hour12, hour: '2-digit', minute: '2-digit' }).format(new Date(toSec * 1000));
-    return `${a} – ${b}`;
-  }
-
-  function clearHighlights() {
-    table.querySelectorAll('.slot-cell.highlight').forEach(el => el.classList.remove('highlight'));
-  }
-
-  function highlightRange(fromSec, toSec) {
-    for (let t = fromSec; t < toSec; t += SLOT_SEC) {
-      const cell = table.querySelector(`td.slot-cell[data-epoch="${t}"]`);
-      if (cell) cell.classList.add('highlight');
-    }
+    renderResults(sessions);
   }
 
   function renderResults(list) {
-    applyFilterDimming();
-    const wrap = document.getElementById('results');
-    wrap.innerHTML = '';
+    const out = resultsEl;
+    out.innerHTML = '';
     if (!list.length) {
-      wrap.textContent = 'No matches.';
+      out.innerHTML = '<div class="empty">No matching sessions. Adjust filters.</div>';
       return;
     }
-    for (const item of list) {
+    for (const it of list) {
       const div = document.createElement('div');
-      div.className = 'result';
-      const durMin = Math.round((item.to - item.from) / 60);
-      div.innerHTML = `
-        <div class="res-top">${formatRangeLocal(item.from, item.to)}</div>
-        <div class="res-sub">${item.participants}/${totalMembers} available · ${minutesToHhmm(durMin)}</div>
-        <div class="res-users">Users: ${item.users.join(', ')}</div>
-      `;
-      div.addEventListener('mouseenter', () => { clearHighlights(); highlightRange(item.from, item.to); });
-      div.addEventListener('mouseleave', () => { clearHighlights(); });
-      wrap.appendChild(div);
+      div.className = 'result-item';
+      const line1 = document.createElement('div');
+      line1.className = 'line';
+      line1.innerHTML = `<div>${fmtRange(it.start, it.end)}</div><div><strong>${it.participants}/${members.length}</strong> available</div>`;
+      const line2 = document.createElement('div');
+      line2.className = 'users';
+      line2.textContent = `Users: ${it.users.join(', ')}`;
+      div.appendChild(line1);
+      div.appendChild(line2);
+      out.appendChild(div);
+    }
+  }
+
+  // --- Fetch availability ---
+  async function fetchMembersAvail() {
+    availabilityByUser.clear();
+    if (members.length === 0) { paintAvailability(); applyFilterDimming(); return; }
+
+    const weekStart = getWeekStartEpoch();
+    const body = {
+      usernames: members.map(m => m.username),
+      start: weekStart,
+      end: weekStart + 7 * 86400000
+    };
+
+    // try primary endpoint, then fallback to legacy
+    let url = `${BASE_URL}/availability/get_many`;
+    let res = await tryPost(url, body);
+    if (!res || res.status === 404) {
+      url = `${BASE_URL}/availability/availability/get_many`;
+      res = await tryPost(url, body);
+    }
+    if (!res || res.status !== 200) {
+      console.warn('fetch availability failed', res && res.status);
+      paintAvailability(); applyFilterDimming(); return;
+    }
+    const data = await res.json();
+    // expected: { data: { username: [{start,end},...] } } or array
+    if (Array.isArray(data)) {
+      for (const u of data) availabilityByUser.set(u.username, u.entries || u.availability || []);
+    } else if (data && data.data) {
+      for (const [uname, arr] of Object.entries(data.data)) {
+        availabilityByUser.set(uname, arr);
+      }
+    } else {
+      // best-effort
+      for (const [uname, arr] of Object.entries(data)) availabilityByUser.set(uname, arr);
+    }
+
+    paintAvailability();
+    applyFilterDimming();
+  }
+
+  async function tryPost(url, body) {
+    try {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 6000);
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(body),
+        signal: ctrl.signal
+      });
+      clearTimeout(t);
+      return res;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // --- Members UI ---
+  function renderMembers() {
+    const list = document.getElementById('member-list');
+    list.innerHTML = '';
+    for (const m of members) {
+      const row = document.createElement('div');
+      row.className = 'member';
+      const name = document.createElement('div');
+      name.textContent = m.username;
+      const btn = document.createElement('button');
+      btn.className = 'btn btn-secondary';
+      btn.textContent = 'Remove';
+      btn.addEventListener('click', async () => {
+        members = members.filter(x => x.username !== m.username);
+        renderMembers();
+        await fetchMembersAvail();
+      });
+      row.appendChild(name);
+      row.appendChild(btn);
+      list.appendChild(row);
+    }
+    updateLegend();
+  }
+
+  function updateLegend() {
+    const labels = document.getElementById('legend-labels');
+    labels.innerHTML = '';
+    const max = Math.max(7, members.length);
+    // ensure 0..7 at least
+    for (let i = 0; i < 8; i++) {
+      const d = document.createElement('div');
+      d.textContent = String(i);
+      labels.appendChild(d);
+    }
+    // paint boxes up to 7 using data-val attribute (CSS palette is fixed)
+    for (const el of document.querySelectorAll('.legend-box')) {
+      const v = parseInt(el.dataset.val, 10);
+      el.style.background = '';
+      el.removeAttribute('data-c');
+      el.setAttribute('data-c', String(v));
+      el.className = 'legend-box cell';
+      el.style.pointerEvents = 'none';
+    }
+  }
+
+  // --- Zoom / Pan ---
+  function applyZoom() {
+    const base = 18;
+    const newPx = clamp(Math.round(base * zoom), 10, 42);
+    document.documentElement.style.setProperty('--row-height', `${newPx}px`);
+    positionNowMarker();
+  }
+
+  function bindZoomAndPan() {
+    gridEl.addEventListener('wheel', (e) => {
+      if (e.shiftKey) {
+        e.preventDefault();
+        const delta = -Math.sign(e.deltaY);
+        zoom = clamp(zoom + delta * 0.1, 0.5, 2.2);
+        applyZoom();
+      }
+      // otherwise normal scroll (pan)
+    }, { passive: false });
+  }
+
+  // --- Helpers ---
+  function getWeekStartEpoch() {
+    const now = Date.now();
+    const cur = startOfWeekEpoch(now, tz, weekStartIdx);
+    return cur + weekOffset * 7 * 86400000;
+  }
+
+  // --- Auth ---
+  async function checkAuth() {
+    try {
+      const res = await fetch(`${BASE_URL}/auth/check`, { credentials: 'include', cache: 'no-cache' });
+      if (res.status === 200) {
+        const data = await res.json();
+        isAuthenticated = true;
+        currentUsername = data && (data.username || data.user || data.email) || null;
+      } else {
+        isAuthenticated = false;
+      }
+    } catch {
+      isAuthenticated = false;
+    }
+    const label = document.getElementById('auth-user');
+    if (isAuthenticated && currentUsername) {
+      label.textContent = `Signed in as ${currentUsername}`;
+      label.style.display = 'inline';
+    } else {
+      label.style.display = 'none';
+    }
+  }
+
+  async function logout() {
+    try { await fetch(`${BASE_URL}/auth/logout`, { credentials: 'include' }); } catch {}
+    window.location.href = '/index.html';
+  }
+
+  // --- Attach UI ---
+  function attachUI() {
+    document.getElementById('prev-week').addEventListener('click', async () => {
+      weekOffset -= 1;
+      buildGrid();
+      await fetchMembersAvail();
+    });
+    document.getElementById('next-week').addEventListener('click', async () => {
+      weekOffset += 1;
+      buildGrid();
+      await fetchMembersAvail();
+    });
+
+    // Add member(s)
+    document.getElementById('add-user').addEventListener('click', async () => {
+      const input = document.getElementById('member-input');
+      const name = (input.value || '').trim();
+      if (!name) return;
+      if (!members.some(m => m.username === name)) members.push({ username: name });
+      input.value = '';
+      renderMembers();
+      await fetchMembersAvail();
+    });
+
+    document.getElementById('add-me').addEventListener('click', async () => {
+      if (!isAuthenticated || !currentUsername) return;
+      if (!members.some(m => m.username === currentUsername)) members.push({ username: currentUsername });
+      renderMembers();
+      await fetchMembersAvail();
+    });
+
+    // find
+    document.getElementById('find-btn').addEventListener('click', () => {
+      findCandidates();
+    });
+
+    // filter change handlers
+    document.getElementById('max-missing').addEventListener('input', () => {
+      applyFilterDimming();
+    });
+    const minHoursEl = document.getElementById('min-hours');
+    minHoursEl.addEventListener('input', () => applyFilterDimming());
+    minHoursEl.addEventListener('wheel', (e) => {
+      // increments of 0.5h
+      e.preventDefault();
+      const dir = -Math.sign(e.deltaY);
+      const cur = parseFloat(minHoursEl.value || '0') || 0;
+      let next = cur + dir * 0.5;
+      if (next < 0) next = 0;
+      // round to nearest 0.5 to avoid float noise
+      next = Math.round(next * 2) / 2;
+      minHoursEl.value = String(next);
+      applyFilterDimming();
+    }, { passive: false });
+
+    // logout
+    document.getElementById('logout-btn').addEventListener('click', logout);
+
+    // horizontal pan is default via native scrollbars
+  }
+
+  // --- Init ---
+  function wireLegendNumbers() {
+    const labels = document.getElementById('legend-labels');
+    labels.innerHTML = '';
+    for (let i = 0; i < 8; i++) {
+      const div = document.createElement('div');
+      div.textContent = String(i);
+      labels.appendChild(div);
     }
   }
 
   async function init() {
-    table = document.getElementById('scheduler-table');
-    grid = document.getElementById('grid');
+    tableEl = document.getElementById('table');
+    gridEl = document.getElementById('grid');
+    gridContentEl = document.getElementById('grid-content');
+    dayHeadersEl = document.getElementById('day-headers');
+    dateRangeEl = document.getElementById('date-range');
+    resultsEl = document.getElementById('results');
+
     attachUI();
-    await loadSettings();
-    await fetchMembersAvail();
+    bindZoomAndPan();
+    bindMarkerReposition();
+    wireLegendNumbers();
+
+    await checkAuth();
     buildGrid();
 
-    // re-apply dimming when filter inputs change
-    document.getElementById('max-missing').addEventListener('input', applyFilterDimming);
-    document.getElementById('min-hours').addEventListener('input', () => {});
-    document.getElementById('min-mins').addEventListener('input', () => {});
+    // demo: keep previous members from sessionStorage
+    try {
+      const prev = JSON.parse(sessionStorage.getItem('nat20_members') || '[]');
+      if (Array.isArray(prev)) members = prev;
+    } catch {}
+    renderMembers();
+    await fetchMembersAvail();
+
+    window.addEventListener('beforeunload', () => {
+      sessionStorage.setItem('nat20_members', JSON.stringify(members));
+    });
   }
 
-  function setAuth(auth, username) {
-    isAuthenticated = !!auth;
-    currentUsername = username || null;
-  }
+  // boot
+  if (document.readyState !== 'loading') init();
+  else document.addEventListener('DOMContentLoaded', init);
 
-  window.scheduler = { init, setAuth };
+  // expose for debugging
+  window.__scheduler = { buildGrid, fetchMembersAvail, findCandidates };
 })();

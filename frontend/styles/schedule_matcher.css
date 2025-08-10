@@ -20,24 +20,24 @@
 
 .left-col .controls button {
   background: #262626;
-  color: #fff;
-  border: 1px solid #333;
+  color: #eee;
+  border: 1px solid #383838;
+  border-radius: 10px;
   padding: 6px 10px;
-  border-radius: 8px;
   cursor: pointer;
 }
+.left-col .controls button:hover { background: #2f2f2f; }
+.left-col .controls .muted { color: #9aa0a6; font-size: 12px; }
 
 .grid {
-  border: 1px solid #2a2a2a;
-  border-radius: 12px;
-  overflow: auto;
-  height: calc(100vh - 200px);
   background: #101010;
+  border: 1px solid #2b2b2b;
+  border-radius: 12px;
+  padding: 8px;
+  overflow: auto;
 }
 
-/* Table */
 .table {
-  border-collapse: collapse;
   width: 100%;
   min-width: 820px;
   user-select: none;
@@ -45,13 +45,23 @@
 }
 .table th,
 .table td { border: 1px solid #2b2b2b; text-align: center; }
-.table th {
+
+/* Keep day/date header text size constant (no zoom scaling) */
+.table thead th {
   position: sticky;
   top: 0;
   background: #151515;
   z-index: 5;
-  padding: 6px;
   font-weight: 600;
+  font-size: 12px;
+}
+
+/* row height scales with zoom */
+.table tbody td,
+.table tbody th {
+  height: var(--row-height);
+  line-height: var(--row-height);
+  padding: 0;
 }
 
 /* Sticky time column */
@@ -68,24 +78,30 @@
 /* Hour cell spans two rows */
 .time-col.hour {
   font-size: calc(var(--font-size) * 1.15);
-  line-height: calc(var(--row-height) * 2);
+  line-height: normal;
+  background: #151515;
 }
 
-/* Slots (read-only shading) */
+/* Slot cells */
 .slot-cell {
-  width: 110px;
-  min-width: 110px;
-  height: var(--row-height);
-  background: #121212;
+  cursor: default;
+  background-clip: padding-box;
 }
 
 .slot-cell.dim {
-  filter: grayscale(0.75) brightness(0.8);
+  filter: grayscale(40%) brightness(0.8);
+  opacity: 0.45;
 }
 
-/* Thicker separators at hour rows */
-tr.row-hour > td,
-tr.row-hour > th {
+.table thead tr > th:first-child,
+.table tbody tr > th.time-col {
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  background: #151515;
+}
+
+.table thead tr > th {
   border-top-width: 2px;
   border-top-color: #3a3a3a;
 }
@@ -101,17 +117,22 @@ tr.row-hour > th {
   border-radius: 8px;
   font-size: 12px;
   max-width: 280px;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
   pointer-events: none;
+  box-shadow: 0 10px 28px rgba(0,0,0,0.45);
 }
 
-/* Right column panels */
-.right-col .panel {
-  background: #171717;
-  border: 1px solid #2a2a2a;
+/* Right column */
+.right-col {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.panel {
+  background: #121212;
+  border: 1px solid #242424;
   border-radius: 12px;
-  padding: 14px;
-  margin-bottom: 16px;
+  padding: 12px;
 }
 
 .right-col h3 {
@@ -166,25 +187,31 @@ tr.row-hour > th {
   border: 1px solid #2a2a2a;
   border-radius: 8px;
   padding: 6px 8px;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
 }
 
-.member-list button {
-  background: #3a3a3a;
-  color: #fff;
-  border: 1px solid #4a4a4a;
-  border-radius: 6px;
-  padding: 4px 8px;
+.member-list li button {
+  background: #3b3b3b;
+  border: 0;
+  color: #eee;
+  padding: 6px 10px;
+  border-radius: 8px;
   cursor: pointer;
 }
+.member-list li button:hover { background: #4a4a4a; }
 
-/* Step legend */
-.legend { margin-top: 8px; color: #bbb; }
-.legend-steps { display: flex; gap: 4px; }
+/* Legend */
+.legend {
+  margin-top: 10px;
+}
+.legend-steps {
+  display: flex;
+  gap: 6px;
+}
 .legend-steps .chip {
-  width: 16px;
-  height: 12px;
-  border-radius: 3px;
+  width: 22px;
+  height: 10px;
+  border-radius: 6px;
   border: 1px solid #2b2b2b;
 }
 .legend-labels {
@@ -199,3 +226,79 @@ tr.row-hour > th {
   outline: 2px solid #ffd54a;
   outline-offset: -2px;
 }
+
+/* --- Added: helper text alignment and uniform control buttons --- */
+.left-col .controls .helper { margin-left: auto; }
+.left-col .controls button { height: 32px; padding: 6px 12px; }
+
+/* Equalize Add/Add me row heights */
+.right-col .add-user input { height: 32px; }
+.right-col .add-user button { height: 32px; line-height: 32px; }
+
+/* Grid content wrapper for absolute-positioned overlays like NOW marker */
+.grid { position: relative; overflow: auto; }
+.grid-content { position: relative; min-width: 820px; }
+
+/* NOW marker (horizontal red line confined to today's column) */
+.now-marker {
+  position: absolute;
+  height: 0;
+  border-top: 2px solid #e53935;
+  z-index: 8;
+  display: none;
+  pointer-events: none;
+}
+.now-marker .bubble {
+  position: absolute;
+  right: calc(100% + 10px);
+  top: -12px;
+  transform: translateY(0);
+  font-size: 10px;
+  line-height: 1;
+  background: #0f0f0f;
+  color: #e53935;
+  border: 1px solid #e53935;
+  border-radius: 6px;
+  padding: 3px 6px;
+  letter-spacing: 0.5px;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.4);
+}
+.now-marker .bubble::after {
+  content: "";
+  position: absolute;
+  left: 100%;
+  top: 50%;
+  transform: translateY(-50%);
+  border-left: 8px solid #e53935;
+  border-top: 6px solid transparent;
+  border-bottom: 6px solid transparent;
+}
+.now-marker .bubble::before {
+  content: "";
+  position: absolute;
+  left: 100%;
+  top: 50%;
+  transform: translate(calc(-1px), -50%);
+  border-left: 7px solid #0f0f0f;
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+}
+
+/* Dim past cells */
+.slot-cell.past { opacity: 0.35; }
+
+/* Legend: keep numbers centered under each chip */
+.legend-steps, .legend-labels { display: grid; gap: 6px; }
+.legend-labels span { text-align: center; }
+
+/* Results styling */
+.results .result {
+  background: #121212;
+  border: 1px solid #2a2a2a;
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin: 8px 0;
+}
+.results .result .res-top { font-weight: 600; margin-bottom: 4px; }
+.results .result .res-sub { font-size: 12px; color: #bbb; margin-bottom: 4px; }
+.results .result .res-users { font-size: 12px; color: #8fa; word-break: break-word; }
