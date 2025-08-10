@@ -44,9 +44,13 @@
           const data = await res.json();
           isAuthenticated = true;
           currentUsername = data.username || 'unknown';
+        } else {
+          isAuthenticated = false;
+          currentUsername = null;
         }
       } catch {
         isAuthenticated = false;
+        currentUsername = null;
       }
 
       updateAuthUI();
@@ -69,7 +73,6 @@
     }
 
     function runModalInit(path) {
-      // Ensure the right initializer runs after HTML is injected
       if (path.includes('register.html') && window.initRegisterForm) {
         window.initRegisterForm();
       } else if (path.includes('login.html') && window.initLoginForm) {
@@ -110,10 +113,6 @@
       container.innerHTML = '';
     }
 
-    window.openModal = openModal;
-    window.swapModal = swapModal;
-    window.closeModal = closeModal;
-
     async function logout() {
       try {
         await fetch('http://backend.nat20scheduling.com:3000/logout', {
@@ -150,15 +149,24 @@
         output.textContent = `❌ Error: ${err.message}`;
       }
     }
+
+    // Expose the necessary functions/state setters to the global scope for modal scripts
+    window.openModal = openModal;
+    window.swapModal = swapModal;
+    window.closeModal = closeModal;
+    window.updateAuthUI = updateAuthUI;
+    window.setAuthState = function(authenticated, username) {
+      isAuthenticated = !!authenticated;
+      currentUsername = authenticated ? username : null;
+      updateAuthUI();
+    };
+
+    // Kick off initial auth state
+    checkAuth();
   </script>
 
   <!-- Ensure modal form logic is available globally, then we call init after injecting HTML -->
   <script src="/scripts/login.js"></script>
   <script src="/scripts/register.js"></script>
-
-  <script>
-    // Kick off initial auth state
-    checkAuth();
-  </script>
 </body>
 </html>

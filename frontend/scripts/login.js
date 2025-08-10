@@ -22,10 +22,8 @@ window.initLoginForm = function () {
         errorDisplay.style.color = '#0f0';
         errorDisplay.textContent = '✅ Sign-in successful. Loading...';
         setTimeout(() => {
-          window.closeModal();
-          window.isAuthenticated = true;
-          window.currentUsername = username;
-          window.updateAuthUI();
+          if (window.closeModal) window.closeModal();
+          if (window.setAuthState) window.setAuthState(true, username);
         }, 1000);
       } else {
         const data = await res.json();
