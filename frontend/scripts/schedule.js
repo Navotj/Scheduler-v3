@@ -29,6 +29,7 @@
 
   let table;
   let grid;
+  let gridContent;
   let nowMarker;
 
   function resolveTimezone(val) {
@@ -127,10 +128,11 @@
 
   function ensureNowMarker() {
     grid = document.getElementById('grid');
+    gridContent = document.getElementById('grid-content');
     table = document.getElementById('schedule-table');
     nowMarker = document.getElementById('now-marker');
 
-    if (!nowMarker && grid) {
+    if (!nowMarker && gridContent) {
       nowMarker = document.createElement('div');
       nowMarker.id = 'now-marker';
       nowMarker.className = 'now-marker';
@@ -138,7 +140,10 @@
       bubble.className = 'bubble';
       bubble.textContent = 'NOW';
       nowMarker.appendChild(bubble);
-      grid.appendChild(nowMarker);
+      gridContent.appendChild(nowMarker);
+    } else if (nowMarker && nowMarker.parentElement !== gridContent && gridContent) {
+      nowMarker.parentElement.removeChild(nowMarker);
+      gridContent.appendChild(nowMarker);
     }
   }
 
@@ -162,6 +167,7 @@
   function buildGrid() {
     table = document.getElementById('schedule-table');
     grid = document.getElementById('grid');
+    gridContent = document.getElementById('grid-content');
     ensureNowMarker();
     table.innerHTML = '';
 
@@ -437,6 +443,9 @@
         buildGrid();
       }
     });
+
+    // Update marker layout on window resize (column widths may change).
+    window.addEventListener('resize', () => requestAnimationFrame(updateNowMarker));
   }
 
   function setupZoomHandlers() {
@@ -456,14 +465,14 @@
       else if (e.key === '0') { zoomFactor = 1.0; applyZoomStyles(); }
     });
 
-    grid.addEventListener('scroll', () => requestAnimationFrame(updateNowMarker), { passive: true });
-    window.addEventListener('resize', () => requestAnimationFrame(updateNowMarker));
+    /* No scroll listener needed for the now marker:
+       it's positioned inside .grid-content so it naturally scrolls with the table. */
   }
 
-  // --- NOW MARKER (scroll/zoom invariant using rects, border-compensated) ---
+  // --- NOW MARKER (locked to content layer; no scroll math) ---
   function updateNowMarker() {
     ensureNowMarker();
-    if (!grid || !table || !nowMarker) return;
+    if (!gridContent || !table || !nowMarker) return;
 
     const { baseYMD } = getWeekStartEpochAndYMD();
     const todayYMD = getTodayYMDInTZ(tz);
@@ -488,23 +497,14 @@
       return;
     }
 
-    // Use DOMRects so position naturally follows scroll (no manual scrollTop math).
-    const gridRect = grid.getBoundingClientRect();
-    const cellRect = targetCell.getBoundingClientRect();
-    const colRect = colStartCell.getBoundingClientRect();
-
-    // Compensate for grid borders (absolute positioning uses padding box).
-    const gridBorderTop = grid.clientTop || 0;
-    const gridBorderLeft = grid.clientLeft || 0;
-
-    const markerTop = (cellRect.top - (gridRect.top + gridBorderTop)) + (cellRect.height * frac);
-    const markerLeft = (colRect.left - (gridRect.left + gridBorderLeft));
-    const markerWidth = colRect.width;
+    const contentTop = (table.offsetTop || 0) + targetCell.offsetTop + (targetCell.offsetHeight * frac);
+    const contentLeft = (table.offsetLeft || 0) + colStartCell.offsetLeft;
+    const contentWidth = colStartCell.offsetWidth;
 
     nowMarker.style.display = 'block';
-    nowMarker.style.top = `${markerTop}px`;
-    nowMarker.style.left = `${markerLeft}px`;
-    nowMarker.style.width = `${markerWidth}px`;
+    nowMarker.style.top = `${contentTop}px`;
+    nowMarker.style.left = `${contentLeft}px`;
+    nowMarker.style.width = `${contentWidth}px`;
   }
   // --- /NOW MARKER ---
 
@@ -525,6 +525,7 @@
     await loadWeekSelections();
     buildGrid();
 
+    // keep "now" in sync every minute
     setInterval(updateNowMarker, 60000);
   }
 
