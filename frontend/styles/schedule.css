@@ -42,13 +42,16 @@
 }
 .table th,
 .table td { border: 1px solid #2b2b2b; text-align: center; }
-.table th {
+
+/* Keep day/date header text size constant (no zoom scaling) */
+.table thead th {
   position: sticky;
   top: 0;
   background: #151515;
   z-index: 5;
   padding: 6px;
   font-weight: 600;
+  font-size: 13px !important; /* fixed size regardless of --font-size */
 }
 
 /* Sticky time column */
@@ -138,25 +141,39 @@ tr.row-hour > th {
   display: none; /* shown only when inside displayed week */
   pointer-events: none;
 }
+
+/* "Now" pointer: circle + triangle, placed to the LEFT of the red line */
 .now-marker .label {
   position: absolute;
-  left: 6px;
-  top: -14px;
-  background: #1a1a1a;
+  right: calc(100% + 12px); /* to the left of the line */
+  top: -10px;               /* vertically centered around the 2px line */
   color: #e53935;
-  border: 1px solid #4a0f0f;
-  border-radius: 6px 6px 6px 0;
-  padding: 2px 6px;
   font-size: 11px;
-  line-height: 1.2;
-  box-shadow: 0 2px 10px rgba(0,0,0,0.35);
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  user-select: none;
 }
 .now-marker .label::before {
   content: "";
   position: absolute;
-  left: 0;
-  bottom: -4px;
-  width: 0; height: 0;
-  border-top: 4px solid #4a0f0f;
-  border-right: 4px solid transparent;
+  right: calc(100% + 8px);
+  top: 50%;
+  transform: translateY(-50%);
+  width: 12px;
+  height: 12px;
+  background: #e53935;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px #1a1a1a;
+}
+.now-marker .label::after {
+  content: "";
+  position: absolute;
+  left: 100%;
+  top: 50%;
+  transform: translateY(-50%);
+  border-left: 8px solid #e53935;
+  border-top: 6px solid transparent;
+  border-bottom: 6px solid transparent;
 }
