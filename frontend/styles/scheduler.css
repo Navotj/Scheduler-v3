@@ -28,6 +28,7 @@
 }
 
 .grid {
+  position: relative; /* for now-line overlay */
   border: 1px solid #2a2a2a;
   border-radius: 12px;
   overflow: auto;
@@ -178,30 +179,52 @@ tr.row-hour > th {
   cursor: pointer;
 }
 
-.legend {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 6px;
-  margin-top: 8px;
-  color: #bbb;
-}
-
-.chip {
-  display: inline-block;
-  width: 16px;
+/* Gradient legend */
+.legend { margin-top: 8px; color: #bbb; }
+.legend-row { display: grid; grid-template-columns: 24px 1fr 28px; align-items: center; gap: 8px; }
+.legend-gradient {
   height: 12px;
-  border-radius: 3px;
-  margin-right: 8px;
-  vertical-align: -1px;
+  border-radius: 6px;
   border: 1px solid #2b2b2b;
+  background: linear-gradient(90deg, #2a2a2a 0%, hsl(140, 60%, 34%) 100%);
 }
-
-.chip-best { background: hsl(140, 60%, 34%); }
-.chip-mid { background: hsl(140, 45%, 22%); }
-.chip-none { background: #2a2a2a; }
 
 /* Highlighted cells for selected result interval */
 .slot-cell.highlight {
   outline: 2px solid #ffd54a;
   outline-offset: -2px;
+}
+
+/* NOW marker */
+.now-marker {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0;
+  border-top: 2px solid #e53935;
+  z-index: 6; /* above table cells, below sticky header */
+  display: none; /* hidden when outside of displayed week */
+}
+
+.now-marker .label {
+  position: absolute;
+  left: 6px;
+  top: -12px;
+  background: #1a1a1a;
+  color: #e53935;
+  border: 1px solid #4a0f0f;
+  border-radius: 6px 6px 6px 0;
+  padding: 2px 6px;
+  font-size: 11px;
+  line-height: 1.2;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.35);
+}
+.now-marker .label::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: -4px;
+  width: 0; height: 0;
+  border-top: 4px solid #4a0f0f;
+  border-right: 4px solid transparent;
 }

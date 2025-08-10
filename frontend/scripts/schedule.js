@@ -147,6 +147,8 @@
     const { baseEpoch, baseYMD } = getWeekStartEpochAndYMD();
     renderWeekLabel(baseEpoch);
 
+    const nowEpoch = Math.floor(Date.now() / 1000);
+
     const thead = document.createElement('thead');
     const hr = document.createElement('tr');
 
@@ -208,8 +210,12 @@
 
         if (selected.has(epoch)) td.classList.add('selected');
 
+        // mark past slots (disable editing)
+        if (epoch < nowEpoch) td.classList.add('past');
+
         td.addEventListener('mousedown', (e) => {
           if (!isAuthenticated) return;
+          if (td.classList.contains('past')) return;
           e.preventDefault();
           isDragging = true;
           dragStart = { row: r, col: c };
@@ -218,13 +224,17 @@
         });
 
         td.addEventListener('mouseenter', () => {
-          if (!isAuthenticated || !isDragging) return;
+          if (!isAuthenticated) return;
+          if (!isDragging) return;
+          if (td.classList.contains('past')) return;
           dragEnd = { row: r, col: c };
           updatePreview();
         });
 
         td.addEventListener('mouseup', () => {
-          if (!isAuthenticated || !isDragging) return;
+          if (!isAuthenticated) return;
+          if (!isDragging) return;
+          if (td.classList.contains('past')) return;
           dragEnd = { row: r, col: c };
           applyBoxSelection();
           clearPreview();
@@ -259,10 +269,11 @@
     const r2 = Math.max(dragStart.row, dragEnd.row);
     const c1 = Math.min(dragStart.col, dragEnd.col);
     const c2 = Math.max(dragStart.col, dragEnd.col);
+
     for (let r = r1; r <= r2; r++) {
       for (let c = c1; c <= c2; c++) {
         const cell = table.querySelector(`td.slot-cell[data-row="${r}"][data-col="${c}"]`);
-        if (cell) fn(cell);
+        if (cell && !cell.classList.contains('past')) fn(cell);
       }
     }
   }
@@ -299,11 +310,14 @@
     document.getElementById('mode-subtract').classList.toggle('active', mode === 'subtract');
   }
 
-  function getWeekBoundsEpoch() {
-    const { baseEpoch, baseYMD } = getWeekStartEpochAndYMD();
-    const endYMD = ymdAddDays(baseYMD, 7);
-    const end = epochFromZoned(endYMD.y, endYMD.m, endYMD.d, 0, 0, tz);
-    return { startEpoch: baseEpoch, endEpoch: end };
+  function getWeekStartEpochAndYMD() {
+    const todayYMD = getTodayYMDInTZ(tz);
+    const todayMid = epochFromZoned(todayYMD.y, todayYMD.m, todayYMD.d, 0, 0, tz);
+    const todayIdx = weekdayIndexInTZ(todayMid, tz);
+    const diff = (todayIdx - weekStartIdx + 7) % 7;
+    const baseYMD = ymdAddDays(todayYMD, -diff + weekOffset * 7);
+    const baseEpoch = epochFromZoned(baseYMD.y, baseYMD.m, baseYMD.d, 0, 0, tz);
+    return { baseEpoch, baseYMD };
   }
 
   function compressToIntervals(sortedEpochs) {
@@ -322,7 +336,13 @@
 
   async function saveWeek() {
     if (!isAuthenticated) return;
-    const { startEpoch, endEpoch } = getWeekBoundsEpoch();
+    const { startEpoch, endEpoch } = (function() {
+      const { baseEpoch, baseYMD } = getWeekStartEpochAndYMD();
+      const endYMD = ymdAddDays(baseYMD, 7);
+      const end = epochFromZoned(endYMD.y, endYMD.m, endYMD.d, 0, 0, tz);
+      return { startEpoch: baseEpoch, endEpoch: end };
+    })();
+
     const inside = Array.from(selected).filter(t => t >= startEpoch && t < endEpoch).sort((a, b) => a - b);
     const intervals = compressToIntervals(inside);
     try {
@@ -344,16 +364,18 @@
   }
 
   async function loadWeekSelections() {
-    const { startEpoch, endEpoch } = getWeekBoundsEpoch();
+    const { baseEpoch, baseYMD } = getWeekStartEpochAndYMD();
+    const endYMD = ymdAddDays(baseYMD, 7);
+    const endEpoch = epochFromZoned(endYMD.y, endYMD.m, endYMD.d, 0, 0, tz);
     try {
-      const res = await fetch(`http://backend.nat20scheduling.com:3000/availability/get?from=${startEpoch}&to=${endEpoch}`, {
+      const res = await fetch(`http://backend.nat20scheduling.com:3000/availability/get?from=${baseEpoch}&to=${endEpoch}`, {
         credentials: 'include',
         cache: 'no-cache'
       });
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data.intervals)) {
-          for (const t of Array.from(selected)) if (t >= startEpoch && t < endEpoch) selected.delete(t);
+          for (const t of Array.from(selected)) if (t >= baseEpoch && t < endEpoch) selected.delete(t);
           for (const iv of data.intervals) {
             const from = Number(iv.from);
             const to = Number(iv.to);
@@ -416,7 +438,6 @@
   }
 
   async function init() {
-    // Load settings: prefer remote, fallback to local/defaults
     const remote = await fetchRemoteSettings();
     const local = loadLocal();
     const s = remote || local || DEFAULT_SETTINGS;
@@ -426,8 +447,6 @@
     weekStartIdx = settings.weekStart === 'mon' ? 1 : 0;
     highlightWeekends = !!settings.highlightWeekends;
     zoomFactor = clamp(typeof settings.defaultZoom === 'number' ? settings.defaultZoom : 1.0, ZOOM_MIN, ZOOM_MAX);
-
-    // keep local in sync (helps other tabs update immediately)
     saveLocal(settings);
 
     applyZoomStyles();

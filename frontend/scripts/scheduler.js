@@ -1,5 +1,4 @@
 (function () {
-  const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const SLOTS_PER_HOUR = 2;        // 30-min steps
   const HOURS_START = 0;
   const HOURS_END = 24;
@@ -29,6 +28,7 @@
   // cached
   let table;
   let grid;
+  let nowMarker;
 
   // utils
   function resolveTimezone(val) {
@@ -59,12 +59,14 @@
     return Math.floor(ts / 1000);
   }
 
-  function getTodayYMDInTZ(tzName) {
-    const parts = new Intl.DateTimeFormat('en-US', { timeZone: tzName, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
+  function getYMDInTZ(date, tzName) {
+    const parts = new Intl.DateTimeFormat('en-US', { timeZone: tzName, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(date);
     const map = {};
     for (const p of parts) map[p.type] = p.value;
     return { y: Number(map.year), m: Number(map.month), d: Number(map.day) };
   }
+
+  function getTodayYMDInTZ(tzName) { return getYMDInTZ(new Date(), tzName); }
 
   function ymdAddDays(ymd, add) {
     const tmp = new Date(Date.UTC(ymd.y, ymd.m - 1, ymd.d));
@@ -94,13 +96,19 @@
     return `${h} ${ampm}`;
   }
 
-  function applyZoomStyles() {
-    const root = document.documentElement;
-    const baseRow = 18;
-    const baseFont = 12;
-    zoomFactor = clamp(zoomFactor, ZOOM_MIN, ZOOM_MAX);
-    root.style.setProperty('--row-height', `${(baseRow * zoomFactor).toFixed(2)}px`);
-    root.style.setProperty('--font-size', `${(baseFont * zoomFactor).toFixed(2)}px`);
+  function colorFor(count, total) {
+    if (total === 0) return '#2a2a2a';
+    const ratio = count / total; // 0..1
+    const light = 18 + Math.round(22 * ratio); // 18%..40%
+    const sat = 55; // %
+    const hue = 140; // green
+    return `hsl(${hue}, ${sat}%, ${light}%)`;
+  }
+
+  function minutesToHhmm(mins) {
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    return `${h}h ${String(m).padStart(2, '0')}m`;
   }
 
   function renderWeekLabel(startEpoch) {
@@ -113,24 +121,19 @@
     document.getElementById('week-label').textContent = `${fmt(startDate)} – ${fmt(endDate)}, ${year}`;
   }
 
-  function colorFor(count, total) {
-    if (total === 0 || count === 0) return '#2a2a2a';
-    const ratio = count / total; // 0..1
-    const light = 18 + Math.round(22 * ratio); // 18%..40%
-    const sat = 50; // %
-    const hue = 140; // green
-    return `hsl(${hue}, ${sat}%, ${light}%)`;
-  }
-
-  function minutesToHhmm(mins) {
-    const h = Math.floor(mins / 60);
-    const m = mins % 60;
-    return `${h}h ${String(m).padStart(2, '0')}m`;
+  function applyZoomStyles() {
+    const root = document.documentElement;
+    const baseRow = 18, baseFont = 12;
+    zoomFactor = clamp(zoomFactor, ZOOM_MIN, ZOOM_MAX);
+    root.style.setProperty('--row-height', `${(baseRow * zoomFactor).toFixed(2)}px`);
+    root.style.setProperty('--font-size', `${(baseFont * zoomFactor).toFixed(2)}px`);
+    updateNowMarker(); // row height changed → reposition
   }
 
   function buildGrid() {
     table = document.getElementById('scheduler-table');
     grid = document.getElementById('grid');
+    nowMarker = document.getElementById('now-marker');
     table.innerHTML = '';
 
     const { baseEpoch, baseYMD } = getWeekStartEpochAndYMD();
@@ -202,6 +205,9 @@
     table.appendChild(tbody);
     setupZoomHandlers();
     applyFilterDimming();
+
+    // position/update NOW marker
+    updateNowMarker();
   }
 
   function onCellHoverMove(e) {
@@ -288,20 +294,12 @@
       for (const iv of intervals) {
         const from = Math.max(iv.from, baseEpoch);
         const to = Math.min(iv.to, endEpoch);
-        // align to 30-min boundary
         let t = Math.ceil(from / SLOT_SEC) * SLOT_SEC;
         for (; t < to; t += SLOT_SEC) set.add(t);
       }
       userSlotSets.set(uname, set);
     }
     totalMembers = members.length;
-  }
-
-  function applyZoomStyles() {
-    const root = document.documentElement;
-    const baseRow = 18, baseFont = 12;
-    root.style.setProperty('--row-height', `${(baseRow * zoomFactor).toFixed(2)}px`);
-    root.style.setProperty('--font-size', `${(baseFont * zoomFactor).toFixed(2)}px`);
   }
 
   function setupZoomHandlers() {
@@ -320,6 +318,50 @@
       else if (e.key === '-' || e.key === '_') { zoomFactor = clamp(zoomFactor - ZOOM_STEP, ZOOM_MIN, ZOOM_MAX); applyZoomStyles(); }
       else if (e.key === '0') { zoomFactor = 1.0; applyZoomStyles(); }
     });
+
+    grid.addEventListener('scroll', () => {
+      updateNowMarker(); // adjust for scroll
+    });
+    window.addEventListener('resize', () => {
+      updateNowMarker();
+    });
+  }
+
+  function updateNowMarker() {
+    if (!grid || !table || !nowMarker) return;
+
+    const { baseEpoch, baseYMD } = getWeekStartEpochAndYMD();
+    const endYMD = ymdAddDays(baseYMD, 7);
+    const endEpoch = epochFromZoned(endYMD.y, endYMD.m, endYMD.d, 0, 0, tz);
+
+    const now = new Date();
+    const nowEpoch = Math.floor(now.getTime() / 1000);
+    if (nowEpoch < baseEpoch || nowEpoch >= endEpoch) {
+      nowMarker.style.display = 'none';
+      return;
+    }
+
+    // minutes since midnight in leader's timezone
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz,
+      hour12: false,
+      hour: '2-digit',
+      minute: '2-digit'
+    }).formatToParts(now);
+    const hh = Number(parts.find(p => p.type === 'hour').value);
+    const mm = Number(parts.find(p => p.type === 'minute').value);
+    const minutes = hh * 60 + mm;
+
+    const rowH = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--row-height')) || 18;
+    const thead = table.tHead;
+    const headerH = thead ? thead.getBoundingClientRect().height : 0;
+
+    const slotIndexFloat = minutes / 30; // e.g., 9:15 -> 18.5
+    const contentY = headerH + slotIndexFloat * rowH;
+    const visibleY = contentY - grid.scrollTop;
+
+    nowMarker.style.display = 'block';
+    nowMarker.style.top = `${visibleY}px`;
   }
 
   function attachUI() {
@@ -389,7 +431,6 @@
       li.appendChild(btn);
       ul.appendChild(li);
     }
-    // update max-missing upper bound hint (optional)
     const maxMissing = document.getElementById('max-missing');
     maxMissing.max = String(Math.max(0, members.length));
   }
@@ -425,7 +466,7 @@
         const set = userSlotSets.get(u);
         if (set && set.has(t)) available.push(u);
       }
-      const key = available.sort().join('|'); // constant set key
+      const key = available.slice().sort().join('|'); // constant set key
       slots.push({ t, available, key });
     }
 
@@ -451,7 +492,6 @@
         segAvail = s.available;
       }
     }
-    // last segment
     if (segKey !== null) {
       const segEnd = endEpoch;
       if (segAvail) {
@@ -464,7 +504,6 @@
       }
     }
 
-    // sort
     segments.sort((a, b) => {
       if (sortMethod === 'earliest') return a.from - b.from;
       if (sortMethod === 'latest') return b.from - a.from;
@@ -473,7 +512,7 @@
       return a.from - b.from;
     });
 
-    return segments.slice(0, 50); // cap results list
+    return segments.slice(0, 50);
   }
 
   function formatRangeLocal(fromSec, toSec) {
@@ -483,7 +522,7 @@
     const a = fmt.format(new Date(fromSec * 1000));
     const b = new Intl.DateTimeFormat(undefined, { timeZone: tz, hour12, hour: '2-digit', minute: '2-digit' }).format(new Date(toSec * 1000));
     return `${a} – ${b}`;
-    }
+  }
 
   function clearHighlights() {
     table.querySelectorAll('.slot-cell.highlight').forEach(el => el.classList.remove('highlight'));
@@ -522,6 +561,7 @@
   async function init() {
     table = document.getElementById('scheduler-table');
     grid = document.getElementById('grid');
+    nowMarker = document.getElementById('now-marker');
     attachUI();
     await loadSettings();
     await fetchMembersAvail();
@@ -531,6 +571,9 @@
     document.getElementById('max-missing').addEventListener('input', applyFilterDimming);
     document.getElementById('min-hours').addEventListener('input', () => {});
     document.getElementById('min-mins').addEventListener('input', () => {});
+
+    // update "now" marker periodically
+    setInterval(updateNowMarker, 60000);
   }
 
   function setAuth(auth, username) {

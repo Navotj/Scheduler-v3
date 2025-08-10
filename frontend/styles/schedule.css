@@ -69,6 +69,7 @@
 
 /* Slot cells (column width is fixed; zoom affects only vertical size via --row-height) */
 .slot-cell {
+  position: relative; /* allow overlays (e.g., past) */
   min-width: 110px;
   width: 110px;
   height: var(--row-height);
@@ -98,6 +99,17 @@ tr.row-hour > th {
 }
 .slot-cell.col-weekend.selected {
   box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06);
+}
+
+/* Past slots: visually dim without overriding green; disable editing */
+.slot-cell.past { cursor: not-allowed; }
+.slot-cell.past::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(255,255,255,0.16); /* grey overlay that keeps underlying color visible */
+  pointer-events: none;
+  border-radius: 0;
 }
 
 /* Floating tooltip that follows mouse when not signed in */

@@ -34,6 +34,7 @@
       </div>
       <div class="grid" id="grid">
         <table class="table" id="scheduler-table" aria-label="Group availability grid"></table>
+        <div id="now-marker" class="now-marker"><span class="label">Now</span></div>
       </div>
     </div>
 
@@ -74,9 +75,11 @@
           <button id="find-btn">Find candidates</button>
         </div>
         <div class="legend">
-          <div><span class="chip chip-best"></span> everyone</div>
-          <div><span class="chip chip-mid"></span> some</div>
-          <div><span class="chip chip-none"></span> none</div>
+          <div class="legend-row">
+            <span>0</span>
+            <div class="legend-gradient" title="Availability gradient: 0 → everyone"></div>
+            <span>All</span>
+          </div>
         </div>
       </div>
 
