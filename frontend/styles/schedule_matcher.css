@@ -134,10 +134,15 @@
   padding: 6px 8px;
 }
 
-/* Members input row fixed */
-.add-user { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; }
+/* Members input row (fix misalignment & wrapping) */
+.add-user {
+  display: grid;
+  grid-template-columns: 1fr max-content max-content;
+  gap: 8px;
+  align-items: center;
+}
 .add-user input { height: 32px; }
-.add-user button { height: 32px; line-height: 32px; }
+.add-user button { height: 32px; line-height: 32px; white-space: nowrap; }
 
 /* Buttons */
 .btn { display: inline-flex; align-items: center; gap: 8px; }
@@ -156,20 +161,20 @@
 
 /* Legend */
 .legend { margin-top: 10px; }
-.legend-steps { display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; }
+.legend-steps { display: grid; gap: 6px; }
 .legend-steps .chip {
   width: 100%;
   height: 12px;
   border-radius: 6px;
   border: 1px solid var(--line);
 }
-.legend-labels { display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; margin-top: 4px; font-size: 12px; }
+.legend-labels { display: grid; gap: 6px; margin-top: 4px; font-size: 12px; }
 .legend-labels span { text-align: center; }
 
 /* Highlighted cells for selected result interval */
 .slot-cell.highlight { outline: 2px solid #ffd54a; outline-offset: -2px; }
 
-/* NOW marker: JS sets left & width to the current day column */
+/* NOW marker — confined to current day column; bubble LEFT of the line with right-pointing pointer */
 .now-marker {
   position: absolute;
   height: 0;
@@ -180,24 +185,38 @@
 }
 .now-marker .bubble {
   position: absolute;
-  top: -12px;
-  font-size: 10px;
-  line-height: 1;
+  right: 100%;
+  top: 0;
+  transform: translateY(-50%);
   background: #0f0f0f;
   color: #e53935;
   border: 1px solid #e53935;
   border-radius: 6px;
-  padding: 3px 6px;
-  letter-spacing: 0.5px;
-  box-shadow: 0 4px 14px rgba(0,0,0,0.4);
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  line-height: 1;
+  white-space: nowrap;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.35);
 }
-.now-marker .bubble::after { /* pointer on the RIGHT edge, pointing RIGHT (toward the line) */
+.now-marker .bubble::after {
   content: "";
   position: absolute;
-  right: -6px;
+  left: 100%;
   top: 50%;
-  transform: translateY(-50%);
-  border-left: 6px solid #e53935;
+  transform: translate(-1px, -50%);
+  border-left: 7px solid #e53935;
+  border-top: 6px solid transparent;
+  border-bottom: 6px solid transparent;
+}
+.now-marker .bubble::before {
+  content: "";
+  position: absolute;
+  left: 100%;
+  top: 50%;
+  transform: translate(calc(-1px), -50%);
+  border-left: 7px solid #0f0f0f;
   border-top: 5px solid transparent;
   border-bottom: 5px solid transparent;
 }

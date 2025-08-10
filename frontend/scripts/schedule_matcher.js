@@ -14,7 +14,7 @@
   let currentUsername = null;
 
   // settings
-  const DEFAULT_SETTINGS = { timezone: 'auto', clock: '24', weekStart: 'sun', defaultZoom: 1.0 };
+  const DEFAULT_SETTINGS = { timezone: 'auto', clock: '24', weekStart: 'sun', defaultZoom: 1.0, highlightWeekends: false };
   let settings = { ...DEFAULT_SETTINGS };
   let tz = resolveTimezone(settings.timezone);
   let hour12 = settings.clock === '12';
@@ -41,6 +41,14 @@
     return val;
   }
   function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+  function loadLocalSettings() {
+    try {
+      const raw = localStorage.getItem('nat20_settings');
+      if (!raw) return null;
+      return JSON.parse(raw);
+    } catch { return null; }
+  }
 
   function tzOffsetMinutes(tzName, date) {
     const parts = new Intl.DateTimeFormat('en-US', {
@@ -78,13 +86,18 @@
     return { y: tmp.getUTCFullYear(), m: tmp.getUTCMonth() + 1, d: tmp.getUTCDate() };
   }
 
+  // Match availability_picker’s week-start math
+  function weekdayIndexInTZ(epochSec, tzName) {
+    const wd = new Intl.DateTimeFormat('en-US', { timeZone: tzName, weekday: 'short' }).format(new Date(epochSec * 1000));
+    return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(wd);
+  }
+
   function getWeekStartEpochAndYMD() {
     const today = getTodayYMDInTZ(tz);
-    const tmpMid = epochFromZoned(today.y, today.m, today.d, 0, 0, tz);
-    const localMidDate = new Date(tmpMid * 1000);
-    const dow = localMidDate.getUTCDay(); // 0..6 (Sun..Sat) at local midnight
-    const diff = (dow - weekStartIdx + 7) % 7;
-    const baseYMD = ymdAddDays(today, -diff + (weekOffset * 7));
+    const todayMid = epochFromZoned(today.y, today.m, today.d, 0, 0, tz);
+    const todayIdx = weekdayIndexInTZ(todayMid, tz);
+    const diff = (todayIdx - weekStartIdx + 7) % 7;
+    const baseYMD = ymdAddDays(today, -diff + weekOffset * 7);
     const baseEpoch = epochFromZoned(baseYMD.y, baseYMD.m, baseYMD.d, 0, 0, tz);
     return { baseEpoch, baseYMD };
   }
@@ -191,6 +204,7 @@
       totalMembers = 0;
       paintCounts();
       applyFilterDimming();
+      updateLegend();
       return;
     }
     const { baseEpoch, baseYMD } = getWeekStartEpochAndYMD();
@@ -235,6 +249,7 @@
 
     paintCounts();
     applyFilterDimming();
+    updateLegend();
   }
 
   // --- Paint counts into cells (0..7+) ---
@@ -273,7 +288,7 @@
     }
   }
 
-  // --- NOW marker (restricted to current day column; bubble to the LEFT of the line) ---
+  // --- NOW marker (restricted to current day column; bubble left of the line) ---
   function positionNowMarker() {
     const nowSec = Math.floor(Date.now() / 1000);
     const { baseEpoch } = getWeekStartEpochAndYMD();
@@ -303,12 +318,11 @@
       nowMarkerEl.style.left = `${colLeft}px`;
       nowMarkerEl.style.width = `${colWidth}px`;
 
-      // place bubble to the LEFT of the line (outside the column), pointer on right edge
+      // bubble to the LEFT of the red line
       const bubble = nowMarkerEl.querySelector('.bubble');
       if (bubble) {
-        // ensure layout measurement
         const w = bubble.offsetWidth;
-        const bubbleLeft = colLeft - w - 8; // 8px gap to the line
+        const bubbleLeft = colLeft - w - 8;
         bubble.style.left = `${bubbleLeft}px`;
         bubble.style.right = '';
       }
@@ -338,25 +352,23 @@
       while (r < totalRows) {
         const cell = cellAt(day, r);
         const ok = cell && (Number(cell.dataset.c) >= needed);
-        if (!ok) {
-          if (cell) cell.classList.add('dim');
-          r++;
-          continue;
-        }
-        // count contiguous streak
+        if (!ok) { if (cell) cell.classList.add('dim'); r++; continue; }
+
+        // find contiguous >= needed block starting at r
         let rr = r;
         while (rr < totalRows) {
           const c = cellAt(day, rr);
           if (!c || Number(c.dataset.c) < needed) break;
           rr++;
         }
-        if (rr - r < minSlots) {
+        const streak = rr - r;
+        if (streak < minSlots) {
           for (let k = r; k < rr; k++) {
             const c = cellAt(day, k);
             if (c) c.classList.add('dim');
           }
         }
-        r = rr;
+        r++; // slide window by one to allow nested higher-participant ranges to be found later
       }
     }
   }
@@ -365,7 +377,17 @@
     return table.querySelector(`.slot-cell[data-epoch="${getDayStartSec(day) + row * SLOT_SEC}"]`);
   }
 
-  // --- Results / candidates ---
+  function availableUsersAt(day, row) {
+    const epoch = getDayStartSec(day) + row * SLOT_SEC;
+    const set = new Set();
+    for (const u of members) {
+      const s = userSlotSets.get(u);
+      if (s && s.has(epoch)) set.add(u);
+    }
+    return set;
+  }
+
+  // --- Results / candidates (allow nested higher-participant windows) ---
   function findCandidates() {
     const maxMissing = parseInt(document.getElementById('max-missing').value || '0', 10);
     const minHours = parseFloat(document.getElementById('min-hours').value || '1');
@@ -376,40 +398,36 @@
     const totalRows = (HOURS_END - HOURS_START) * SLOTS_PER_HOUR;
 
     for (let day = 0; day < 7; day++) {
-      let r = 0;
-      while (r < totalRows) {
-        const cell = cellAt(day, r);
-        if (!cell || Number(cell.dataset.c) < needed) { r++; continue; }
-        let rr = r;
+      for (let r = 0; r < totalRows; r++) {
+        const c0 = cellAt(day, r);
+        if (!c0 || Number(c0.dataset.c) < needed) continue;
+
+        // grow window while keeping >= needed AND track intersection of users to get true participants
+        let rr = r + 1;
+        let inter = availableUsersAt(day, r);
         while (rr < totalRows) {
           const c = cellAt(day, rr);
           if (!c || Number(c.dataset.c) < needed) break;
+          // intersect users
+          const avail = availableUsersAt(day, rr);
+          inter = new Set([...inter].filter(x => avail.has(x)));
+          if (inter.size < needed) break;
           rr++;
         }
+
         const streak = rr - r;
-        if (streak >= minSlots) {
+        if (streak >= minSlots && inter.size >= needed) {
           const dayStartSec = getDayStartSec(day);
           const startSec = dayStartSec + r * SLOT_SEC;
           const endSec = dayStartSec + rr * SLOT_SEC;
-
-          const users = [];
-          for (const u of members) {
-            const set = userSlotSets.get(u);
-            let ok = true;
-            for (let t = startSec; t < endSec; t += SLOT_SEC) {
-              if (!set || !set.has(t)) { ok = false; break; }
-            }
-            if (ok) users.push(u);
-          }
 
           sessions.push({
             day, rStart: r, rEnd: rr,
             start: startSec, end: endSec,
             duration: rr - r,
-            participants: users.length, users
+            participants: inter.size, users: Array.from(inter)
           });
         }
-        r = rr + 1;
       }
     }
 
@@ -521,8 +539,8 @@
     steps.innerHTML = '';
     labels.innerHTML = '';
 
-    const maxVal = members.length; // show 0..N (inclusive)
-    const count = Math.max(1, maxVal + 1); // at least show 0
+    const maxVal = members.length; // show 0..N inclusive
+    const count = Math.max(1, maxVal + 1);
 
     steps.style.gridTemplateColumns = `repeat(${count}, 1fr)`;
     labels.style.gridTemplateColumns = `repeat(${count}, 1fr)`;
@@ -641,7 +659,7 @@
     // candidates
     document.getElementById('find-btn').addEventListener('click', findCandidates);
 
-    // load settings (requires auth for remote; falls back to defaults)
+    // settings
     await loadSettings();
 
     // restore previous members
@@ -671,8 +689,10 @@
   }
 
   async function loadSettings() {
+    const local = loadLocalSettings();
     const remote = await fetchRemoteSettings();
-    const s = remote || DEFAULT_SETTINGS;
+    const s = remote || local || DEFAULT_SETTINGS;
+
     settings = { ...DEFAULT_SETTINGS, ...s };
     tz = resolveTimezone(settings.timezone);
     hour12 = settings.clock === '12';
