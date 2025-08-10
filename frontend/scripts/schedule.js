@@ -458,7 +458,7 @@
     window.addEventListener('resize', () => requestAnimationFrame(updateNowMarker));
   }
 
-  // --- NOW MARKER (stable across scroll/zoom) ---
+  // --- NOW MARKER (accurate to cell geometry; invariant to scroll/zoom) ---
   function updateNowMarker() {
     ensureNowMarker();
     if (!grid || !table || !nowMarker) return;
@@ -481,22 +481,21 @@
     const rowIndex = hh * 2 + (mm >= 30 ? 1 : 0);
     const frac = (mm % 30) / 30;
 
-    const dayStartCell = table.querySelector(`td.slot-cell[data-col="${dayOffset}"][data-row="0"]`);
-    if (!dayStartCell) {
+    const targetCell = table.querySelector(`td.slot-cell[data-col="${dayOffset}"][data-row="${rowIndex}"]`);
+    const colStartCell = table.querySelector(`td.slot-cell[data-col="${dayOffset}"][data-row="0"]`);
+    if (!targetCell || !colStartCell) {
       nowMarker.style.display = 'none';
       return;
     }
 
-    // derive sizes from CSS variables / layout
-    const rowH = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--row-height')) || 18;
-
-    // Use bounding rects DIFFERENCE to make the marker position invariant to scrolling and sticky headers.
+    // Use live geometry so borders/zoom are accounted for
     const gridRect = grid.getBoundingClientRect();
-    const dayStartRect = dayStartCell.getBoundingClientRect();
+    const targetRect = targetCell.getBoundingClientRect();
+    const colRect = colStartCell.getBoundingClientRect();
 
-    const top = (dayStartRect.top - gridRect.top) + (rowIndex * rowH) + (frac * rowH);
-    const left = (dayStartRect.left - gridRect.left);
-    const width = dayStartRect.width;
+    const top = (targetRect.top - gridRect.top) + (targetRect.height * frac);
+    const left = (colRect.left - gridRect.left);
+    const width = colRect.width;
 
     nowMarker.style.display = 'block';
     nowMarker.style.top = `${top}px`;

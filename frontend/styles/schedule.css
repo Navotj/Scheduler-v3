@@ -71,9 +71,9 @@
   line-height: calc(var(--row-height) * 2);
 }
 
-/* Slot cells (column width is fixed; zoom affects only vertical size via --row-height) */
+/* Slot cells */
 .slot-cell {
-  position: relative; /* allow overlays (e.g., past) */
+  position: relative;
   min-width: 110px;
   width: 110px;
   height: var(--row-height);
@@ -105,17 +105,17 @@ tr.row-hour > th {
   box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06);
 }
 
-/* Past slots: visually dim without overriding green; disable editing */
+/* Past slots overlay */
 .slot-cell.past { cursor: not-allowed; }
 .slot-cell.past::after {
   content: "";
   position: absolute;
   inset: 0;
-  background: rgba(255,255,255,0.16); /* grey overlay keeping underlying color visible */
+  background: rgba(255,255,255,0.16);
   pointer-events: none;
 }
 
-/* Floating tooltip that follows mouse when not signed in */
+/* Floating tooltip (not signed in) */
 .signin-tooltip {
   position: fixed;
   top: 0;
@@ -132,24 +132,22 @@ tr.row-hour > th {
   box-shadow: 0 4px 14px rgba(0,0,0,0.4);
 }
 
-/* NOW marker within the current day's column */
+/* NOW marker (horizontal red line confined to today's column) */
 .now-marker {
   position: absolute;
   height: 0;
   border-top: 2px solid #e53935;
-  z-index: 8; /* above table cells, below sticky header */
-  display: none; /* shown only when inside displayed week */
+  z-index: 8;
+  display: none;
   pointer-events: none;
 }
 
-/* Bubble label to the LEFT of the red line with a right-pointing pointer.
-   The pointer tip is vertically centered EXACTLY on the red line. */
+/* Bubble to the LEFT of the red line with right-pointing pointer; perfectly centered on the line */
 .now-marker .bubble {
   position: absolute;
   right: 100%;              /* bubble's right edge touches the line */
-  margin-right: 0;          /* no gap so the pointer tip meets the line */
-  top: 1px;                 /* center account for 2px line width */
-  transform: translateY(-50%); /* vertically center on the line */
+  top: 0;                   /* anchor at line top (element top) */
+  transform: translateY(-50%); /* center on the line's midpoint */
   background: #0f0f0f;       /* black interior */
   color: #e53935;            /* red text */
   border: 1px solid #e53935; /* red outline */
