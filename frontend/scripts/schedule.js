@@ -1,14 +1,25 @@
 (function () {
-  const HOURS_START = 8;   // inclusive
-  const HOURS_END = 22;    // exclusive
+  // 24h with 30-min intervals
   const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const SLOTS_PER_HOUR = 2; // 30-minute steps
+  const HOURS_START = 0;    // 00:00
+  const HOURS_END = 24;     // up to 24:00 (exclusive)
 
-  let weekOffset = 0; // 0 = current week, -1 previous, +1 next
-  let paintMode = 'add'; // 'add' | 'subtract'
-  let isMouseDown = false;
+  let weekOffset = 0;                 // 0 = current week, -1 previous, +1 next
+  let paintMode = 'add';              // 'add' | 'subtract'
+  let isAuthenticated = false;
 
-  // Map key: ISO "YYYY-MM-DDTHH:00:00Z" -> true
-  let selected = new Set();
+  // Selection data
+  // key: "YYYY-MM-DDTHH:MM:00" (local) -> true
+  const selected = new Set();
+
+  // Box selection state
+  let isDragging = false;
+  let dragStart = null;  // { row, col }
+  let dragEnd = null;    // { row, col }
+
+  // Cached DOM
+  let table;
 
   function getStartOfWeek(date) {
     // Week starts on Sunday
@@ -34,15 +45,15 @@
     return `${y}-${m}-${day}`;
   }
 
-  function asHourISOLocal(date, hour) {
+  function toLocalISOSlot(date, hour, half) {
     const d = new Date(date);
-    d.setHours(hour, 0, 0, 0);
-    // Use local time ISO without timezone conversion; backend should treat as local or specify tz handling.
+    d.setHours(hour, half ? 30 : 0, 0, 0);
     const y = d.getFullYear();
     const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
     const hh = String(d.getHours()).padStart(2, '0');
-    return `${y}-${m}-${day}T${hh}:00:00`;
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    return `${y}-${m}-${dd}T${hh}:${mm}:00`;
   }
 
   function renderWeekLabel(start) {
@@ -53,7 +64,7 @@
   }
 
   function buildGrid() {
-    const table = document.getElementById('schedule-table');
+    table = document.getElementById('schedule-table');
     table.innerHTML = '';
 
     const today = new Date();
@@ -61,7 +72,7 @@
     base.setDate(base.getDate() + weekOffset * 7);
     renderWeekLabel(base);
 
-    // Header row
+    // Header
     const thead = document.createElement('thead');
     const hr = document.createElement('tr');
 
@@ -82,40 +93,58 @@
 
     const tbody = document.createElement('tbody');
 
-    for (let hour = HOURS_START; hour < HOURS_END; hour++) {
+    // 24h * 2 slots per hour = 48 rows
+    const totalRows = (HOURS_END - HOURS_START) * SLOTS_PER_HOUR;
+    for (let r = 0; r < totalRows; r++) {
       const tr = document.createElement('tr');
+
+      const hour = Math.floor(r / SLOTS_PER_HOUR) + HOURS_START;
+      const half = r % SLOTS_PER_HOUR === 1; // 0 => :00, 1 => :30
 
       const timeCell = document.createElement('td');
       timeCell.className = 'time-col';
-      const label = `${String(hour).padStart(2, '0')}:00`;
-      timeCell.textContent = label;
+      const hh = String(hour).padStart(2, '0');
+      timeCell.textContent = `${hh}:${half ? '30' : '00'}`;
       tr.appendChild(timeCell);
 
-      for (let i = 0; i < 7; i++) {
-        const cur = addDays(base, i);
-        const iso = asHourISOLocal(cur, hour);
+      for (let c = 0; c < 7; c++) {
+        const cur = addDays(base, c);
+        const iso = toLocalISOSlot(cur, hour, half);
+
         const td = document.createElement('td');
-        td.className = 'hour-cell';
+        td.className = 'slot-cell';
         td.dataset.iso = iso;
+        td.dataset.row = r;
+        td.dataset.col = c;
 
         if (selected.has(iso)) {
           td.classList.add('selected');
         }
 
         td.addEventListener('mousedown', (e) => {
+          if (!isAuthenticated) return;
           e.preventDefault();
-          isMouseDown = true;
-          applyCell(td);
+          isDragging = true;
+          dragStart = { row: r, col: c };
+          dragEnd = { row: r, col: c };
+          updatePreview();
         });
 
         td.addEventListener('mouseenter', () => {
-          if (!isMouseDown) return;
-          applyCell(td, true);
+          if (!isAuthenticated) return;
+          if (!isDragging) return;
+          dragEnd = { row: r, col: c };
+          updatePreview();
         });
 
         td.addEventListener('mouseup', () => {
-          isMouseDown = false;
-          clearDragState(td);
+          if (!isAuthenticated) return;
+          if (!isDragging) return;
+          dragEnd = { row: r, col: c };
+          applyBoxSelection();
+          clearPreview();
+          isDragging = false;
+          dragStart = dragEnd = null;
         });
 
         tr.appendChild(td);
@@ -127,31 +156,58 @@
     table.appendChild(tbody);
 
     document.addEventListener('mouseup', () => {
-      isMouseDown = false;
-      const cells = table.querySelectorAll('.hour-cell.dragging-add, .hour-cell.dragging-sub');
-      cells.forEach(clearDragState);
+      if (!isAuthenticated) return;
+      if (isDragging) {
+        applyBoxSelection();
+        clearPreview();
+      }
+      isDragging = false;
+      dragStart = dragEnd = null;
     });
   }
 
-  function applyCell(td, dragging = false) {
-    if (paintMode === 'add') {
-      selected.add(td.dataset.iso);
-      td.classList.add('selected');
-      if (dragging) {
-        td.classList.add('dragging-add');
-      }
-    } else {
-      selected.delete(td.dataset.iso);
-      td.classList.remove('selected');
-      if (dragging) {
-        td.classList.add('dragging-sub');
+  function forEachCellInBox(fn) {
+    if (!dragStart || !dragEnd) return;
+    const r1 = Math.min(dragStart.row, dragEnd.row);
+    const r2 = Math.max(dragStart.row, dragEnd.row);
+    const c1 = Math.min(dragStart.col, dragEnd.col);
+    const c2 = Math.max(dragStart.col, dragEnd.col);
+
+    for (let r = r1; r <= r2; r++) {
+      for (let c = c1; c <= c2; c++) {
+        const cell = table.querySelector(`td.slot-cell[data-row="${r}"][data-col="${c}"]`);
+        if (cell) fn(cell);
       }
     }
   }
 
-  function clearDragState(td) {
-    td.classList.remove('dragging-add');
-    td.classList.remove('dragging-sub');
+  function updatePreview() {
+    clearPreview();
+    forEachCellInBox((cell) => {
+      if (paintMode === 'add') {
+        cell.classList.add('preview-add');
+      } else {
+        cell.classList.add('preview-sub');
+      }
+    });
+  }
+
+  function clearPreview() {
+    table.querySelectorAll('.preview-add').forEach(el => el.classList.remove('preview-add'));
+    table.querySelectorAll('.preview-sub').forEach(el => el.classList.remove('preview-sub'));
+  }
+
+  function applyBoxSelection() {
+    forEachCellInBox((cell) => {
+      const iso = cell.dataset.iso;
+      if (paintMode === 'add') {
+        selected.add(iso);
+        cell.classList.add('selected');
+      } else {
+        selected.delete(iso);
+        cell.classList.remove('selected');
+      }
+    });
   }
 
   function setMode(mode) {
@@ -160,20 +216,35 @@
     document.getElementById('mode-subtract').classList.toggle('active', mode === 'subtract');
   }
 
-  async function saveWeek() {
+  function getWeekRange() {
     const today = new Date();
     const base = getStartOfWeek(today);
     base.setDate(base.getDate() + weekOffset * 7);
+    const start = new Date(base);
+    const end = new Date(base);
+    end.setDate(end.getDate() + 6);
+    end.setHours(23,59,59,999);
+    return { start, end, weekStartLabel: formatDateLabel(base) };
+  }
 
-    const weekStart = formatDateLabel(base);
-    const slots = Array.from(selected).filter((iso) => iso.startsWith(weekStart));
+  function isInRangeLocal(iso, start, end) {
+    const d = new Date(iso);
+    return d >= start && d <= end;
+    // Note: This treats iso string as local time; if you need TZ-robustness, pass epoch seconds instead.
+  }
+
+  async function saveWeek() {
+    if (!isAuthenticated) return;
+    const { start, end, weekStartLabel } = getWeekRange();
+
+    const slots = Array.from(selected).filter((iso) => isInRangeLocal(iso, start, end));
 
     try {
       const res = await fetch('http://backend.nat20scheduling.com:3000/availability/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ weekStart, slots })
+        body: JSON.stringify({ weekStart: weekStartLabel, slots })
       });
       if (!res.ok) {
         const text = await res.text();
@@ -181,50 +252,54 @@
         return;
       }
       alert('Saved!');
-    } catch (e) {
+    } catch {
       alert('Connection error while saving');
     }
   }
 
   async function loadWeekSelections() {
-    const today = new Date();
-    const base = getStartOfWeek(today);
-    base.setDate(base.getDate() + weekOffset * 7);
-    const weekStart = formatDateLabel(base);
+    const { weekStartLabel, start, end } = getWeekRange();
     try {
-      const res = await fetch(`http://backend.nat20scheduling.com:3000/availability/get?weekStart=${encodeURIComponent(weekStart)}`, {
+      const res = await fetch(`http://backend.nat20scheduling.com:3000/availability/get?weekStart=${encodeURIComponent(weekStartLabel)}`, {
         credentials: 'include',
         cache: 'no-cache'
       });
       if (res.ok) {
         const data = await res.json();
-        // Expecting { slots: ["YYYY-MM-DDTHH:00:00", ...] }
         if (Array.isArray(data.slots)) {
-          // Remove current week's entries first
+          // Remove existing slots for the week, then add loaded ones
           for (const iso of Array.from(selected)) {
-            if (iso.startsWith(weekStart)) selected.delete(iso);
+            if (isInRangeLocal(iso, start, end)) selected.delete(iso);
           }
           data.slots.forEach(s => selected.add(s));
         }
       }
     } catch {
-      // Ignore load errors; user might be logged out or endpoint not ready
+      // ok to ignore if not available or not authenticated
     }
   }
 
   function attachEvents() {
     document.getElementById('prev-week').addEventListener('click', async () => {
+      if (!isAuthenticated) return;
       weekOffset -= 1;
       await loadWeekSelections();
       buildGrid();
     });
     document.getElementById('next-week').addEventListener('click', async () => {
+      if (!isAuthenticated) return;
       weekOffset += 1;
       await loadWeekSelections();
       buildGrid();
     });
-    document.getElementById('mode-add').addEventListener('click', () => setMode('add'));
-    document.getElementById('mode-subtract').addEventListener('click', () => setMode('subtract'));
+    document.getElementById('mode-add').addEventListener('click', () => {
+      if (!isAuthenticated) return;
+      setMode('add');
+    });
+    document.getElementById('mode-subtract').addEventListener('click', () => {
+      if (!isAuthenticated) return;
+      setMode('subtract');
+    });
     document.getElementById('save').addEventListener('click', saveWeek);
   }
 
@@ -234,5 +309,9 @@
     buildGrid();
   }
 
-  window.schedule = { init };
+  function setAuth(authenticated) {
+    isAuthenticated = !!authenticated;
+  }
+
+  window.schedule = { init, setAuth };
 })();

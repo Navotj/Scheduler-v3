@@ -14,20 +14,23 @@
     #auth-button { background: #2d6cdf; color: #fff; border: 0; padding: 8px 12px; border-radius: 8px; cursor: pointer; }
     #auth-button:hover { filter: brightness(1.1); }
     .container { max-width: 1200px; margin: 16px auto 40px; padding: 0 12px; }
-    .controls { display: flex; gap: 8px; align-items: center; margin: 12px 0 16px; flex-wrap: wrap; }
+    .controls { display: flex; gap: 8px; align-items: center; margin: 12px 0 16px; flex-wrap: wrap; position: relative; }
     .controls button { background: #262626; color: #fff; border: 1px solid #333; padding: 8px 10px; border-radius: 8px; cursor: pointer; }
     .controls button.active { outline: 2px solid #2d6cdf; }
+    .controls button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .signin-hint { position: absolute; left: 0; bottom: -22px; color: #f55; font-size: 14px; display: none; }
     .week-label { margin-left: 8px; color: #bbb; }
     .grid { overflow: auto; border: 1px solid #2a2a2a; border-radius: 12px; }
-    .table { border-collapse: collapse; width: 100%; min-width: 880px; }
+    .table { border-collapse: collapse; width: 100%; min-width: 880px; user-select: none; }
     .table th, .table td { border: 1px solid #2b2b2b; text-align: center; font-size: 14px; }
     .table th { position: sticky; top: 0; background: #151515; z-index: 5; padding: 8px; }
-    .time-col { position: sticky; left: 0; background: #151515; z-index: 4; width: 70px; min-width: 70px; }
-    .hour-cell { width: 120px; min-width: 120px; height: 36px; cursor: crosshair; background: #121212; }
-    .hour-cell.selected { background: #234b1f; }
-    .hour-cell.dragging-add { background: #1f3e7a; }
-    .hour-cell.dragging-sub { background: #6b1e1e; }
+    .time-col { position: sticky; left: 0; background: #151515; z-index: 4; width: 76px; min-width: 76px; }
+    .slot-cell { width: 120px; min-width: 120px; height: 28px; cursor: crosshair; background: #121212; }
+    .slot-cell.selected { background: #234b1f; }
+    .slot-cell.preview-add { background: #1f3e7a; }
+    .slot-cell.preview-sub { background: #6b1e1e; }
     .muted { color: #aaa; }
+    .disabled-overlay { pointer-events: none; }
     /* Modal */
     #modal-overlay { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,0.6); z-index: 100; }
     #modal-container { background: #151515; border: 1px solid #2b2b2b; border-radius: 12px; width: min(520px, 92vw); padding: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
@@ -51,13 +54,14 @@
   </div>
 
   <div class="container">
-    <div class="controls">
+    <div class="controls" id="controls">
       <button id="prev-week">Previous week</button>
       <button id="next-week">Next week</button>
       <button id="mode-add" class="active">Add</button>
       <button id="mode-subtract">Subtract</button>
       <button id="save">Save</button>
-      <span class="muted">Drag across cells to mark availability</span>
+      <span class="muted">Drag to box-select slots</span>
+      <span id="signin-hint" class="signin-hint">Sign in required</span>
     </div>
 
     <div class="grid">
@@ -82,9 +86,9 @@
           signal: controller.signal
         });
         if (res.status === 200) {
-          const data = await res.json();
+          // Optional: ask /me in future for username; for now keep label generic
           isAuthenticated = true;
-          currentUsername = data.username || 'unknown';
+          currentUsername = 'user';
         } else {
           isAuthenticated = false;
           currentUsername = null;
@@ -94,13 +98,17 @@
         currentUsername = null;
       }
       updateAuthUI();
+      window.schedule.setAuth(isAuthenticated);
     }
 
     function updateAuthUI() {
       const userLabel = document.getElementById('user-label');
       const authButton = document.getElementById('auth-button');
+      const controls = document.getElementById('controls');
+      const disabled = !isAuthenticated;
+
       if (isAuthenticated) {
-        userLabel.textContent = `Signed in as ${currentUsername}`;
+        userLabel.textContent = currentUsername ? `Signed in as ${currentUsername}` : `Signed in`;
         userLabel.style.display = 'inline';
         authButton.textContent = 'Logout';
         authButton.onclick = logout;
@@ -109,6 +117,13 @@
         authButton.textContent = 'Login';
         authButton.onclick = () => openModal('/pages/login.html');
       }
+
+      // Disable/enable controls
+      controls.querySelectorAll('button').forEach(btn => {
+        if (btn.id === 'save' || btn.id === 'prev-week' || btn.id === 'next-week' || btn.id === 'mode-add' || btn.id === 'mode-subtract') {
+          btn.disabled = disabled;
+        }
+      });
     }
 
     function runModalInit(path) {
@@ -161,17 +176,28 @@
       isAuthenticated = false;
       currentUsername = null;
       updateAuthUI();
+      window.schedule.setAuth(false);
     }
+
+    // Hover hint for disabled controls
+    (function setupHoverHint() {
+      const controls = document.getElementById('controls');
+      const hint = document.getElementById('signin-hint');
+      controls.addEventListener('mouseover', (e) => {
+        if (!isAuthenticated && e.target.tagName === 'BUTTON') {
+          hint.style.display = 'block';
+        }
+      });
+      controls.addEventListener('mouseout', (e) => {
+        if (e.target.tagName === 'BUTTON') {
+          hint.style.display = 'none';
+        }
+      });
+    })();
 
     window.openModal = openModal;
     window.swapModal = swapModal;
     window.closeModal = closeModal;
-    window.updateAuthUI = updateAuthUI;
-    window.setAuthState = function(authenticated, username) {
-      isAuthenticated = !!authenticated;
-      currentUsername = authenticated ? username : null;
-      updateAuthUI();
-    };
 
     window.addEventListener('DOMContentLoaded', () => {
       window.schedule.init(); // from schedule.js
