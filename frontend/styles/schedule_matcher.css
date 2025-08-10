@@ -116,14 +116,15 @@
   box-shadow: 0 10px 28px rgba(0,0,0,0.45);
 }
 
-/* Right column */
-.right-col { display: flex; flex-direction: column; gap: 14px; margin-top: 34px; }
+/* Right column aligned to grid top programmatically */
+.right-col { display: flex; flex-direction: column; gap: 14px; }
 .panel { background: #121212; border: 1px solid #242424; border-radius: 12px; padding: 12px; }
 .right-col h3 { margin: 0 0 10px 0; font-size: 15px; }
 
 .right-col .row { display: flex; gap: 8px; align-items: center; }
 .right-col .field { display: grid; grid-template-columns: 1fr; gap: 6px; }
-.field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+.field-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 10px; }
+.right-col .field .row span { white-space: nowrap; }
 
 .right-col input[type="text"],
 .right-col input[type="number"],
@@ -133,6 +134,8 @@
   border: 1px solid #333;
   border-radius: 8px;
   padding: 6px 8px;
+  width: 100%;
+  min-width: 0;
 }
 
 /* Members input row (fit buttons; prevent overflow) */
@@ -177,7 +180,7 @@
 /* Highlight result card on hover to match grid */
 .result.hovered { outline: 2px solid #ffd54a; outline-offset: 0; border-radius: 10px; }
 
-/* NOW marker — confined to current day column; centered bubble without triangle */
+/* NOW marker — confined to current day column; centered bubble (no triangle) */
 .now-marker {
   position: absolute;
   height: 0;

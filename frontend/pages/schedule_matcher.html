@@ -25,7 +25,7 @@
 
   <div class="container two-col">
     <div class="left-col">
-      <div class="controls">
+      <div id="controls" class="controls">
         <button id="prev-week" class="btn btn-secondary" title="Previous week">← Previous week</button>
         <button id="next-week" class="btn btn-secondary" title="Next week">Next week →</button>
         <span class="muted helper">Shift+Scroll = Vertical Zoom, Scroll = Pan</span>
@@ -41,7 +41,7 @@
       </div>
     </div>
 
-    <div class="right-col">
+    <div id="right-col" class="right-col">
       <div class="panel">
         <h3>Members</h3>
         <div class="add-user">
@@ -62,7 +62,7 @@
           </div>
 
           <div class="field">
-            <label for="min-hours">Minimum session length</label>
+            <label for="min-hours">Minimum length</label>
             <div class="row">
               <input type="number" id="min-hours" min="0" step="0.5" value="1" />
               <span>h</span>

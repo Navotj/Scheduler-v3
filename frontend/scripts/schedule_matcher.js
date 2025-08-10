@@ -35,6 +35,8 @@
   let resultsEl;
   let resultsPanelEl;
   let nowMarkerEl;
+  let rightColEl;
+  let controlsEl;
 
   // derived week arrays (rebuilt after paintCounts)
   let ROWS_PER_DAY = (HOURS_END - HOURS_START) * SLOTS_PER_HOUR;
@@ -203,6 +205,7 @@
     shadePast();
     positionNowMarker();
     syncResultsHeight();
+    syncRightColOffset();
   }
 
   function getDayStartSec(dayIndex) {
@@ -353,17 +356,17 @@
       nowMarkerEl.style.left = `${colLeft}px`;
       nowMarkerEl.style.width = `${colWidth}px`;
 
-      // center the bubble within the active day column
+      // center the bubble within the day column (relative to marker, not the page)
       const bubble = nowMarkerEl.querySelector('.bubble');
       if (bubble) {
-        bubble.style.left = (colLeft + colWidth / 2) + 'px';
+        bubble.style.left = `${colWidth / 2}px`;
       }
     }
   }
 
   function bindMarkerReposition() {
-    grid.addEventListener('scroll', positionNowMarker);
-    window.addEventListener('resize', () => { positionNowMarker(); syncResultsHeight(); });
+    grid.addEventListener('scroll', () => { positionNowMarker(); });
+    window.addEventListener('resize', () => { positionNowMarker(); syncResultsHeight(); syncRightColOffset(); });
     setInterval(positionNowMarker, 30000);
   }
 
@@ -594,7 +597,18 @@
     if (!grid || !resultsPanelEl || !resultsEl) return;
     const h = grid.clientHeight; // visible height of the grid
     resultsPanelEl.style.maxHeight = h + 'px';
-    resultsEl.style.maxHeight = (h - resultsPanelEl.querySelector('h3').offsetHeight - 24) + 'px';
+    const titleH = resultsPanelEl.querySelector('h3').offsetHeight;
+    resultsEl.style.maxHeight = Math.max(50, h - titleH - 24) + 'px';
+  }
+
+  // --- Right column vertical alignment with grid top (match controls height) ---
+  function syncRightColOffset() {
+    if (!rightColEl || !controlsEl) return;
+    const styles = getComputedStyle(controlsEl);
+    const mTop = parseFloat(styles.marginTop) || 0;
+    const mBottom = parseFloat(styles.marginBottom) || 0;
+    const offset = controlsEl.offsetHeight + mTop + mBottom;
+    rightColEl.style.marginTop = offset + 'px';
   }
 
   // --- Zoom (vertical only) ---
@@ -652,6 +666,8 @@
     resultsEl = document.getElementById('results');
     resultsPanelEl = document.getElementById('results-panel');
     nowMarkerEl = document.getElementById('now-marker');
+    rightColEl = document.getElementById('right-col');
+    controlsEl = document.getElementById('controls');
 
     // controls
     document.getElementById('prev-week').addEventListener('click', async () => {
@@ -720,6 +736,10 @@
 
     setupZoomHandlers();
     bindMarkerReposition();
+
+    // initial alignment
+    syncRightColOffset();
+    syncResultsHeight();
   }
 
   async function fetchRemoteSettings() {
