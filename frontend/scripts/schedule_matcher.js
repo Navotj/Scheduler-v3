@@ -355,12 +355,7 @@
       const colWidth = firstCell.offsetWidth;
       nowMarkerEl.style.left = `${colLeft}px`;
       nowMarkerEl.style.width = `${colWidth}px`;
-
-      // center the bubble within the day column (relative to marker, not the page)
-      const bubble = nowMarkerEl.querySelector('.bubble');
-      if (bubble) {
-        bubble.style.left = `${colWidth / 2}px`;
-      }
+      // Bubble centering handled purely by CSS (left:50% with translate).
     }
   }
 
@@ -592,13 +587,13 @@
     }
   }
 
-  // --- Results panel sizing to match grid bottom ---
+  // --- Results panel sizing to match grid bottom (fixed height, internal scroll) ---
   function syncResultsHeight() {
     if (!grid || !resultsPanelEl || !resultsEl) return;
-    const h = grid.clientHeight; // visible height of the grid
-    resultsPanelEl.style.maxHeight = h + 'px';
+    const h = grid.getBoundingClientRect().height; // physical height of grid box
+    resultsPanelEl.style.height = h + 'px';
     const titleH = resultsPanelEl.querySelector('h3').offsetHeight;
-    resultsEl.style.maxHeight = Math.max(50, h - titleH - 24) + 'px';
+    resultsEl.style.height = Math.max(50, h - titleH - 24) + 'px';
   }
 
   // --- Right column vertical alignment with grid top (match controls height) ---
