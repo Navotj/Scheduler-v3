@@ -204,8 +204,8 @@
     paintCounts();
     shadePast();
     positionNowMarker();
-    syncResultsHeight();
     syncRightColOffset();
+    syncResultsHeight();
   }
 
   function getDayStartSec(dayIndex) {
@@ -219,8 +219,10 @@
       userSlotSets.clear();
       totalMembers = 0;
       paintCounts();
+      shadePast();
       applyFilterDimming();
       updateLegend();
+      syncResultsHeight();
       return;
     }
     const { baseEpoch, baseYMD } = getWeekStartEpochAndYMD();
@@ -264,8 +266,10 @@
     totalMembers = members.length;
 
     paintCounts();
+    shadePast();
     applyFilterDimming();
     updateLegend();
+    syncResultsHeight();
   }
 
   // --- Paint counts into cells (0..7+) and build week arrays ---
@@ -286,7 +290,7 @@
       const epoch = Number(td.dataset.epoch);
       const c = Math.min(7, slotCount(epoch));
       td.dataset.c = String(c);
-      td.classList.remove('dim', 'past', 'highlight');
+      td.classList.remove('dim', 'highlight'); // don't remove 'past' here
 
       // store for global scanning
       const day = Number(td.dataset.day);
@@ -355,13 +359,13 @@
       const colWidth = firstCell.offsetWidth;
       nowMarkerEl.style.left = `${colLeft}px`;
       nowMarkerEl.style.width = `${colWidth}px`;
-      // Bubble centering handled purely by CSS (left:50% with translate).
+      // Bubble centered via CSS translate.
     }
   }
 
   function bindMarkerReposition() {
     grid.addEventListener('scroll', () => { positionNowMarker(); });
-    window.addEventListener('resize', () => { positionNowMarker(); syncResultsHeight(); syncRightColOffset(); });
+    window.addEventListener('resize', () => { positionNowMarker(); syncRightColOffset(); syncResultsHeight(); });
     setInterval(positionNowMarker, 30000);
   }
 
@@ -373,7 +377,7 @@
     const minSlots = Math.max(1, Math.round(minHours * SLOTS_PER_HOUR));
 
     const tds = table.querySelectorAll('.slot-cell');
-    for (const td of tds) td.classList.remove('dim');
+    for (const td of tds) td.classList.remove('dim'); // keep 'past' intact
     if (!totalMembers || needed <= 0) return;
 
     const startIdx = nowGlobalIndex(); // ignore past
@@ -585,15 +589,21 @@
       lab.textContent = String(i);
       labels.appendChild(lab);
     }
+
+    // legend reflow may affect results height
+    syncResultsHeight();
   }
 
-  // --- Results panel sizing to match grid bottom (fixed height, internal scroll) ---
+  // --- Results panel sizing to grid bottom (subtract the space already used above it) ---
   function syncResultsHeight() {
     if (!grid || !resultsPanelEl || !resultsEl) return;
-    const h = grid.getBoundingClientRect().height; // physical height of grid box
-    resultsPanelEl.style.height = h + 'px';
+    const gridRect = grid.getBoundingClientRect();
+    const panelRect = resultsPanelEl.getBoundingClientRect();
+    const pad = 16; // small breathing room
+    const available = Math.max(120, Math.floor(gridRect.bottom - panelRect.top - pad));
+    resultsPanelEl.style.height = available + 'px';
     const titleH = resultsPanelEl.querySelector('h3').offsetHeight;
-    resultsEl.style.height = Math.max(50, h - titleH - 24) + 'px';
+    resultsEl.style.height = Math.max(60, available - titleH - pad) + 'px';
   }
 
   // --- Right column vertical alignment with grid top (match controls height) ---
@@ -652,6 +662,7 @@
       ul.appendChild(li);
     }
     updateLegend();
+    syncResultsHeight();
   }
 
   // --- Init / wiring ---
@@ -695,9 +706,9 @@
     });
 
     // filters
-    document.getElementById('max-missing').addEventListener('input', applyFilterDimming);
+    document.getElementById('max-missing').addEventListener('input', () => { applyFilterDimming(); syncResultsHeight(); });
     const minHoursEl = document.getElementById('min-hours');
-    minHoursEl.addEventListener('input', applyFilterDimming);
+    minHoursEl.addEventListener('input', () => { applyFilterDimming(); syncResultsHeight(); });
     minHoursEl.addEventListener('wheel', (e) => {
       e.preventDefault();
       const dir = -Math.sign(e.deltaY);
@@ -707,6 +718,7 @@
       next = Math.round(next * 2) / 2;
       minHoursEl.value = String(next);
       applyFilterDimming();
+      syncResultsHeight();
     }, { passive: false });
 
     // candidates
