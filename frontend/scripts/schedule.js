@@ -127,7 +127,9 @@
 
   function ensureNowMarker() {
     grid = document.getElementById('grid');
+    table = document.getElementById('schedule-table');
     nowMarker = document.getElementById('now-marker');
+
     if (!nowMarker && grid) {
       nowMarker = document.createElement('div');
       nowMarker.id = 'now-marker';
@@ -458,7 +460,7 @@
     window.addEventListener('resize', () => requestAnimationFrame(updateNowMarker));
   }
 
-  // --- NOW MARKER (accurate to cell geometry; invariant to scroll/zoom) ---
+  // --- NOW MARKER (scroll/zoom invariant using rects, border-compensated) ---
   function updateNowMarker() {
     ensureNowMarker();
     if (!grid || !table || !nowMarker) return;
@@ -466,14 +468,12 @@
     const { baseYMD } = getWeekStartEpochAndYMD();
     const todayYMD = getTodayYMDInTZ(tz);
 
-    // show only if today is inside the rendered week
     const dayOffset = Math.round((Date.UTC(todayYMD.y, todayYMD.m - 1, todayYMD.d) - Date.UTC(baseYMD.y, baseYMD.m - 1, baseYMD.d)) / 86400000);
     if (dayOffset < 0 || dayOffset > 6) {
       nowMarker.style.display = 'none';
       return;
     }
 
-    // current time in tz
     const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour12: false, hour: '2-digit', minute: '2-digit' }).formatToParts(new Date());
     const hh = Number(parts.find(p => p.type === 'hour').value);
     const mm = Number(parts.find(p => p.type === 'minute').value);
@@ -488,19 +488,23 @@
       return;
     }
 
-    // Use live geometry so borders/zoom are accounted for
+    // Use DOMRects so position naturally follows scroll (no manual scrollTop math).
     const gridRect = grid.getBoundingClientRect();
-    const targetRect = targetCell.getBoundingClientRect();
+    const cellRect = targetCell.getBoundingClientRect();
     const colRect = colStartCell.getBoundingClientRect();
 
-    const top = (targetRect.top - gridRect.top) + (targetRect.height * frac);
-    const left = (colRect.left - gridRect.left);
-    const width = colRect.width;
+    // Compensate for grid borders (absolute positioning uses padding box).
+    const gridBorderTop = grid.clientTop || 0;
+    const gridBorderLeft = grid.clientLeft || 0;
+
+    const markerTop = (cellRect.top - (gridRect.top + gridBorderTop)) + (cellRect.height * frac);
+    const markerLeft = (colRect.left - (gridRect.left + gridBorderLeft));
+    const markerWidth = colRect.width;
 
     nowMarker.style.display = 'block';
-    nowMarker.style.top = `${top}px`;
-    nowMarker.style.left = `${left}px`;
-    nowMarker.style.width = `${width}px`;
+    nowMarker.style.top = `${markerTop}px`;
+    nowMarker.style.left = `${markerLeft}px`;
+    nowMarker.style.width = `${markerWidth}px`;
   }
   // --- /NOW MARKER ---
 
@@ -521,7 +525,6 @@
     await loadWeekSelections();
     buildGrid();
 
-    // keep "now" in sync every minute
     setInterval(updateNowMarker, 60000);
   }
 
