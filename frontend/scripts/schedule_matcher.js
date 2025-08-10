@@ -3,80 +3,95 @@
 
   // --- Constants ---
   const BASE_URL = 'http://backend.nat20scheduling.com:3000';
-  const SLOTS_PER_HOUR = 2;           // 30-minute slots
-  const SLOT_SEC = 30 * 60;
+  const SLOTS_PER_HOUR = 2;        // 30-minute slots
   const HOURS_START = 0;
   const HOURS_END = 24;
+  const SLOT_SEC = 1800;           // 30m in seconds
 
   // --- State ---
-  let weekOffset = 0;                 // 0 = current week
-  let zoom = 1;                       // vertical zoom multiplier
-  let members = [];                   // [{username}]
-  let availabilityByUser = new Map(); // username -> array of {start,end} epoch ms
+  let weekOffset = 0;              // 0 = current week
   let isAuthenticated = false;
   let currentUsername = null;
 
-  // Settings (from localStorage if present)
-  const DEFAULT_SETTINGS = { timezone: 'auto', clock: '24', weekStart: 'sun' };
-  let settings = loadLocal('nat20_settings') || DEFAULT_SETTINGS;
-  if (!settings.timezone) settings.timezone = 'auto';
-  if (!settings.clock) settings.clock = '24';
-  if (!settings.weekStart) settings.weekStart = 'sun';
+  // settings
+  const DEFAULT_SETTINGS = { timezone: 'auto', clock: '24', weekStart: 'sun', defaultZoom: 1.0 };
+  let settings = { ...DEFAULT_SETTINGS };
+  let tz = resolveTimezone(settings.timezone);
+  let hour12 = settings.clock === '12';
+  let weekStartIdx = settings.weekStart === 'mon' ? 1 : 0;
 
-  const tz = settings.timezone === 'auto'
-    ? Intl.DateTimeFormat().resolvedOptions().timeZone
-    : settings.timezone;
-  const hour12 = settings.clock === '12';
-  const weekStartIdx = settings.weekStart === 'mon' ? 1 : 0;
+  // vertical zoom only
+  let zoomFactor = 1.0;
+  const ZOOM_MIN = 0.6, ZOOM_MAX = 2.0, ZOOM_STEP = 0.1;
 
-  // --- Elements ---
-  let gridEl, gridContentEl, tableEl, resultsEl, nowMarkerEl;
+  // members & availability
+  let members = [];                // array of usernames (strings)
+  const userSlotSets = new Map();  // username -> Set(epoch seconds)
+  let totalMembers = 0;
+
+  // cached elements
+  let table;
+  let grid;
+  let gridContent;
+  let resultsEl;
+  let nowMarkerEl;
 
   // --- Utils ---
-  function loadLocal(key) { try { return JSON.parse(localStorage.getItem(key)); } catch { return null; } }
-  function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+  function resolveTimezone(val) {
+    if (!val || val === 'auto') return (Intl.DateTimeFormat().resolvedOptions().timeZone) || 'UTC';
+    return val;
+  }
+  function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 
-  function tzOffsetMinutes(tzName, dateMs) {
-    const d = new Date(dateMs);
+  function tzOffsetMinutes(tzName, date) {
     const parts = new Intl.DateTimeFormat('en-US', {
       timeZone: tzName,
       hour12: false,
       year: 'numeric', month: '2-digit', day: '2-digit',
       hour: '2-digit', minute: '2-digit', second: '2-digit'
-    }).formatToParts(d);
+    }).formatToParts(date);
     const map = {};
     for (const p of parts) map[p.type] = p.value;
-    const utcGuess = Date.UTC(+map.year, +map.month - 1, +map.day, +map.hour, +map.minute, +map.second);
-    return Math.round((utcGuess - dateMs) / 60000);
+    const asUTC = Date.UTC(Number(map.year), Number(map.month) - 1, Number(map.day), Number(map.hour), Number(map.minute), Number(map.second));
+    return Math.round((asUTC - date.getTime()) / 60000);
   }
+
   function epochFromZoned(y, m, d, hh, mm, tzName) {
-    const guessUtc = Date.UTC(y, m - 1, d, hh, mm, 0, 0);
-    let off = tzOffsetMinutes(tzName, guessUtc);
-    let ts = guessUtc - off * 60000;
-    off = tzOffsetMinutes(tzName, ts);
-    ts = guessUtc - off * 60000;
-    return ts;
+    const guess = Date.UTC(y, m - 1, d, hh, mm, 0, 0);
+    let off = tzOffsetMinutes(tzName, new Date(guess));
+    let ts = guess - off * 60000;
+    off = tzOffsetMinutes(tzName, new Date(ts));
+    ts = guess - off * 60000;
+    return Math.floor(ts / 1000); // return SECONDS (backend expects seconds)
   }
-  function startOfWeekEpoch(ms, tzName, weekStart) {
-    const d = new Date(ms);
-    const parts = new Intl.DateTimeFormat('en-US', {
-      timeZone: tzName, hour12: false,
-      year: 'numeric', month: '2-digit', day: '2-digit',
-      weekday: 'short'
-    }).formatToParts(d);
+
+  function getYMDInTZ(date, tzName) {
+    const parts = new Intl.DateTimeFormat('en-US', { timeZone: tzName, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(date);
     const map = {};
     for (const p of parts) map[p.type] = p.value;
-    const local = new Date(epochFromZoned(+map.year, +map.month, +map.day, 0, 0, tzName));
-    const dow = local.getUTCDay();
-    const diff = (dow - weekStart + 7) % 7;
-    const weekStartLocal = new Date(local.getTime() - diff * 86400000);
-    return epochFromZoned(
-      weekStartLocal.getUTCFullYear(),
-      weekStartLocal.getUTCMonth() + 1,
-      weekStartLocal.getUTCDate(),
-      0, 0, tzName
-    );
+    return { y: Number(map.year), m: Number(map.month), d: Number(map.day) };
   }
+
+  function getTodayYMDInTZ(tzName) { return getYMDInTZ(new Date(), tzName); }
+
+  function ymdAddDays(ymd, add) {
+    const tmp = new Date(Date.UTC(ymd.y, ymd.m - 1, ymd.d));
+    tmp.setUTCDate(tmp.getUTCDate() + add);
+    return { y: tmp.getUTCFullYear(), m: tmp.getUTCMonth() + 1, d: tmp.getUTCDate() };
+  }
+
+  function getWeekStartEpochAndYMD() {
+    const today = getTodayYMDInTZ(tz);
+    // get local weekday in tz
+    const tmpMid = epochFromZoned(today.y, today.m, today.d, 0, 0, tz);
+    const localMidDate = new Date(tmpMid * 1000);
+    const dow = localMidDate.getUTCDay(); // 0..6 (Sun..Sat) at local midnight
+    const diff = (dow - weekStartIdx + 7) % 7;
+    const baseYMD = ymdAddDays(today, -diff + (weekOffset * 7));
+    const baseEpoch = epochFromZoned(baseYMD.y, baseYMD.m, baseYMD.d, 0, 0, tz);
+    return { baseEpoch, baseYMD };
+  }
+
   function fmtTime(h, m) {
     if (hour12) {
       const ampm = h >= 12 ? 'pm' : 'am';
@@ -86,27 +101,24 @@
     }
     return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
   }
-  function fmtRange(startMs, endMs) {
-    const a = new Date(startMs);
-    const b = new Date(endMs);
+
+  function fmtRangeSec(startSec, endSec) {
+    const a = new Date(startSec * 1000);
+    const b = new Date(endSec * 1000);
     const dow = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][a.getUTCDay()];
     const sh = a.getUTCHours(); const sm = a.getUTCMinutes();
     const eh = b.getUTCHours(); const em = b.getUTCMinutes();
     return `${dow}, ${fmtTime(sh, sm)} – ${fmtTime(eh, em)}`;
   }
+
   function rowHeightPx() {
     const v = getComputedStyle(document.documentElement).getPropertyValue('--row-height').trim();
     return parseFloat(v.replace('px',''));
   }
-  function getWeekStartEpoch() {
-    const now = Date.now();
-    const cur = startOfWeekEpoch(now, tz, weekStartIdx);
-    return cur + weekOffset * 7 * 86400000;
-  }
 
-  // --- Table build ---
+  // --- Build table ---
   function buildTable() {
-    tableEl.innerHTML = '';
+    table.innerHTML = '';
 
     const thead = document.createElement('thead');
     const trh = document.createElement('tr');
@@ -116,9 +128,9 @@
     thTime.className = 'time-col';
     trh.appendChild(thTime);
 
-    const start = getWeekStartEpoch();
+    const { baseEpoch } = getWeekStartEpochAndYMD();
     for (let i = 0; i < 7; i++) {
-      const d = new Date(start + i * 86400000);
+      const d = new Date((baseEpoch + i * 86400) * 1000);
       const label = new Intl.DateTimeFormat('en-GB', {
         timeZone: tz, weekday: 'short', day: '2-digit', month: 'short'
       }).format(d);
@@ -127,7 +139,7 @@
       trh.appendChild(th);
     }
     thead.appendChild(trh);
-    tableEl.appendChild(thead);
+    table.appendChild(thead);
 
     const tbody = document.createElement('tbody');
     const totalRows = (HOURS_END - HOURS_START) * SLOTS_PER_HOUR;
@@ -135,120 +147,151 @@
     for (let r = 0; r < totalRows; r++) {
       const tr = document.createElement('tr');
 
-      // Hour label cell (rowspan=2)
-      if (r % 2 === 0) {
-        const minutes = (HOURS_START * 60) + r * (60 / SLOTS_PER_HOUR);
-        const hh = Math.floor(minutes / 60);
-        const th = document.createElement('th');
-        th.className = 'time-col hour';
-        th.rowSpan = 2;
-        th.textContent = fmtTime(hh, 0);
-        tr.appendChild(th);
-      }
+      // time column: label on full hours, blank on half-hours
+      const minutes = (HOURS_START * 60) + r * (60 / SLOTS_PER_HOUR);
+      const hh = Math.floor(minutes / 60);
+      const mm = minutes % 60;
+      const th = document.createElement('th');
+      th.className = 'time-col' + (mm === 0 ? ' hour' : '');
+      th.textContent = (mm === 0) ? fmtTime(hh, 0) : '';
+      tr.appendChild(th);
 
       for (let day = 0; day < 7; day++) {
         const td = document.createElement('td');
         td.className = 'slot-cell';
-        td.dataset.day = String(day);
-        td.dataset.row = String(r);
+        const epoch = (getDayStartSec(day) + r * SLOT_SEC);
+        td.dataset.epoch = String(epoch);
         td.dataset.c = '0';
+        td.addEventListener('mousemove', onCellHoverMove);
+        td.addEventListener('mouseleave', hideTooltip);
         tr.appendChild(td);
       }
 
       tbody.appendChild(tr);
     }
 
-    tableEl.appendChild(tbody);
-
-    applyZoom();
-    paintAvailability();
+    table.appendChild(tbody);
+    setupZoomHandlers();
+    updateLegend();
+    paintCounts();
     shadePast();
-    applyFilterDimming();
     positionNowMarker();
   }
 
-  function cells() {
-    return Array.from(tableEl.querySelectorAll('.slot-cell'));
+  function getDayStartSec(dayIndex) {
+    const { baseEpoch } = getWeekStartEpochAndYMD();
+    return baseEpoch + dayIndex * 86400;
   }
 
-  // --- Availability painting ---
-  function paintAvailability() {
-    for (const cell of cells()) cell.dataset.c = '0';
+  // --- Availability fetch (from/to in SECONDS, names in `usernames`) ---
+  async function fetchMembersAvail() {
+    if (!members.length) {
+      userSlotSets.clear();
+      totalMembers = 0;
+      paintCounts();
+      applyFilterDimming();
+      return;
+    }
+    const { baseEpoch, baseYMD } = getWeekStartEpochAndYMD();
+    const endYMD = ymdAddDays(baseYMD, 7);
+    const endEpoch = epochFromZoned(endYMD.y, endYMD.m, endYMD.d, 0, 0, tz);
 
-    const start = getWeekStartEpoch();
-    const totalRows = (HOURS_END - HOURS_START) * SLOTS_PER_HOUR;
+    const payload = { from: baseEpoch, to: endEpoch, usernames: members };
+    const tryPaths = [
+      `${BASE_URL}/availability/get_many`,
+      `${BASE_URL}/availability/availability/get_many`
+    ];
 
-    for (const [, ranges] of availabilityByUser) {
-      for (const rng of ranges) {
-        const a = Math.max(rng.start, start);
-        const b = Math.min(rng.end, start + 7 * 86400000);
-        if (b <= a) continue;
-
-        for (let day = 0; day < 7; day++) {
-          const dayStart = start + day * 86400000;
-          const dayEnd = dayStart + 86400000;
-          const s = Math.max(a, dayStart);
-          const e = Math.min(b, dayEnd);
-          if (e <= s) continue;
-
-          const firstSlot = Math.max(0, Math.floor(((s - dayStart) / 1000) / SLOT_SEC));
-          const lastSlotExclusive = Math.min(totalRows, Math.ceil(((e - dayStart) / 1000) / SLOT_SEC));
-
-          for (let r = firstSlot; r < lastSlotExclusive; r++) {
-            const cell = tableEl.querySelector(`.slot-cell[data-day="${day}"][data-row="${r}"]`);
-            if (cell) {
-              const cur = +cell.dataset.c;
-              cell.dataset.c = String(Math.min(7, cur + 1));
-            }
-          }
-        }
+    let data = { intervals: {} };
+    for (const url of tryPaths) {
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify(payload)
+        });
+        if (res.status === 404) { console.warn('404 on', url, '— trying next path'); continue; }
+        if (!res.ok) { console.warn('Request failed', res.status, 'on', url); continue; }
+        data = await res.json();
+        break;
+      } catch (err) {
+        console.warn('Request error on', url, err);
       }
+    }
+
+    userSlotSets.clear();
+    for (const uname of members) {
+      const intervals = (data.intervals && data.intervals[uname]) || [];
+      const set = new Set();
+      for (const iv of intervals) {
+        const from = Math.max(iv.from, baseEpoch);
+        const to = Math.min(iv.to, endEpoch);
+        let t = Math.ceil(from / SLOT_SEC) * SLOT_SEC;
+        for (; t < to; t += SLOT_SEC) set.add(t);
+      }
+      userSlotSets.set(uname, set);
+    }
+    totalMembers = members.length;
+
+    paintCounts();
+    applyFilterDimming();
+  }
+
+  // --- Paint counts into cells (0..7+) ---
+  function slotCount(epoch) {
+    let count = 0;
+    for (const u of members) {
+      const set = userSlotSets.get(u);
+      if (set && set.has(epoch)) count++;
+    }
+    return count;
+  }
+
+  function paintCounts() {
+    const tds = table.querySelectorAll('.slot-cell');
+    for (const td of tds) {
+      const c = Math.min(7, slotCount(Number(td.dataset.epoch)));
+      td.dataset.c = String(c);
+      td.classList.remove('dim', 'past', 'highlight');
     }
   }
 
   // --- Past shading ---
   function shadePast() {
-    for (const cell of cells()) cell.classList.remove('past');
+    const nowMs = Date.now();
+    const { baseEpoch } = getWeekStartEpochAndYMD();
+    const baseMs = baseEpoch * 1000;
+    const endMs = baseMs + 7 * 86400000;
+    const tds = table.querySelectorAll('.slot-cell');
 
-    const now = Date.now();
-    const weekStart = getWeekStartEpoch();
-    const weekEnd = weekStart + 7 * 86400000;
-    if (now < weekStart || now > weekEnd) return;
+    for (const td of tds) td.classList.remove('past');
+    if (nowMs < baseMs || nowMs > endMs) return;
 
-    const dayIdx = Math.floor((now - weekStart) / 86400000);
-    const dayStart = weekStart + dayIdx * 86400000;
-    const slotIdx = Math.floor(((now - dayStart) / 1000) / SLOT_SEC);
-
-    // days before today
-    for (let d = 0; d < dayIdx; d++) {
-      for (const cell of tableEl.querySelectorAll(`.slot-cell[data-day="${d}"]`)) cell.classList.add('past');
-    }
-    // earlier slots today
-    for (let r = 0; r < slotIdx; r++) {
-      const cell = tableEl.querySelector(`.slot-cell[data-day="${dayIdx}"][data-row="${r}"]`);
-      if (cell) cell.classList.add('past');
+    for (const td of tds) {
+      const cellMs = Number(td.dataset.epoch) * 1000;
+      if (cellMs < nowMs) td.classList.add('past');
     }
   }
 
-  // --- Now marker ---
+  // --- NOW marker ---
   function positionNowMarker() {
-    const now = Date.now();
-    const weekStart = getWeekStartEpoch();
-    const weekEnd = weekStart + 7 * 86400000;
+    const nowSec = Math.floor(Date.now() / 1000);
+    const { baseEpoch } = getWeekStartEpochAndYMD();
+    const endSec = baseEpoch + 7 * 86400;
 
-    if (now < weekStart || now > weekEnd) {
+    if (nowSec < baseEpoch || nowSec >= endSec) {
       nowMarkerEl.style.display = 'none';
       return;
     }
-
     nowMarkerEl.style.display = 'block';
 
-    const dayIdx = Math.floor((now - weekStart) / 86400000);
-    const dayStart = weekStart + dayIdx * 86400000;
-    const secondsIntoDay = Math.floor((now - dayStart) / 1000);
+    const secondsIntoWeek = nowSec - baseEpoch;
+    const dayIdx = Math.floor(secondsIntoWeek / 86400);
+    const secondsIntoDay = secondsIntoWeek - dayIdx * 86400;
     const rowsIntoDay = secondsIntoDay / SLOT_SEC;
 
-    const thead = tableEl.querySelector('thead');
+    const thead = table.querySelector('thead');
     const headerH = thead ? thead.offsetHeight : 0;
     const topPx = headerH + rowsIntoDay * rowHeightPx();
 
@@ -256,29 +299,28 @@
   }
 
   function bindMarkerReposition() {
-    gridEl.addEventListener('scroll', () => positionNowMarker());
-    window.addEventListener('resize', () => positionNowMarker());
+    grid.addEventListener('scroll', positionNowMarker);
+    window.addEventListener('resize', positionNowMarker);
     setInterval(positionNowMarker, 30000);
   }
 
-  // --- Filters & candidates ---
+  // --- Filter dimming (max missing + min session length in hours, step 0.5) ---
   function applyFilterDimming() {
     const maxMissing = parseInt(document.getElementById('max-missing').value || '0', 10);
     const minHours = parseFloat(document.getElementById('min-hours').value || '1');
-    const needed = Math.max(0, members.length - maxMissing);
+    const needed = Math.max(0, totalMembers - maxMissing);
     const minSlots = Math.max(1, Math.round(minHours * SLOTS_PER_HOUR));
 
-    for (const cell of cells()) cell.classList.remove('dim');
-
-    if (members.length === 0 || needed <= 0) return;
+    const tds = table.querySelectorAll('.slot-cell');
+    for (const td of tds) td.classList.remove('dim');
+    if (!totalMembers || needed <= 0) return;
 
     const totalRows = (HOURS_END - HOURS_START) * SLOTS_PER_HOUR;
-
     for (let day = 0; day < 7; day++) {
       let r = 0;
       while (r < totalRows) {
-        const cell = tableEl.querySelector(`.slot-cell[data-day="${day}"][data-row="${r}"]`);
-        const ok = cell && (+cell.dataset.c) >= needed;
+        const cell = cellAt(day, r);
+        const ok = cell && (Number(cell.dataset.c) >= needed);
         if (!ok) {
           if (cell) cell.classList.add('dim');
           r++;
@@ -287,14 +329,13 @@
         // count contiguous streak
         let rr = r;
         while (rr < totalRows) {
-          const c = tableEl.querySelector(`.slot-cell[data-day="${day}"][data-row="${rr}"]`);
-          if (!c || (+c.dataset.c) < needed) break;
+          const c = cellAt(day, rr);
+          if (!c || Number(c.dataset.c) < needed) break;
           rr++;
         }
-        const streak = rr - r;
-        if (streak < minSlots) {
+        if (rr - r < minSlots) {
           for (let k = r; k < rr; k++) {
-            const c = tableEl.querySelector(`.slot-cell[data-day="${day}"][data-row="${k}"]`);
+            const c = cellAt(day, k);
             if (c) c.classList.add('dim');
           }
         }
@@ -303,51 +344,54 @@
     }
   }
 
+  function cellAt(day, row) {
+    return table.querySelector(`.slot-cell[data-epoch="${getDayStartSec(day) + row * SLOT_SEC}"]`);
+  }
+
+  // --- Results / candidates ---
   function findCandidates() {
     const maxMissing = parseInt(document.getElementById('max-missing').value || '0', 10);
     const minHours = parseFloat(document.getElementById('min-hours').value || '1');
-    const needed = Math.max(0, members.length - maxMissing);
+    const needed = Math.max(0, totalMembers - maxMissing);
     const minSlots = Math.max(1, Math.round(minHours * SLOTS_PER_HOUR));
-    const start = getWeekStartEpoch();
 
-    const totalRows = (HOURS_END - HOURS_START) * SLOTS_PER_HOUR;
     const sessions = [];
+    const totalRows = (HOURS_END - HOURS_START) * SLOTS_PER_HOUR;
 
     for (let day = 0; day < 7; day++) {
       let r = 0;
       while (r < totalRows) {
-        const cell = tableEl.querySelector(`.slot-cell[data-day="${day}"][data-row="${r}"]`);
-        if (!cell || (+cell.dataset.c) < needed) { r++; continue; }
-
+        const cell = cellAt(day, r);
+        if (!cell || Number(cell.dataset.c) < needed) { r++; continue; }
         let rr = r;
         while (rr < totalRows) {
-          const c = tableEl.querySelector(`.slot-cell[data-day="${day}"][data-row="${rr}"]`);
-          if (!c || (+c.dataset.c) < needed) break;
+          const c = cellAt(day, rr);
+          if (!c || Number(c.dataset.c) < needed) break;
           rr++;
         }
-
         const streak = rr - r;
         if (streak >= minSlots) {
-          const sessionStart = start + day * 86400000 + r * SLOT_SEC * 1000;
-          const sessionEnd = start + day * 86400000 + rr * SLOT_SEC * 1000;
+          const dayStartSec = getDayStartSec(day);
+          const startSec = dayStartSec + r * SLOT_SEC;
+          const endSec = dayStartSec + rr * SLOT_SEC;
 
           const users = [];
-          for (const [uname, ranges] of availabilityByUser) {
-            let okWhole = false;
-            for (const rng of ranges) {
-              if (rng.start <= sessionStart && rng.end >= sessionEnd) { okWhole = true; break; }
+          for (const u of members) {
+            const set = userSlotSets.get(u);
+            let ok = true;
+            for (let t = startSec; t < endSec; t += SLOT_SEC) {
+              if (!set || !set.has(t)) { ok = false; break; }
             }
-            if (okWhole) users.push(uname);
+            if (ok) users.push(u);
           }
 
           sessions.push({
             day, rStart: r, rEnd: rr,
-            start: sessionStart, end: sessionEnd,
+            start: startSec, end: endSec,
             duration: rr - r,
             participants: users.length, users
           });
         }
-
         r = rr + 1;
       }
     }
@@ -380,8 +424,7 @@
 
   function renderResults(list) {
     resultsEl.innerHTML = '';
-    // clear previous highlights
-    for (const c of tableEl.querySelectorAll('.slot-cell.highlight')) c.classList.remove('highlight');
+    clearHighlights();
 
     if (!list.length) {
       resultsEl.innerHTML = '<div class="result"><div class="res-sub">No matching sessions. Adjust filters.</div></div>';
@@ -394,11 +437,11 @@
 
       const top = document.createElement('div');
       top.className = 'res-top';
-      top.textContent = fmtRange(it.start, it.end);
+      top.textContent = fmtRangeSec(it.start, it.end);
 
       const sub = document.createElement('div');
       sub.className = 'res-sub';
-      sub.textContent = `${it.participants}/${members.length} available • ${((it.rEnd - it.rStart)/SLOTS_PER_HOUR).toFixed(1)}h`;
+      sub.textContent = `${it.participants}/${totalMembers} available • ${((it.rEnd - it.rStart)/SLOTS_PER_HOUR).toFixed(1)}h`;
 
       const usersLine = document.createElement('div');
       usersLine.className = 'res-users';
@@ -408,99 +451,53 @@
       wrap.appendChild(sub);
       wrap.appendChild(usersLine);
 
-      // hover highlight
-      wrap.addEventListener('mouseenter', () => {
-        for (let r = it.rStart; r < it.rEnd; r++) {
-          const cell = tableEl.querySelector(`.slot-cell[data-day="${it.day}"][data-row="${r}"]`);
-          if (cell) cell.classList.add('highlight');
-        }
-      });
-      wrap.addEventListener('mouseleave', () => {
-        for (let r = it.rStart; r < it.rEnd; r++) {
-          const cell = tableEl.querySelector(`.slot-cell[data-day="${it.day}"][data-row="${r}"]`);
-          if (cell) cell.classList.remove('highlight');
-        }
-      });
+      wrap.addEventListener('mouseenter', () => highlightRange(it.day, it.rStart, it.rEnd, true));
+      wrap.addEventListener('mouseleave', () => highlightRange(it.day, it.rStart, it.rEnd, false));
 
       resultsEl.appendChild(wrap);
     }
   }
 
-  // --- Fetch availability ---
-  async function fetchMembersAvail() {
-    availabilityByUser.clear();
-    if (members.length === 0) { paintAvailability(); applyFilterDimming(); return; }
-
-    const weekStart = getWeekStartEpoch();
-    const body = {
-      usernames: members.map(m => m.username),
-      start: weekStart,
-      end: weekStart + 7 * 86400000
-    };
-
-    let url = `${BASE_URL}/availability/get_many`;
-    let res = await tryPost(url, body);
-    if (!res || res.status === 404) {
-      url = `${BASE_URL}/availability/availability/get_many`;
-      res = await tryPost(url, body);
-    }
-    if (!res || res.status !== 200) {
-      paintAvailability(); applyFilterDimming(); return;
-    }
-    const data = await res.json();
-
-    if (Array.isArray(data)) {
-      for (const u of data) availabilityByUser.set(u.username, u.entries || u.availability || []);
-    } else if (data && data.data) {
-      for (const [uname, arr] of Object.entries(data.data)) availabilityByUser.set(uname, arr);
-    } else {
-      for (const [uname, arr] of Object.entries(data)) availabilityByUser.set(uname, arr);
-    }
-
-    paintAvailability();
-    applyFilterDimming();
-  }
-
-  async function tryPost(url, body) {
-    try {
-      const ctrl = new AbortController();
-      const t = setTimeout(() => ctrl.abort(), 6000);
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify(body),
-        signal: ctrl.signal
-      });
-      clearTimeout(t);
-      return res;
-    } catch {
-      return null;
+  function highlightRange(day, rStart, rEnd, on) {
+    for (let r = rStart; r < rEnd; r++) {
+      const td = cellAt(day, r);
+      if (td) td.classList.toggle('highlight', on);
     }
   }
 
-  // --- Members UI ---
-  function renderMembers() {
-    const list = document.getElementById('member-list');
-    list.innerHTML = '';
-    for (const m of members) {
-      const li = document.createElement('li');
-      const name = document.createElement('div');
-      name.textContent = m.username;
-      const btn = document.createElement('button');
-      btn.textContent = 'Remove';
-      btn.addEventListener('click', async () => {
-        members = members.filter(x => x.username !== m.username);
-        renderMembers();
-        await fetchMembersAvail();
-      });
-      li.appendChild(name);
-      li.appendChild(btn);
-      list.appendChild(li);
-    }
-    updateLegend();
+  function clearHighlights() {
+    for (const td of table.querySelectorAll('.slot-cell.highlight')) td.classList.remove('highlight');
   }
 
+  // --- Tooltip ---
+  function onCellHoverMove(e) {
+    const td = e.currentTarget;
+    const epoch = Number(td.dataset.epoch);
+    const lists = availabilityListsAt(epoch);
+    const tip = document.getElementById('cell-tooltip');
+    const avail = lists.available.length ? `Available: ${lists.available.join(', ')}` : 'Available: —';
+    const unavail = lists.unavailable.length ? `Unavailable: ${lists.unavailable.join(', ')}` : 'Unavailable: —';
+    tip.innerHTML = `<div>${avail}</div><div style="margin-top:6px; color:#bbb;">${unavail}</div>`;
+    tip.style.display = 'block';
+    tip.style.left = (e.clientX + 14) + 'px';
+    tip.style.top = (e.clientY + 16) + 'px';
+  }
+  function hideTooltip() {
+    const tip = document.getElementById('cell-tooltip');
+    tip.style.display = 'none';
+  }
+  function availabilityListsAt(epoch) {
+    const available = [];
+    const unavailable = [];
+    for (const u of members) {
+      const set = userSlotSets.get(u);
+      if (set && set.has(epoch)) available.push(u);
+      else unavailable.push(u);
+    }
+    return { available, unavailable };
+  }
+
+  // --- Legend ---
   function updateLegend() {
     const steps = document.getElementById('legend-steps');
     const labels = document.getElementById('legend-labels');
@@ -518,33 +515,62 @@
     }
   }
 
-  // --- Zoom / Pan ---
-  function applyZoom() {
+  // --- Zoom (vertical only) ---
+  function applyZoomStyles() {
     const base = 18;
-    const newPx = clamp(Math.round(base * zoom), 10, 42);
-    document.documentElement.style.setProperty('--row-height', `${newPx}px`);
+    const px = clamp(Math.round(base * zoomFactor), 10, 42);
+    document.documentElement.style.setProperty('--row-height', `${px}px`);
     positionNowMarker();
   }
 
-  function bindZoomAndPan() {
-    gridEl.addEventListener('wheel', (e) => {
-      if (e.shiftKey) {
-        e.preventDefault();
-        const delta = -Math.sign(e.deltaY);
-        zoom = clamp(zoom + delta * 0.1, 0.5, 2.2);
-        applyZoom();
-      }
+  function setupZoomHandlers() {
+    if (!grid) grid = document.getElementById('grid');
+    grid.addEventListener('wheel', (e) => {
+      if (!e.shiftKey) return; // normal scroll
+      e.preventDefault();
+      const delta = Math.sign(e.deltaY);
+      zoomFactor = clamp(zoomFactor - delta * ZOOM_STEP, ZOOM_MIN, ZOOM_MAX);
+      applyZoomStyles();
     }, { passive: false });
   }
 
-  // --- Auth integration from page ---
+  // --- Auth from host page ---
   function setAuth(ok, username) {
     isAuthenticated = !!ok;
     currentUsername = ok ? username : null;
   }
 
-  // --- UI wiring ---
-  function attachUI() {
+  // --- Members UI ---
+  function renderMembers() {
+    const ul = document.getElementById('member-list');
+    ul.innerHTML = '';
+    for (const name of members) {
+      const li = document.createElement('li');
+      const txt = document.createElement('div');
+      txt.textContent = name;
+      const btn = document.createElement('button');
+      btn.textContent = 'Remove';
+      btn.addEventListener('click', async () => {
+        members = members.filter(u => u !== name);
+        renderMembers();
+        await fetchMembersAvail();
+      });
+      li.appendChild(txt);
+      li.appendChild(btn);
+      ul.appendChild(li);
+    }
+    updateLegend();
+  }
+
+  // --- Init / wiring ---
+  async function init() {
+    table = document.getElementById('scheduler-table');
+    grid = document.getElementById('grid');
+    gridContent = document.getElementById('grid-content');
+    resultsEl = document.getElementById('results');
+    nowMarkerEl = document.getElementById('now-marker');
+
+    // controls
     document.getElementById('prev-week').addEventListener('click', async () => {
       weekOffset -= 1;
       buildTable();
@@ -556,11 +582,12 @@
       await fetchMembersAvail();
     });
 
+    // members add/remove
     document.getElementById('add-user-btn').addEventListener('click', async () => {
       const input = document.getElementById('add-username');
       const name = (input.value || '').trim();
       if (!name) return;
-      if (!members.some(m => m.username === name)) members.push({ username: name });
+      if (!members.includes(name)) members.push(name);
       input.value = '';
       renderMembers();
       await fetchMembersAvail();
@@ -568,15 +595,12 @@
 
     document.getElementById('add-me-btn').addEventListener('click', async () => {
       if (!isAuthenticated || !currentUsername) return;
-      if (!members.some(m => m.username === currentUsername)) members.push({ username: currentUsername });
+      if (!members.includes(currentUsername)) members.push(currentUsername);
       renderMembers();
       await fetchMembersAvail();
     });
 
-    document.getElementById('find-btn').addEventListener('click', () => {
-      findCandidates();
-    });
-
+    // filters
     document.getElementById('max-missing').addEventListener('input', applyFilterDimming);
     const minHoursEl = document.getElementById('min-hours');
     minHoursEl.addEventListener('input', applyFilterDimming);
@@ -590,38 +614,52 @@
       minHoursEl.value = String(next);
       applyFilterDimming();
     }, { passive: false });
-  }
 
-  // --- Init ---
-  async function init() {
-    gridEl = document.getElementById('grid');
-    gridContentEl = document.getElementById('grid-content');
-    tableEl = document.getElementById('scheduler-table');
-    resultsEl = document.getElementById('results');
-    nowMarkerEl = document.getElementById('now-marker');
+    // candidates
+    document.getElementById('find-btn').addEventListener('click', findCandidates);
 
-    attachUI();
-    bindZoomAndPan();
-    bindMarkerReposition();
-    updateLegend();
+    // load settings (optionally from backend)
+    await loadSettings();
 
-    buildTable();
-
+    // restore previous members
     try {
       const prev = JSON.parse(sessionStorage.getItem('nat20_members') || '[]');
-      if (Array.isArray(prev)) members = prev;
+      if (Array.isArray(prev)) members = prev.filter(x => typeof x === 'string');
     } catch {}
+
+    buildTable();
     renderMembers();
     await fetchMembersAvail();
 
     window.addEventListener('beforeunload', () => {
       sessionStorage.setItem('nat20_members', JSON.stringify(members));
     });
+
+    bindMarkerReposition();
   }
 
-  // expose to page
+  async function fetchRemoteSettings() {
+    try {
+      const res = await fetch(`${BASE_URL}/settings`, { credentials: 'include', cache: 'no-cache' });
+      if (res.ok) return await res.json();
+    } catch {}
+    return null;
+  }
+
+  async function loadSettings() {
+    const remote = await fetchRemoteSettings();
+    const s = remote || DEFAULT_SETTINGS;
+    settings = { ...DEFAULT_SETTINGS, ...s };
+    tz = resolveTimezone(settings.timezone);
+    hour12 = settings.clock === '12';
+    weekStartIdx = settings.weekStart === 'mon' ? 1 : 0;
+    zoomFactor = clamp(typeof settings.defaultZoom === 'number' ? settings.defaultZoom : 1.0, ZOOM_MIN, ZOOM_MAX);
+    applyZoomStyles();
+  }
+
+  // expose to host page
   window.scheduler = { init, setAuth };
 
-  // auto-boot if DOM already ready (page also calls init)
+  // auto-boot if DOM already ready
   if (document.readyState !== 'loading') init();
 })();

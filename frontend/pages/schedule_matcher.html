@@ -26,8 +26,8 @@
   <div class="container two-col">
     <div class="left-col">
       <div class="controls">
-        <button id="prev-week">← Previous week</button>
-        <button id="next-week">Next week →</button>
+        <button id="prev-week" title="Previous week">← Previous week</button>
+        <button id="next-week" title="Next week">Next week →</button>
         <span class="muted helper">Shift+Scroll = Vertical Zoom, Scroll = Pan</span>
       </div>
 
@@ -104,16 +104,19 @@
       const controller = new AbortController();
       setTimeout(() => controller.abort(), 3000);
       try {
-        const res = await fetch('http://backend.nat20scheduling.com:3000/me', {
-          method: 'GET',
+        const res = await fetch('http://backend.nat20scheduling.com:3000/auth/check', {
           credentials: 'include',
           cache: 'no-cache',
           signal: controller.signal
         });
-        if (!res.ok) throw new Error();
-        const data = await res.json();
-        isAuthenticated = !!data?.username;
-        currentUsername = data?.username || null;
+        if (res.status === 200) {
+          const data = await res.json();
+          isAuthenticated = true;
+          currentUsername = data.username || 'user';
+        } else {
+          isAuthenticated = false;
+          currentUsername = null;
+        }
       } catch {
         isAuthenticated = false;
         currentUsername = null;
@@ -127,7 +130,7 @@
     function updateAuthUI() {
       const userLabel = document.getElementById('user-label');
       const authButton = document.getElementById('auth-button');
-      if (isAuthenticated && currentUsername) {
+      if (isAuthenticated) {
         userLabel.textContent = `Signed in as ${currentUsername}`;
         userLabel.style.display = 'inline';
         authButton.textContent = 'Logout';
@@ -141,7 +144,7 @@
 
     async function logout() {
       try {
-        await fetch('http://backend.nat20scheduling.com:3000/logout', {
+        await fetch('http://backend.nat20scheduling.com:3000/auth/logout', {
           method: 'POST',
           credentials: 'include'
         });
