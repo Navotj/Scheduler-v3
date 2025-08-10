@@ -1,6 +1,7 @@
 :root {
   --row-height: 18px;   /* half-hour slot height */
   --font-size: 12px;
+  --line: #2b2b2b;
 }
 
 /* Layout */
@@ -17,36 +18,33 @@
   margin: 12px 0 10px;
   flex-wrap: wrap;
 }
+.left-col .controls .helper { margin-left: auto; color: #9aa0a6; font-size: 12px; }
+.left-col .controls button { height: 32px; padding: 6px 12px; }
 
-.left-col .controls button {
-  background: #262626;
-  color: #eee;
-  border: 1px solid #383838;
-  border-radius: 10px;
-  padding: 6px 10px;
-  cursor: pointer;
-}
-.left-col .controls button:hover { background: #2f2f2f; }
-.left-col .controls .muted { color: #9aa0a6; font-size: 12px; }
-
+/* Grid shell */
 .grid {
+  position: relative;
   background: #101010;
-  border: 1px solid #2b2b2b;
+  border: 1px solid var(--line);
   border-radius: 12px;
   padding: 8px;
   overflow: auto;
 }
+
+.grid-content { position: relative; min-width: 900px; }
 
 .table {
   width: 100%;
   min-width: 820px;
   user-select: none;
   font-size: var(--font-size);
+  border-collapse: separate;
+  border-spacing: 0;
 }
 .table th,
-.table td { border: 1px solid #2b2b2b; text-align: center; }
+.table td { border: 1px solid var(--line); text-align: center; }
 
-/* Keep day/date header text size constant (no zoom scaling) */
+/* Sticky header */
 .table thead th {
   position: sticky;
   top: 0;
@@ -54,9 +52,20 @@
   z-index: 5;
   font-weight: 600;
   font-size: 12px;
+  padding: 8px 6px;
 }
 
-/* row height scales with zoom */
+/* Sticky time column */
+.table thead tr > th:first-child,
+.table tbody tr > th.time-col {
+  position: sticky;
+  left: 0;
+  z-index: 4;
+  background: #151515;
+  border-right: 1px solid var(--line);
+}
+
+/* Body cells scale with zoom */
 .table tbody td,
 .table tbody th {
   height: var(--row-height);
@@ -64,47 +73,33 @@
   padding: 0;
 }
 
-/* Sticky time column */
 .time-col {
-  position: sticky;
-  left: 0;
-  background: #151515;
-  z-index: 4;
   width: 76px;
   min-width: 76px;
-  border-right: 1px solid #2b2b2b;
+  text-align: right;
+  padding-right: 6px;
+  color: #cfcfcf;
+  border-right: 1px solid var(--line);
 }
-
-/* Hour cell spans two rows */
 .time-col.hour {
   font-size: calc(var(--font-size) * 1.15);
   line-height: normal;
-  background: #151515;
 }
 
 /* Slot cells */
-.slot-cell {
-  cursor: default;
-  background-clip: padding-box;
-}
+.slot-cell { background-clip: padding-box; }
+.slot-cell.dim { filter: grayscale(40%) brightness(0.85); opacity: 0.5; }
+.slot-cell.past { opacity: 0.35; }
 
-.slot-cell.dim {
-  filter: grayscale(40%) brightness(0.8);
-  opacity: 0.45;
-}
-
-.table thead tr > th:first-child,
-.table tbody tr > th.time-col {
-  position: sticky;
-  left: 0;
-  z-index: 3;
-  background: #151515;
-}
-
-.table thead tr > th {
-  border-top-width: 2px;
-  border-top-color: #3a3a3a;
-}
+/* Availability color scale 0..7 */
+.slot-cell[data-c="0"] { background: #111; }
+.slot-cell[data-c="1"] { background: #16361c; }
+.slot-cell[data-c="2"] { background: #1d4a25; }
+.slot-cell[data-c="3"] { background: #1f5f2e; }
+.slot-cell[data-c="4"] { background: #256f35; }
+.slot-cell[data-c="5"] { background: #2a7f3d; }
+.slot-cell[data-c="6"] { background: #2f9046; }
+.slot-cell[data-c="7"] { background: #35a351; }
 
 /* Hover tooltip */
 .cell-tooltip {
@@ -122,36 +117,12 @@
 }
 
 /* Right column */
-.right-col {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
+.right-col { display: flex; flex-direction: column; gap: 14px; }
+.panel { background: #121212; border: 1px solid #242424; border-radius: 12px; padding: 12px; }
+.right-col h3 { margin: 0 0 10px 0; font-size: 15px; }
 
-.panel {
-  background: #121212;
-  border: 1px solid #242424;
-  border-radius: 12px;
-  padding: 12px;
-}
-
-.right-col h3 {
-  margin: 0 0 10px 0;
-  font-size: 15px;
-}
-
-.right-col .row {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-
-.right-col .field {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 6px;
-  margin-bottom: 10px;
-}
+.right-col .row { display: flex; gap: 8px; align-items: center; }
+.right-col .field { display: grid; grid-template-columns: 1fr; gap: 6px; margin-bottom: 10px; }
 
 .right-col input[type="text"],
 .right-col input[type="number"],
@@ -162,7 +133,6 @@
   border-radius: 8px;
   padding: 6px 8px;
 }
-
 .right-col .actions button,
 .add-user button {
   background: #2d6cdf;
@@ -172,76 +142,38 @@
   border-radius: 8px;
   cursor: pointer;
 }
+.add-user input { height: 32px; }
+.add-user button { height: 32px; line-height: 32px; }
 
-.member-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
+.member-list { list-style: none; margin: 0; padding: 0; }
 .member-list li {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  background: #121212;
-  border: 1px solid #2a2a2a;
-  border-radius: 8px;
-  padding: 6px 8px;
-  margin-bottom: 8px;
+  display: flex; justify-content: space-between; align-items: center;
+  background: #121212; border: 1px solid #2a2a2a; border-radius: 8px;
+  padding: 6px 8px; margin-bottom: 8px;
 }
-
-.member-list li button {
-  background: #3b3b3b;
-  border: 0;
-  color: #eee;
-  padding: 6px 10px;
-  border-radius: 8px;
-  cursor: pointer;
-}
+.member-list li button { background: #3b3b3b; border: 0; color: #eee; padding: 6px 10px; border-radius: 8px; cursor: pointer; }
 .member-list li button:hover { background: #4a4a4a; }
 
 /* Legend */
-.legend {
-  margin-top: 10px;
-}
-.legend-steps {
-  display: flex;
-  gap: 6px;
-}
+.legend { margin-top: 10px; }
+.legend-steps { display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; }
 .legend-steps .chip {
-  width: 22px;
-  height: 10px;
+  width: 100%;
+  height: 12px;
   border-radius: 6px;
-  border: 1px solid #2b2b2b;
+  border: 1px solid var(--line);
 }
-.legend-labels {
-  display: flex;
-  justify-content: space-between;
-  margin-top: 4px;
-  font-size: 12px;
-}
+.legend-labels { display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; margin-top: 4px; font-size: 12px; }
+.legend-labels span { text-align: center; }
 
 /* Highlighted cells for selected result interval */
-.slot-cell.highlight {
-  outline: 2px solid #ffd54a;
-  outline-offset: -2px;
-}
+.slot-cell.highlight { outline: 2px solid #ffd54a; outline-offset: -2px; }
 
-/* --- Added: helper text alignment and uniform control buttons --- */
-.left-col .controls .helper { margin-left: auto; }
-.left-col .controls button { height: 32px; padding: 6px 12px; }
-
-/* Equalize Add/Add me row heights */
-.right-col .add-user input { height: 32px; }
-.right-col .add-user button { height: 32px; line-height: 32px; }
-
-/* Grid content wrapper for absolute-positioned overlays like NOW marker */
-.grid { position: relative; overflow: auto; }
-.grid-content { position: relative; min-width: 820px; }
-
-/* NOW marker (horizontal red line confined to today's column) */
+/* NOW marker */
 .now-marker {
   position: absolute;
+  left: 0;
+  right: 0;
   height: 0;
   border-top: 2px solid #e53935;
   z-index: 8;
@@ -250,9 +182,8 @@
 }
 .now-marker .bubble {
   position: absolute;
-  right: calc(100% + 10px);
+  right: 6px;
   top: -12px;
-  transform: translateY(0);
   font-size: 10px;
   line-height: 1;
   background: #0f0f0f;
@@ -266,32 +197,25 @@
 .now-marker .bubble::after {
   content: "";
   position: absolute;
-  left: 100%;
+  right: -6px;
   top: 50%;
   transform: translateY(-50%);
-  border-left: 8px solid #e53935;
-  border-top: 6px solid transparent;
-  border-bottom: 6px solid transparent;
+  border-left: 6px solid #e53935;
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
 }
 .now-marker .bubble::before {
   content: "";
   position: absolute;
-  left: 100%;
+  right: -5px;
   top: 50%;
-  transform: translate(calc(-1px), -50%);
-  border-left: 7px solid #0f0f0f;
-  border-top: 5px solid transparent;
-  border-bottom: 5px solid transparent;
+  transform: translateY(-50%);
+  border-left: 5px solid #0f0f0f;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
 }
 
-/* Dim past cells */
-.slot-cell.past { opacity: 0.35; }
-
-/* Legend: keep numbers centered under each chip */
-.legend-steps, .legend-labels { display: grid; gap: 6px; }
-.legend-labels span { text-align: center; }
-
-/* Results styling */
+/* Results */
 .results .result {
   background: #121212;
   border: 1px solid #2a2a2a;
@@ -301,4 +225,4 @@
 }
 .results .result .res-top { font-weight: 600; margin-bottom: 4px; }
 .results .result .res-sub { font-size: 12px; color: #bbb; margin-bottom: 4px; }
-.results .result .res-users { font-size: 12px; color: #8fa; word-break: break-word; }
+.results .result .res-users { font-size: 12px; color: #cfe9cf; word-break: break-word; }
