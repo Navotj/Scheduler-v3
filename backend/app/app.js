@@ -34,7 +34,8 @@ mongoose.connect(MONGO_URI, {
 });
 
 app.use(authRoutes);
-app.use(availabilityRoutes);
+// Mount availability router under /availability so endpoints are /availability/get, /availability/save, /availability/get_many
+app.use('/availability', availabilityRoutes);
 app.use(settingsRoutes);
 
 // legacy test endpoint

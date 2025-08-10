@@ -19,7 +19,7 @@ function requireAuth(req, res, next) {
 
 // GET intervals for the current user within [from, to) epoch seconds (UTC)
 router.get(
-  '/availability/get',
+  '/get',
   requireAuth,
   query('from').isInt({ min: 0 }).toInt(),
   query('to').isInt({ min: 1 }).toInt(),
@@ -43,7 +43,7 @@ router.get(
 
 // POST replace all intervals for the current user within [from, to) with provided intervals (epoch seconds, UTC)
 router.post(
-  '/availability/save',
+  '/save',
   requireAuth,
   body('from').isInt({ min: 0 }).toInt(),
   body('to').isInt({ min: 1 }).toInt(),
@@ -108,7 +108,7 @@ router.post(
 
 // POST fetch intervals for multiple users within [from, to) epoch seconds (UTC)
 router.post(
-  '/availability/get_many',
+  '/get_many',
   requireAuth,
   body('from').isInt({ min: 0 }).toInt(),
   body('to').isInt({ min: 1 }).toInt(),
