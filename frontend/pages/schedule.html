@@ -2,45 +2,48 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Weekly Schedule — NAT20</title>
+  <title>My Availability — NAT20</title>
   <link rel="icon" href="/assets/favicon.ico" type="image/x-icon">
   <link rel="stylesheet" href="/styles/styles.css" />
   <link rel="stylesheet" href="/styles/common.css" />
   <link rel="stylesheet" href="/styles/schedule.css" />
 </head>
-<body class="zoom-dense">
-  <div id="modal-overlay" style="display: none;">
+<body>
+  <div id="modal-overlay" style="display:none;">
     <div id="modal-container"></div>
   </div>
 
   <div class="top-bar">
     <div class="top-left">
       <a href="/index.html">← Home</a>
-      <strong>Weekly Availability</strong>
+      <strong>My Availability</strong>
       <span class="week-label" id="week-label"></span>
     </div>
     <div class="user-info">
-      <span id="user-label" class="user-label" style="display: none;"></span>
+      <span id="user-label" class="user-label" style="display:none;"></span>
       <button id="auth-button">Login</button>
     </div>
   </div>
 
-  <div class="container">
-    <div class="controls" id="controls">
-      <button id="prev-week">Previous week</button>
-      <button id="next-week">Next week</button>
-      <button id="mode-add" class="active">Add</button>
-      <button id="mode-subtract">Subtract</button>
-      <button id="save">Save</button>
-      <span class="muted">Shift+Scroll = Zoom, Scroll = Pan</span>
+  <main class="container">
+    <div class="controls">
+      <button id="prev-week" disabled>Previous week</button>
+      <button id="next-week" disabled>Next week</button>
+      <button id="mode-add" class="active" disabled>Add</button>
+      <button id="mode-subtract" disabled>Subtract</button>
+      <button id="save" disabled>Save</button>
+      <span class="muted">Shift+Scroll = Vertical Zoom, Scroll = Pan</span>
     </div>
 
     <div class="grid" id="grid">
       <table class="table" id="schedule-table" aria-label="Weekly availability grid"></table>
+      <div id="now-marker" class="now-marker" style="display:none;">
+        <span class="bubble">NOW</span>
+      </div>
     </div>
-  </div>
 
-  <div id="signin-tooltip" class="signin-tooltip">Sign in required</div>
+    <div id="signin-tooltip" class="signin-tooltip">Sign in required</div>
+  </main>
 
   <script src="/scripts/schedule.js"></script>
   <script src="/scripts/login.js"></script>
@@ -71,17 +74,21 @@
         currentUsername = null;
       }
       updateAuthUI();
-      window.schedule.setAuth(isAuthenticated);
+      if (window.schedule && typeof window.schedule.setAuth === 'function') {
+        window.schedule.setAuth(isAuthenticated);
+      }
+      document.getElementById('prev-week').disabled = !isAuthenticated;
+      document.getElementById('next-week').disabled = !isAuthenticated;
+      document.getElementById('mode-add').disabled = !isAuthenticated;
+      document.getElementById('mode-subtract').disabled = !isAuthenticated;
+      document.getElementById('save').disabled = !isAuthenticated;
     }
 
     function updateAuthUI() {
       const userLabel = document.getElementById('user-label');
       const authButton = document.getElementById('auth-button');
-      const controls = document.getElementById('controls');
-      const disabled = !isAuthenticated;
-
       if (isAuthenticated) {
-        userLabel.textContent = currentUsername ? `Signed in as ${currentUsername}` : `Signed in`;
+        userLabel.textContent = `Signed in as ${currentUsername}`;
         userLabel.style.display = 'inline';
         authButton.textContent = 'Logout';
         authButton.onclick = logout;
@@ -90,12 +97,19 @@
         authButton.textContent = 'Login';
         authButton.onclick = () => openModal('/pages/login.html');
       }
+    }
 
-      controls.querySelectorAll('button').forEach(btn => {
-        if (['save','prev-week','next-week','mode-add','mode-subtract'].includes(btn.id)) {
-          btn.disabled = disabled;
-        }
-      });
+    async function logout() {
+      try {
+        await fetch('http://backend.nat20scheduling.com:3000/logout', {
+          method: 'POST',
+          credentials: 'include'
+        });
+      } catch {}
+      isAuthenticated = false;
+      currentUsername = null;
+      updateAuthUI();
+      window.location.href = '/index.html';
     }
 
     function runModalInit(path) {
@@ -125,7 +139,6 @@
         .then(res => res.text())
         .then(html => {
           container.innerHTML = html;
-          document.body.classList.add('modal-active');
           runModalInit(path);
         });
     }
@@ -138,51 +151,28 @@
       container.innerHTML = '';
     }
 
-    async function logout() {
-      try {
-        await fetch('http://backend.nat20scheduling.com:3000/logout', {
-          method: 'POST',
-          credentials: 'include'
-        });
-      } catch {}
-      setAuthState(false, null);
-    }
+    window.openModal = openModal;
+    window.swapModal = swapModal;
+    window.closeModal = closeModal;
 
     window.setAuthState = function(authenticated, username) {
       isAuthenticated = !!authenticated;
       currentUsername = authenticated ? username : null;
       updateAuthUI();
-      window.schedule.setAuth(isAuthenticated);
+      if (window.schedule && typeof window.schedule.setAuth === 'function') {
+        window.schedule.setAuth(isAuthenticated);
+      }
+      document.getElementById('prev-week').disabled = !isAuthenticated;
+      document.getElementById('next-week').disabled = !isAuthenticated;
+      document.getElementById('mode-add').disabled = !isAuthenticated;
+      document.getElementById('mode-subtract').disabled = !isAuthenticated;
+      document.getElementById('save').disabled = !isAuthenticated;
     };
 
-    // Floating tooltip that follows mouse over disabled buttons
-    (function setupSigninTooltip() {
-      const controls = document.getElementById('controls');
-      const tip = document.getElementById('signin-tooltip');
-
-      controls.addEventListener('mousemove', (e) => {
-        const target = e.target;
-        if (target.tagName === 'BUTTON' && target.disabled) {
-          tip.style.display = 'block';
-          tip.style.left = (e.clientX + 14) + 'px';
-          tip.style.top = (e.clientY + 16) + 'px';
-          tip.textContent = 'Sign in required';
-        } else {
-          tip.style.display = 'none';
-        }
-      });
-
-      controls.addEventListener('mouseleave', () => {
-        tip.style.display = 'none';
-      });
-    })();
-
-    window.openModal = openModal;
-    window.swapModal = swapModal;
-    window.closeModal = closeModal;
-
-    window.addEventListener('DOMContentLoaded', () => {
-      window.schedule.init();
+    document.addEventListener('DOMContentLoaded', () => {
+      if (window.schedule && typeof window.schedule.init === 'function') {
+        window.schedule.init();
+      }
       checkAuth();
     });
   </script>
