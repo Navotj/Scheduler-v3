@@ -101,8 +101,8 @@
   function formatHourLabel(hour) {
     if (!hour12) return `${String(hour).padStart(2, '0')}:00`;
     const h = (hour % 12) || 12;
-    const ampm = hour < 12 ? 'AM' : 'PM';
-    return `${h} ${ampm}`;
+    someampm = hour < 12 ? 'AM' : 'PM';
+    return `${h} ${someampm}`;
   }
 
   function renderWeekLabel(startEpoch) {
@@ -139,13 +139,28 @@
     else if (zoomFactor < 1.5) body.classList.add('zoom-medium');
     else body.classList.add('zoom-large');
 
-    updateNowMarker();
+    requestAnimationFrame(updateNowMarker);
+  }
+
+  function ensureNowMarker() {
+    grid = document.getElementById('grid');
+    nowMarker = document.getElementById('now-marker');
+    if (!nowMarker && grid) {
+      nowMarker = document.createElement('div');
+      nowMarker.id = 'now-marker';
+      nowMarker.className = 'now-marker';
+      const label = document.createElement('span');
+      label.className = 'label';
+      label.textContent = 'Now';
+      nowMarker.appendChild(label);
+      grid.appendChild(nowMarker);
+    }
   }
 
   function buildGrid() {
     table = document.getElementById('schedule-table');
     grid = document.getElementById('grid');
-    nowMarker = document.getElementById('now-marker');
+    ensureNowMarker();
     table.innerHTML = '';
 
     const { baseEpoch, baseYMD } = getWeekStartEpochAndYMD();
@@ -214,7 +229,6 @@
 
         if (selected.has(epoch)) td.classList.add('selected');
 
-        // mark past slots (disable editing)
         if (epoch < nowEpoch) td.classList.add('past');
 
         td.addEventListener('mousedown', (e) => {
@@ -266,7 +280,7 @@
 
     setupZoomHandlers();
 
-    updateNowMarker();
+    requestAnimationFrame(updateNowMarker);
   }
 
   function forEachCellInBox(fn) {
@@ -396,7 +410,6 @@
     document.getElementById('mode-subtract').addEventListener('click', () => { if (!isAuthenticated) return; setMode('subtract'); });
     document.getElementById('save').addEventListener('click', saveWeek);
 
-    // not signed-in tooltip follow
     const tt = document.getElementById('signin-tooltip');
     ['mousemove','mouseenter'].forEach(ev => document.addEventListener(ev, (e) => {
       if (!isAuthenticated) {
@@ -441,15 +454,20 @@
       else if (e.key === '0') { zoomFactor = 1.0; applyZoomStyles(); }
     });
 
-    grid.addEventListener('scroll', updateNowMarker);
-    window.addEventListener('resize', updateNowMarker);
+    grid.addEventListener('scroll', onGridScrollOrResize, { passive: true });
+    window.addEventListener('resize', onGridScrollOrResize);
   }
 
-  // --- NOW MARKER (robust column/row based positioning) ---
+  function onGridScrollOrResize() {
+    requestAnimationFrame(updateNowMarker);
+  }
+
+  // --- NOW MARKER (robust offset-based positioning) ---
   function ymdUTC(ymd) { return Date.UTC(ymd.y, ymd.m - 1, ymd.d); }
   function diffDays(aYMD, bYMD) { return Math.round((ymdUTC(bYMD) - ymdUTC(aYMD)) / 86400000); }
 
   function updateNowMarker() {
+    ensureNowMarker();
     if (!grid || !table || !nowMarker) return;
 
     const { baseYMD } = getWeekStartEpochAndYMD();
@@ -460,7 +478,6 @@
       return;
     }
 
-    // current time in tz
     const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour12: false, hour: '2-digit', minute: '2-digit' }).formatToParts(new Date());
     const hh = Number(parts.find(p => p.type === 'hour').value);
     const mm = Number(parts.find(p => p.type === 'minute').value);
@@ -475,15 +492,12 @@
       return;
     }
 
-    const gridRect = grid.getBoundingClientRect();
-    const cellRect = cell.getBoundingClientRect();
-    const colRect = dayColStart.getBoundingClientRect();
-
     const rowH = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--row-height')) || 18;
 
-    const top = (cellRect.top - gridRect.top) + (frac * rowH);
-    const left = (colRect.left - gridRect.left);
-    const width = colRect.width;
+    // Use offsetTop/offsetLeft relative to table, then subtract grid scroll to map into grid overlay coordinates.
+    const top = (cell.offsetTop - grid.scrollTop) + (frac * rowH);
+    const left = (dayColStart.offsetLeft - grid.scrollLeft);
+    const width = dayColStart.offsetWidth;
 
     nowMarker.style.display = 'block';
     nowMarker.style.top = `${top}px`;
@@ -509,13 +523,11 @@
     await loadWeekSelections();
     buildGrid();
 
-    // keep "now" in sync
     setInterval(updateNowMarker, 60000);
   }
 
   function setAuth(authenticated) { isAuthenticated = !!authenticated; }
 
-  // tooltip helpers
   function showSigninTooltip(e) {
     const tt = document.getElementById('signin-tooltip');
     tt.style.display = 'block';
