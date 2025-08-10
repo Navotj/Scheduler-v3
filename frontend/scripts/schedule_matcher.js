@@ -14,7 +14,7 @@
   let currentUsername = null;
 
   // settings
-  const DEFAULT_SETTINGS = { timezone: 'auto', clock: '24', weekStart: 'sun', defaultZoom: 1.0, highlightWeekends: false };
+  const DEFAULT_SETTINGS = { timezone: 'auto', clock: '24', weekStart: 'sun', defaultZoom: 1.0 };
   let settings = { ...DEFAULT_SETTINGS };
   let tz = resolveTimezone(settings.timezone);
   let hour12 = settings.clock === '12';
@@ -34,6 +34,12 @@
   let grid;
   let resultsEl;
   let nowMarkerEl;
+
+  // derived week arrays (rebuilt after paintCounts)
+  let ROWS_PER_DAY = (HOURS_END - HOURS_START) * SLOTS_PER_HOUR;
+  let WEEK_ROWS = 7 * ROWS_PER_DAY;
+  let counts = [];                 // length WEEK_ROWS, number available at slot
+  let sets = [];                   // length WEEK_ROWS, Set of users available at slot
 
   // --- Utils ---
   function resolveTimezone(val) {
@@ -86,7 +92,6 @@
     return { y: tmp.getUTCFullYear(), m: tmp.getUTCMonth() + 1, d: tmp.getUTCDate() };
   }
 
-  // Match availability_picker’s week-start math
   function weekdayIndexInTZ(epochSec, tzName) {
     const wd = new Intl.DateTimeFormat('en-US', { timeZone: tzName, weekday: 'short' }).format(new Date(epochSec * 1000));
     return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(wd);
@@ -126,6 +131,12 @@
     return parseFloat(v.replace('px',''));
   }
 
+  function gToDayRow(g) {
+    const day = Math.floor(g / ROWS_PER_DAY);
+    const row = g % ROWS_PER_DAY;
+    return { day, row };
+  }
+
   // --- Build table ---
   function buildTable() {
     table.innerHTML = '';
@@ -152,7 +163,7 @@
     table.appendChild(thead);
 
     const tbody = document.createElement('tbody');
-    const totalRows = (HOURS_END - HOURS_START) * SLOTS_PER_HOUR;
+    const totalRows = ROWS_PER_DAY;
 
     for (let r = 0; r < totalRows; r++) {
       const tr = document.createElement('tr');
@@ -252,7 +263,7 @@
     updateLegend();
   }
 
-  // --- Paint counts into cells (0..7+) ---
+  // --- Paint counts into cells (0..7+) and build week arrays ---
   function slotCount(epoch) {
     let count = 0;
     for (const u of members) {
@@ -263,12 +274,28 @@
   }
 
   function paintCounts() {
+    counts = [];
+    sets = [];
     const tds = table.querySelectorAll('.slot-cell');
     for (const td of tds) {
-      const c = Math.min(7, slotCount(Number(td.dataset.epoch)));
+      const epoch = Number(td.dataset.epoch);
+      const c = Math.min(7, slotCount(epoch));
       td.dataset.c = String(c);
       td.classList.remove('dim', 'past', 'highlight');
+
+      // store for global scanning
+      const day = Number(td.dataset.day);
+      const row = Number(td.dataset.row);
+      const g = day * ROWS_PER_DAY + row;
+      counts[g] = Math.min(slotCount(epoch), 999); // raw count (not capped for logic)
+      const who = new Set();
+      for (const u of members) {
+        const set = userSlotSets.get(u);
+        if (set && set.has(epoch)) who.add(u);
+      }
+      sets[g] = who;
     }
+    WEEK_ROWS = counts.length;
   }
 
   // --- Past shading ---
@@ -310,7 +337,6 @@
     const topPx = headerH + rowsIntoDay * rowHeightPx();
     nowMarkerEl.style.top = `${topPx}px`;
 
-    // restrict the marker to current day column
     const firstCell = table.querySelector(`tbody tr:first-child td.slot-cell[data-day="${dayIdx}"][data-row="0"]`);
     if (firstCell) {
       const colLeft = firstCell.offsetLeft;
@@ -318,7 +344,6 @@
       nowMarkerEl.style.left = `${colLeft}px`;
       nowMarkerEl.style.width = `${colWidth}px`;
 
-      // bubble to the LEFT of the red line
       const bubble = nowMarkerEl.querySelector('.bubble');
       if (bubble) {
         const w = bubble.offsetWidth;
@@ -335,7 +360,7 @@
     setInterval(positionNowMarker, 30000);
   }
 
-  // --- Filter dimming (max missing + min session length in hours, step 0.5) ---
+  // --- Filter dimming (global across week; respects midnight) ---
   function applyFilterDimming() {
     const maxMissing = parseInt(document.getElementById('max-missing').value || '0', 10);
     const minHours = parseFloat(document.getElementById('min-hours').value || '1');
@@ -346,48 +371,26 @@
     for (const td of tds) td.classList.remove('dim');
     if (!totalMembers || needed <= 0) return;
 
-    const totalRows = (HOURS_END - HOURS_START) * SLOTS_PER_HOUR;
-    for (let day = 0; day < 7; day++) {
-      let r = 0;
-      while (r < totalRows) {
-        const cell = cellAt(day, r);
-        const ok = cell && (Number(cell.dataset.c) >= needed);
-        if (!ok) { if (cell) cell.classList.add('dim'); r++; continue; }
-
-        // find contiguous >= needed block starting at r
-        let rr = r;
-        while (rr < totalRows) {
-          const c = cellAt(day, rr);
-          if (!c || Number(c.dataset.c) < needed) break;
-          rr++;
-        }
-        const streak = rr - r;
-        if (streak < minSlots) {
-          for (let k = r; k < rr; k++) {
-            const c = cellAt(day, k);
-            if (c) c.classList.add('dim');
-          }
-        }
-        r++; // slide window by one to allow nested higher-participant ranges to be found later
+    let g = 0;
+    while (g < WEEK_ROWS) {
+      if ((counts[g] || 0) < needed) { dimCell(g); g++; continue; }
+      let h = g;
+      while (h < WEEK_ROWS && (counts[h] || 0) >= needed) h++;
+      const blockLen = h - g;
+      if (blockLen < minSlots) {
+        for (let t = g; t < h; t++) dimCell(t);
       }
+      g = h;
     }
   }
 
-  function cellAt(day, row) {
-    return table.querySelector(`.slot-cell[data-epoch="${getDayStartSec(day) + row * SLOT_SEC}"]`);
+  function dimCell(globalIndex) {
+    const { day, row } = gToDayRow(globalIndex);
+    const cell = table.querySelector(`.slot-cell[data-day="${day}"][data-row="${row}"]`);
+    if (cell) cell.classList.add('dim');
   }
 
-  function availableUsersAt(day, row) {
-    const epoch = getDayStartSec(day) + row * SLOT_SEC;
-    const set = new Set();
-    for (const u of members) {
-      const s = userSlotSets.get(u);
-      if (s && s.has(epoch)) set.add(u);
-    }
-    return set;
-  }
-
-  // --- Results / candidates (allow nested higher-participant windows) ---
+  // --- Results / candidates (supports midnight; no duplicate sessions per participant count) ---
   function findCandidates() {
     const maxMissing = parseInt(document.getElementById('max-missing').value || '0', 10);
     const minHours = parseFloat(document.getElementById('min-hours').value || '1');
@@ -395,56 +398,62 @@
     const minSlots = Math.max(1, Math.round(minHours * SLOTS_PER_HOUR));
 
     const sessions = [];
-    const totalRows = (HOURS_END - HOURS_START) * SLOTS_PER_HOUR;
+    if (!totalMembers || needed <= 0) { renderResults(sessions); return; }
 
-    for (let day = 0; day < 7; day++) {
-      for (let r = 0; r < totalRows; r++) {
-        const c0 = cellAt(day, r);
-        if (!c0 || Number(c0.dataset.c) < needed) continue;
+    const { baseEpoch } = getWeekStartEpochAndYMD();
 
-        // grow window while keeping >= needed AND track intersection of users to get true participants
-        let rr = r + 1;
-        let inter = availableUsersAt(day, r);
-        while (rr < totalRows) {
-          const c = cellAt(day, rr);
-          if (!c || Number(c.dataset.c) < needed) break;
-          // intersect users
-          const avail = availableUsersAt(day, rr);
+    for (let k = totalMembers; k >= needed; k--) {
+      let g = 0;
+      while (g < WEEK_ROWS) {
+        if ((counts[g] || 0) < k) { g++; continue; }
+
+        let inter = new Set(sets[g]);
+        let s = g;
+        let t = g + 1;
+        while (t < WEEK_ROWS && (counts[t] || 0) >= k) {
+          // intersect and check threshold k
+          const avail = sets[t];
           inter = new Set([...inter].filter(x => avail.has(x)));
-          if (inter.size < needed) break;
-          rr++;
+          if (inter.size < k) break;
+          t++;
         }
 
-        const streak = rr - r;
-        if (streak >= minSlots && inter.size >= needed) {
-          const dayStartSec = getDayStartSec(day);
-          const startSec = dayStartSec + r * SLOT_SEC;
-          const endSec = dayStartSec + rr * SLOT_SEC;
-
+        const length = t - s;
+        if (length >= minSlots && inter.size >= k) {
+          const startSec = baseEpoch + s * SLOT_SEC;
+          const endSec = baseEpoch + t * SLOT_SEC;
           sessions.push({
-            day, rStart: r, rEnd: rr,
+            gStart: s, gEnd: t,
             start: startSec, end: endSec,
-            duration: rr - r,
-            participants: inter.size, users: Array.from(inter)
+            duration: length,
+            participants: inter.size,
+            users: Array.from(inter)
           });
         }
+
+        // jump to end of this >=k block to avoid duplicates for same k
+        while (t < WEEK_ROWS && (counts[t] || 0) >= k) t++;
+        g = t;
       }
     }
 
+    // Sort
     const sortMode = document.getElementById('sort-method').value;
     sessions.sort((a, b) => {
       if (sortMode === 'most') {
         if (b.participants !== a.participants) return b.participants - a.participants;
-        return a.start - b.start; // tie -> earliest in week
+        return a.start - b.start;
       }
       if (sortMode === 'earliest-week') return a.start - b.start;
       if (sortMode === 'latest-week') return b.start - a.start;
       if (sortMode === 'earliest') {
-        if (a.rStart !== b.rStart) return a.rStart - b.rStart;
+        const aRow = a.gStart % ROWS_PER_DAY, bRow = b.gStart % ROWS_PER_DAY;
+        if (aRow !== bRow) return aRow - bRow;
         return a.start - b.start;
       }
       if (sortMode === 'latest') {
-        if (a.rStart !== b.rStart) return b.rStart - a.rStart;
+        const aRow = a.gStart % ROWS_PER_DAY, bRow = b.gStart % ROWS_PER_DAY;
+        if (aRow !== bRow) return bRow - aRow;
         return a.start - b.start;
       }
       if (sortMode === 'longest') {
@@ -476,7 +485,7 @@
 
       const sub = document.createElement('div');
       sub.className = 'res-sub';
-      sub.textContent = `${it.participants}/${totalMembers} available • ${((it.rEnd - it.rStart)/SLOTS_PER_HOUR).toFixed(1)}h`;
+      sub.textContent = `${it.participants}/${totalMembers} available • ${((it.duration)/SLOTS_PER_HOUR).toFixed(1)}h`;
 
       const usersLine = document.createElement('div');
       usersLine.className = 'res-users';
@@ -486,16 +495,24 @@
       wrap.appendChild(sub);
       wrap.appendChild(usersLine);
 
-      wrap.addEventListener('mouseenter', () => highlightRange(it.day, it.rStart, it.rEnd, true));
-      wrap.addEventListener('mouseleave', () => highlightRange(it.day, it.rStart, it.rEnd, false));
+      // hover highlight (grid + card border)
+      wrap.addEventListener('mouseenter', () => {
+        highlightRangeGlobal(it.gStart, it.gEnd, true);
+        wrap.classList.add('hovered');
+      });
+      wrap.addEventListener('mouseleave', () => {
+        highlightRangeGlobal(it.gStart, it.gEnd, false);
+        wrap.classList.remove('hovered');
+      });
 
       resultsEl.appendChild(wrap);
     }
   }
 
-  function highlightRange(day, rStart, rEnd, on) {
-    for (let r = rStart; r < rEnd; r++) {
-      const td = cellAt(day, r);
+  function highlightRangeGlobal(gStart, gEnd, on) {
+    for (let g = gStart; g < gEnd; g++) {
+      const { day, row } = gToDayRow(g);
+      const td = table.querySelector(`.slot-cell[data-day="${day}"][data-row="${row}"]`);
       if (td) td.classList.toggle('highlight', on);
     }
   }
@@ -548,7 +565,7 @@
     for (let i = 0; i < count; i++) {
       const chip = document.createElement('div');
       chip.className = 'chip slot-cell';
-      chip.dataset.c = String(Math.min(i, 7)); // palette defined up to 7
+      chip.dataset.c = String(Math.min(i, 7)); // palette up to 7
       steps.appendChild(chip);
 
       const lab = document.createElement('span');

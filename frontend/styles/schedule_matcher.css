@@ -134,15 +134,15 @@
   padding: 6px 8px;
 }
 
-/* Members input row (fix misalignment & wrapping) */
+/* Members input row (fit buttons; prevent overflow) */
 .add-user {
   display: grid;
-  grid-template-columns: 1fr max-content max-content;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 8px;
   align-items: center;
 }
-.add-user input { height: 32px; }
-.add-user button { height: 32px; line-height: 32px; white-space: nowrap; }
+.add-user input { height: 32px; min-width: 0; }
+.add-user button { height: 32px; line-height: 32px; white-space: nowrap; padding: 0 10px; font-size: 12px; }
 
 /* Buttons */
 .btn { display: inline-flex; align-items: center; gap: 8px; }
@@ -173,6 +173,8 @@
 
 /* Highlighted cells for selected result interval */
 .slot-cell.highlight { outline: 2px solid #ffd54a; outline-offset: -2px; }
+/* Highlight result card on hover to match grid */
+.result.hovered { outline: 2px solid #ffd54a; outline-offset: 0; border-radius: 10px; }
 
 /* NOW marker — confined to current day column; bubble LEFT of the line with right-pointing pointer */
 .now-marker {
@@ -185,8 +187,7 @@
 }
 .now-marker .bubble {
   position: absolute;
-  right: 100%;
-  top: 0;
+  top: 50%;
   transform: translateY(-50%);
   background: #0f0f0f;
   color: #e53935;
