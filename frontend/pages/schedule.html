@@ -2,28 +2,35 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>NAT20 Scheduling</title>
+  <title>Weekly Schedule — NAT20</title>
   <link rel="icon" href="/assets/favicon.ico" type="image/x-icon">
   <link rel="stylesheet" href="/styles/index.css" />
   <style>
     body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; background: #111; color: #eee; margin: 0; }
     .top-bar { display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; background: #171717; border-bottom: 1px solid #333; position: sticky; top: 0; z-index: 10; }
-    .top-bar h1 { margin: 0; font-size: 20px; }
+    .top-left { display: flex; align-items: center; gap: 12px; }
+    .top-bar a { color: #9ecbff; text-decoration: none; }
     .user-info { display: flex; align-items: center; gap: 12px; }
-    .user-label { opacity: 0.9; }
     #auth-button { background: #2d6cdf; color: #fff; border: 0; padding: 8px 12px; border-radius: 8px; cursor: pointer; }
     #auth-button:hover { filter: brightness(1.1); }
-    .container { max-width: 960px; margin: 24px auto; padding: 0 16px; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
-    .card { background: #171717; border: 1px solid #2a2a2a; border-radius: 12px; padding: 16px; }
-    .card h2 { margin: 0 0 8px 0; font-size: 18px; }
-    .card p { margin: 0 0 12px 0; color: #bbb; }
-    .card a, .card button.link { display: inline-block; padding: 8px 10px; border-radius: 8px; text-decoration: none; background: #262626; color: #fff; border: 1px solid #333; cursor: pointer; }
-    .card a:hover, .card button.link:hover { background: #2f2f2f; }
+    .container { max-width: 1200px; margin: 16px auto 40px; padding: 0 12px; }
+    .controls { display: flex; gap: 8px; align-items: center; margin: 12px 0 16px; flex-wrap: wrap; }
+    .controls button { background: #262626; color: #fff; border: 1px solid #333; padding: 8px 10px; border-radius: 8px; cursor: pointer; }
+    .controls button.active { outline: 2px solid #2d6cdf; }
+    .week-label { margin-left: 8px; color: #bbb; }
+    .grid { overflow: auto; border: 1px solid #2a2a2a; border-radius: 12px; }
+    .table { border-collapse: collapse; width: 100%; min-width: 880px; }
+    .table th, .table td { border: 1px solid #2b2b2b; text-align: center; font-size: 14px; }
+    .table th { position: sticky; top: 0; background: #151515; z-index: 5; padding: 8px; }
+    .time-col { position: sticky; left: 0; background: #151515; z-index: 4; width: 70px; min-width: 70px; }
+    .hour-cell { width: 120px; min-width: 120px; height: 36px; cursor: crosshair; background: #121212; }
+    .hour-cell.selected { background: #234b1f; }
+    .hour-cell.dragging-add { background: #1f3e7a; }
+    .hour-cell.dragging-sub { background: #6b1e1e; }
+    .muted { color: #aaa; }
     /* Modal */
     #modal-overlay { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,0.6); z-index: 100; }
     #modal-container { background: #151515; border: 1px solid #2b2b2b; border-radius: 12px; width: min(520px, 92vw); padding: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
-    .footer { color: #888; text-align: center; padding: 24px 0 40px; }
   </style>
 </head>
 <body>
@@ -32,7 +39,11 @@
   </div>
 
   <div class="top-bar">
-    <h1>NAT20 Scheduling</h1>
+    <div class="top-left">
+      <a href="/index.html">← Home</a>
+      <strong>Weekly Availability</strong>
+      <span class="week-label" id="week-label"></span>
+    </div>
     <div class="user-info">
       <span id="user-label" class="user-label" style="display: none;"></span>
       <button id="auth-button">Login</button>
@@ -40,28 +51,23 @@
   </div>
 
   <div class="container">
-    <div class="grid">
-      <div class="card">
-        <h2>Weekly Availability</h2>
-        <p>Mark your free time on a weekly grid and share with your party.</p>
-        <a href="/pages/schedule.html">Open schedule</a>
-      </div>
-
-      <div class="card">
-        <h2>Account</h2>
-        <p>Sign in to save your availability across devices.</p>
-        <button class="link" id="open-auth">Sign in / Register</button>
-      </div>
-
-      <div class="card">
-        <h2>Coming Soon</h2>
-        <p>Campaign groups, invite links, and timezone helpers.</p>
-        <button class="link" disabled>Not available</button>
-      </div>
+    <div class="controls">
+      <button id="prev-week">Previous week</button>
+      <button id="next-week">Next week</button>
+      <button id="mode-add" class="active">Add</button>
+      <button id="mode-subtract">Subtract</button>
+      <button id="save">Save</button>
+      <span class="muted">Drag across cells to mark availability</span>
     </div>
-    <div class="footer">© <span id="year"></span> NAT20 Scheduling</div>
+
+    <div class="grid">
+      <table class="table" id="schedule-table" aria-label="Weekly availability grid"></table>
+    </div>
   </div>
 
+  <script src="/scripts/schedule.js"></script>
+  <script src="/scripts/login.js"></script>
+  <script src="/scripts/register.js"></script>
   <script>
     let isAuthenticated = false;
     let currentUsername = null;
@@ -167,16 +173,10 @@
       updateAuthUI();
     };
 
-    document.getElementById('open-auth').addEventListener('click', () => {
-      if (isAuthenticated) return;
-      openModal('/pages/login.html');
+    window.addEventListener('DOMContentLoaded', () => {
+      window.schedule.init(); // from schedule.js
+      checkAuth();
     });
-
-    document.getElementById('year').textContent = new Date().getFullYear();
-    checkAuth();
   </script>
-
-  <script src="/scripts/login.js"></script>
-  <script src="/scripts/register.js"></script>
 </body>
 </html>
