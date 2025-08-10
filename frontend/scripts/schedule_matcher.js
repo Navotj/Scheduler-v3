@@ -1,4 +1,5 @@
 (function () {
+  const BASE_URL = 'http://backend.nat20scheduling.com:3000';
   const SLOTS_PER_HOUR = 2;        // 30-min steps
   const HOURS_START = 0;
   const HOURS_END = 24;
@@ -254,7 +255,7 @@
 
   async function fetchRemoteSettings() {
     try {
-      const res = await fetch('http://backend.nat20scheduling.com:3000/settings', { credentials: 'include', cache: 'no-cache' });
+      const res = await fetch(`${BASE_URL}/settings`, { credentials: 'include', cache: 'no-cache' });
       if (res.ok) return await res.json();
     } catch {}
     return null;
@@ -282,14 +283,26 @@
     const endEpoch = epochFromZoned(endYMD.y, endYMD.m, endYMD.d, 0, 0, tz);
 
     const payload = { from: baseEpoch, to: endEpoch, usernames: members };
-    const res = await fetch('http://backend.nat20scheduling.com:3000/availability/get_many', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify(payload)
-    });
+    // try normal path first; if 404, fall back to double-prefixed path
+    const tryPaths = [`${BASE_URL}/availability/get_many`, `${BASE_URL}/availability/availability/get_many`];
+    let data = { intervals: {} };
+    for (const url of tryPaths) {
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify(payload)
+        });
+        if (res.status === 404) { console.warn('404 on', url, '— trying next path'); continue; }
+        if (!res.ok) { console.warn('Request failed', res.status, 'on', url); continue; }
+        data = await res.json();
+        break;
+      } catch (err) {
+        console.warn('Request error on', url, err);
+      }
+    }
 
-    const data = res.ok ? await res.json() : { intervals: {} };
     userSlotSets.clear();
 
     for (const uname of members) {
@@ -489,7 +502,7 @@
     });
 
     return segments.slice(0, 50);
-  }
+    }
 
   function formatRangeLocal(fromSec, toSec) {
     const opts = { timeZone: tz, hour12, weekday: 'short', month: 'short', day: 'numeric',
