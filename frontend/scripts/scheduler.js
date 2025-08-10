@@ -28,7 +28,6 @@
   // cached
   let table;
   let grid;
-  let nowMarker;
 
   // utils
   function resolveTimezone(val) {
@@ -96,13 +95,22 @@
     return `${h} ${ampm}`;
   }
 
+  function palette(total) {
+    const arr = ['#2a2a2a']; // 0 available
+    const hue = 140, sat = 55;
+    const base = 18, steps = 22; // lightness 18%..40%
+    if (total <= 0) return arr;
+    for (let i = 1; i <= total; i++) {
+      const light = base + Math.round((steps * i) / total);
+      arr.push(`hsl(${hue}, ${sat}%, ${light}%)`);
+    }
+    return arr;
+  }
+
   function colorFor(count, total) {
-    if (total === 0) return '#2a2a2a';
-    const ratio = count / total; // 0..1
-    const light = 18 + Math.round(22 * ratio); // 18%..40%
-    const sat = 55; // %
-    const hue = 140; // green
-    return `hsl(${hue}, ${sat}%, ${light}%)`;
+    const pal = palette(total);
+    const idx = Math.max(0, Math.min(count, pal.length - 1));
+    return pal[idx];
   }
 
   function minutesToHhmm(mins) {
@@ -127,13 +135,11 @@
     zoomFactor = clamp(zoomFactor, ZOOM_MIN, ZOOM_MAX);
     root.style.setProperty('--row-height', `${(baseRow * zoomFactor).toFixed(2)}px`);
     root.style.setProperty('--font-size', `${(baseFont * zoomFactor).toFixed(2)}px`);
-    updateNowMarker(); // row height changed → reposition
   }
 
   function buildGrid() {
     table = document.getElementById('scheduler-table');
     grid = document.getElementById('grid');
-    nowMarker = document.getElementById('now-marker');
     table.innerHTML = '';
 
     const { baseEpoch, baseYMD } = getWeekStartEpochAndYMD();
@@ -205,9 +211,7 @@
     table.appendChild(tbody);
     setupZoomHandlers();
     applyFilterDimming();
-
-    // position/update NOW marker
-    updateNowMarker();
+    renderLegend();
   }
 
   function onCellHoverMove(e) {
@@ -318,50 +322,6 @@
       else if (e.key === '-' || e.key === '_') { zoomFactor = clamp(zoomFactor - ZOOM_STEP, ZOOM_MIN, ZOOM_MAX); applyZoomStyles(); }
       else if (e.key === '0') { zoomFactor = 1.0; applyZoomStyles(); }
     });
-
-    grid.addEventListener('scroll', () => {
-      updateNowMarker(); // adjust for scroll
-    });
-    window.addEventListener('resize', () => {
-      updateNowMarker();
-    });
-  }
-
-  function updateNowMarker() {
-    if (!grid || !table || !nowMarker) return;
-
-    const { baseEpoch, baseYMD } = getWeekStartEpochAndYMD();
-    const endYMD = ymdAddDays(baseYMD, 7);
-    const endEpoch = epochFromZoned(endYMD.y, endYMD.m, endYMD.d, 0, 0, tz);
-
-    const now = new Date();
-    const nowEpoch = Math.floor(now.getTime() / 1000);
-    if (nowEpoch < baseEpoch || nowEpoch >= endEpoch) {
-      nowMarker.style.display = 'none';
-      return;
-    }
-
-    // minutes since midnight in leader's timezone
-    const parts = new Intl.DateTimeFormat('en-US', {
-      timeZone: tz,
-      hour12: false,
-      hour: '2-digit',
-      minute: '2-digit'
-    }).formatToParts(now);
-    const hh = Number(parts.find(p => p.type === 'hour').value);
-    const mm = Number(parts.find(p => p.type === 'minute').value);
-    const minutes = hh * 60 + mm;
-
-    const rowH = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--row-height')) || 18;
-    const thead = table.tHead;
-    const headerH = thead ? thead.getBoundingClientRect().height : 0;
-
-    const slotIndexFloat = minutes / 30; // e.g., 9:15 -> 18.5
-    const contentY = headerH + slotIndexFloat * rowH;
-    const visibleY = contentY - grid.scrollTop;
-
-    nowMarker.style.display = 'block';
-    nowMarker.style.top = `${visibleY}px`;
   }
 
   function attachUI() {
@@ -433,6 +393,22 @@
     }
     const maxMissing = document.getElementById('max-missing');
     maxMissing.max = String(Math.max(0, members.length));
+    renderLegend();
+  }
+
+  function renderLegend() {
+    const wrap = document.getElementById('legend-steps');
+    const lblTotal = document.getElementById('legend-total');
+    if (!wrap) return;
+    wrap.innerHTML = '';
+    const pal = palette(totalMembers);
+    for (let i = 0; i < pal.length; i++) {
+      const chip = document.createElement('span');
+      chip.className = 'chip';
+      chip.style.background = pal[i];
+      wrap.appendChild(chip);
+    }
+    lblTotal.textContent = totalMembers > 0 ? String(totalMembers) : 'All';
   }
 
   function applyFilterDimming() {
@@ -561,7 +537,6 @@
   async function init() {
     table = document.getElementById('scheduler-table');
     grid = document.getElementById('grid');
-    nowMarker = document.getElementById('now-marker');
     attachUI();
     await loadSettings();
     await fetchMembersAvail();
@@ -571,9 +546,6 @@
     document.getElementById('max-missing').addEventListener('input', applyFilterDimming);
     document.getElementById('min-hours').addEventListener('input', () => {});
     document.getElementById('min-mins').addEventListener('input', () => {});
-
-    // update "now" marker periodically
-    setInterval(updateNowMarker, 60000);
   }
 
   function setAuth(auth, username) {

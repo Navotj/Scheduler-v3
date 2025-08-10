@@ -34,7 +34,6 @@
       </div>
       <div class="grid" id="grid">
         <table class="table" id="scheduler-table" aria-label="Group availability grid"></table>
-        <div id="now-marker" class="now-marker"><span class="label">Now</span></div>
       </div>
     </div>
 
@@ -75,11 +74,8 @@
           <button id="find-btn">Find candidates</button>
         </div>
         <div class="legend">
-          <div class="legend-row">
-            <span>0</span>
-            <div class="legend-gradient" title="Availability gradient: 0 → everyone"></div>
-            <span>All</span>
-          </div>
+          <div id="legend-steps" class="legend-steps" aria-label="Availability legend"></div>
+          <div class="legend-labels"><span>0</span><span id="legend-total">All</span></div>
         </div>
       </div>
 

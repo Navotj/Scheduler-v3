@@ -29,6 +29,7 @@
 
   let table;
   let grid;
+  let nowMarker;
 
   function resolveTimezone(val) {
     if (!val || val === 'auto') return (Intl.DateTimeFormat().resolvedOptions().timeZone) || 'UTC';
@@ -127,6 +128,8 @@
     if (zoomFactor < 1.1) body.classList.add('zoom-dense');
     else if (zoomFactor < 1.5) body.classList.add('zoom-medium');
     else body.classList.add('zoom-large');
+
+    updateNowMarker();
   }
 
   function getWeekStartEpochAndYMD() {
@@ -142,6 +145,7 @@
   function buildGrid() {
     table = document.getElementById('schedule-table');
     grid = document.getElementById('grid');
+    nowMarker = document.getElementById('now-marker');
     table.innerHTML = '';
 
     const { baseEpoch, baseYMD } = getWeekStartEpochAndYMD();
@@ -214,7 +218,7 @@
         if (epoch < nowEpoch) td.classList.add('past');
 
         td.addEventListener('mousedown', (e) => {
-          if (!isAuthenticated) return;
+          if (!isAuthenticated) return showSigninTooltip(e);
           if (td.classList.contains('past')) return;
           e.preventDefault();
           isDragging = true;
@@ -223,8 +227,8 @@
           updatePreview();
         });
 
-        td.addEventListener('mouseenter', () => {
-          if (!isAuthenticated) return;
+        td.addEventListener('mouseenter', (e) => {
+          if (!isAuthenticated) return moveSigninTooltip(e);
           if (!isDragging) return;
           if (td.classList.contains('past')) return;
           dragEnd = { row: r, col: c };
@@ -261,6 +265,9 @@
     });
 
     setupZoomHandlers();
+
+    // position/update NOW marker initially
+    updateNowMarker();
   }
 
   function forEachCellInBox(fn) {
@@ -310,16 +317,6 @@
     document.getElementById('mode-subtract').classList.toggle('active', mode === 'subtract');
   }
 
-  function getWeekStartEpochAndYMD() {
-    const todayYMD = getTodayYMDInTZ(tz);
-    const todayMid = epochFromZoned(todayYMD.y, todayYMD.m, todayYMD.d, 0, 0, tz);
-    const todayIdx = weekdayIndexInTZ(todayMid, tz);
-    const diff = (todayIdx - weekStartIdx + 7) % 7;
-    const baseYMD = ymdAddDays(todayYMD, -diff + weekOffset * 7);
-    const baseEpoch = epochFromZoned(baseYMD.y, baseYMD.m, baseYMD.d, 0, 0, tz);
-    return { baseEpoch, baseYMD };
-  }
-
   function compressToIntervals(sortedEpochs) {
     const intervals = [];
     if (!sortedEpochs.length) return intervals;
@@ -336,21 +333,18 @@
 
   async function saveWeek() {
     if (!isAuthenticated) return;
-    const { startEpoch, endEpoch } = (function() {
-      const { baseEpoch, baseYMD } = getWeekStartEpochAndYMD();
-      const endYMD = ymdAddDays(baseYMD, 7);
-      const end = epochFromZoned(endYMD.y, endYMD.m, endYMD.d, 0, 0, tz);
-      return { startEpoch: baseEpoch, endEpoch: end };
-    })();
+    const { baseEpoch, baseYMD } = getWeekStartEpochAndYMD();
+    const endYMD = ymdAddDays(baseYMD, 7);
+    const endEpoch = epochFromZoned(endYMD.y, endYMD.m, endYMD.d, 0, 0, tz);
 
-    const inside = Array.from(selected).filter(t => t >= startEpoch && t < endEpoch).sort((a, b) => a - b);
+    const inside = Array.from(selected).filter(t => t >= baseEpoch && t < endEpoch).sort((a, b) => a - b);
     const intervals = compressToIntervals(inside);
     try {
       const res = await fetch('http://backend.nat20scheduling.com:3000/availability/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ from: startEpoch, to: endEpoch, intervals, sourceTimezone: tz })
+        body: JSON.stringify({ from: baseEpoch, to: endEpoch, intervals, sourceTimezone: tz })
       });
       if (!res.ok) {
         const text = await res.text();
@@ -403,6 +397,18 @@
     document.getElementById('mode-subtract').addEventListener('click', () => { if (!isAuthenticated) return; setMode('subtract'); });
     document.getElementById('save').addEventListener('click', saveWeek);
 
+    // not signed-in tooltip follow
+    const tt = document.getElementById('signin-tooltip');
+    ['mousemove','mouseenter'].forEach(ev => document.addEventListener(ev, (e) => {
+      if (!isAuthenticated) {
+        tt.style.display = 'block';
+        tt.style.left = (e.clientX + 12) + 'px';
+        tt.style.top = (e.clientY + 14) + 'px';
+      }
+    }));
+    document.addEventListener('mouseleave', () => { tt.style.display = 'none'; });
+    document.addEventListener('mousedown', () => { if (!isAuthenticated) tt.style.display = 'block'; });
+
     window.addEventListener('storage', (e) => {
       if (e.key === 'nat20_settings') {
         const s = loadLocal();
@@ -435,6 +441,69 @@
       else if (e.key === '-' || e.key === '_') { zoomFactor = clamp(zoomFactor - ZOOM_STEP, ZOOM_MIN, ZOOM_MAX); applyZoomStyles(); }
       else if (e.key === '0') { zoomFactor = 1.0; applyZoomStyles(); }
     });
+
+    grid.addEventListener('scroll', updateNowMarker);
+    window.addEventListener('resize', updateNowMarker);
+  }
+
+  function updateNowMarker() {
+    if (!grid || !table || !nowMarker) return;
+
+    const { baseEpoch, baseYMD } = getWeekStartEpochAndYMD();
+    const endYMD = ymdAddDays(baseYMD, 7);
+    const endEpoch = epochFromZoned(endYMD.y, endYMD.m, endYMD.d, 0, 0, tz);
+
+    const now = new Date();
+    const nowEpoch = Math.floor(now.getTime() / 1000);
+    if (nowEpoch < baseEpoch || nowEpoch >= endEpoch) {
+      nowMarker.style.display = 'none';
+      return;
+    }
+
+    // Determine today's column and the slot cell nearest to now
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz, hour12: false, hour: '2-digit', minute: '2-digit'
+    }).formatToParts(now);
+    const hh = Number(parts.find(p => p.type === 'hour').value);
+    const mm = Number(parts.find(p => p.type === 'minute').value);
+
+    // Find today's midnight in tz
+    const todayYMD = getTodayYMDInTZ(tz);
+    const todayMid = epochFromZoned(todayYMD.y, todayYMD.m, todayYMD.d, 0, 0, tz);
+
+    // If the displayed week doesn't start today, compute index
+    const todayIdx = weekdayIndexInTZ(todayMid, tz);
+    const weekStartEpoch = baseEpoch;
+    const startIdx = weekdayIndexInTZ(weekStartEpoch, tz);
+    const dayOffset = (todayIdx - startIdx + 7) % 7;
+
+    // Epoch of the lower 30-min boundary
+    const slotEpoch = epochFromZoned(todayYMD.y, todayYMD.m, todayYMD.d, hh, mm < 30 ? 0 : 30, tz);
+    const cell = table.querySelector(`td.slot-cell[data-epoch="${slotEpoch}"]`);
+    // Fallback cell at 00:00 in case of exact boundary/rounding
+    const dayStartEpoch = epochFromZoned(todayYMD.y, todayYMD.m, todayYMD.d, 0, 0, tz);
+    const dayStartCell = table.querySelector(`td.slot-cell[data-epoch="${dayStartEpoch}"]`);
+
+    if (!cell || !dayStartCell) {
+      nowMarker.style.display = 'none';
+      return;
+    }
+
+    const rowH = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--row-height')) || 18;
+    const headerH = table.tHead ? table.tHead.offsetHeight : 0;
+
+    const minutesAfterLower = mm % 30;
+    const frac = minutesAfterLower / 30;
+
+    // offsets relative to grid
+    const top = (cell.offsetTop - grid.scrollTop) + (frac * rowH) + headerH - headerH; // cell.offsetTop already includes header
+    const left = (dayStartCell.offsetLeft - grid.scrollLeft);
+    const width = dayStartCell.offsetWidth;
+
+    nowMarker.style.display = 'block';
+    nowMarker.style.top = `${top}px`;
+    nowMarker.style.left = `${left}px`;
+    nowMarker.style.width = `${width}px`;
   }
 
   async function init() {
@@ -453,9 +522,25 @@
     attachEvents();
     await loadWeekSelections();
     buildGrid();
+
+    // Update "now" marker periodically
+    setInterval(updateNowMarker, 60000);
   }
 
   function setAuth(authenticated) { isAuthenticated = !!authenticated; }
+
+  // tooltip helpers
+  function showSigninTooltip(e) {
+    const tt = document.getElementById('signin-tooltip');
+    tt.style.display = 'block';
+    tt.style.left = (e.clientX + 12) + 'px';
+    tt.style.top = (e.clientY + 14) + 'px';
+  }
+  function moveSigninTooltip(e) {
+    const tt = document.getElementById('signin-tooltip');
+    tt.style.left = (e.clientX + 12) + 'px';
+    tt.style.top = (e.clientY + 14) + 'px';
+  }
 
   window.schedule = { init, setAuth };
 })();

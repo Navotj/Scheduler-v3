@@ -26,7 +26,7 @@
       existing.add(val);
     }
 
-    addOption('auto', 'Auto (System)');
+    addOption('auto', 'Automatic (system)'); // placeholder; hidden when select is enabled
     try {
       if (typeof Intl.supportedValuesOf === 'function') {
         const list = Intl.supportedValuesOf('timeZone');
@@ -67,6 +67,8 @@
   }
 
   document.addEventListener('DOMContentLoaded', async () => {
+    const $tzModeAuto = document.getElementById('tz-auto');
+    const $tzModeManual = document.getElementById('tz-manual');
     const $tz = document.getElementById('timezone');
     const $clock24 = document.querySelector('input[name="clock"][value="24"]');
     const $clock12 = document.querySelector('input[name="clock"][value="12"]');
@@ -86,16 +88,22 @@
 
     const s = remote || local || defaults;
 
-    $tz.value = s.timezone || 'auto';
-    if ($tz.value !== (s.timezone || 'auto')) $tz.value = 'auto';
+    // tz mode + select
+    const isAuto = !s.timezone || s.timezone === 'auto';
+    $tzModeAuto.checked = isAuto;
+    $tzModeManual.checked = !isAuto;
+    $tz.disabled = isAuto;
+    $tz.value = isAuto ? getSystemTZ() : (s.timezone || getSystemTZ());
+    if ($tz.value === 'auto') $tz.value = getSystemTZ();
 
+    // clock / week start
     (s.clock === '12' ? $clock12 : $clock24).checked = true;
     (s.weekStart === 'mon' ? $weekMon : $weekSun).checked = true;
 
+    // zoom / weekends
     const zoom = (typeof s.defaultZoom === 'number') ? s.defaultZoom : 1.0;
     $defaultZoom.value = String(zoom);
     $zoomValue.textContent = zoom.toFixed(1);
-
     $highlightWeekends.checked = !!s.highlightWeekends;
 
     $defaultZoom.addEventListener('input', () => {
@@ -103,10 +111,31 @@
       $zoomValue.textContent = z.toFixed(1);
     });
 
+    function updateTzMode() {
+      const manual = $tzModeManual.checked;
+      $tz.disabled = !manual;
+      if (!manual) {
+        // show system TZ in the disabled select for clarity
+        const sys = getSystemTZ();
+        if (!$tz.querySelector(`option[value="${sys}"]`)) {
+          const opt = document.createElement('option');
+          opt.value = sys;
+          opt.textContent = sys;
+          $tz.appendChild(opt);
+        }
+        $tz.value = sys;
+      }
+    }
+    $tzModeAuto.addEventListener('change', updateTzMode);
+    $tzModeManual.addEventListener('change', updateTzMode);
+
     $form.addEventListener('submit', async (e) => {
       e.preventDefault();
+      const useAuto = $tzModeAuto.checked;
+      const tzVal = useAuto ? 'auto' : $tz.value;
+
       const obj = {
-        timezone: $tz.value,
+        timezone: tzVal,
         clock: ($clock12.checked ? '12' : '24'),
         weekStart: ($weekMon.checked ? 'mon' : 'sun'),
         defaultZoom: Number($defaultZoom.value),

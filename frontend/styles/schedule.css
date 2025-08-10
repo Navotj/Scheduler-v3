@@ -1,5 +1,5 @@
 :root {
-  --row-height: 18px;   /* base row height for each half-hour slot */
+  --row-height: 18px;   /* base half-hour slot height */
   --font-size: 12px;    /* base font size inside cells */
 }
 
@@ -24,6 +24,7 @@
 .controls button:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .grid {
+  position: relative; /* for overlays like now-marker */
   border: 1px solid #2a2a2a;
   border-radius: 12px;
   overflow: auto;
@@ -107,9 +108,8 @@ tr.row-hour > th {
   content: "";
   position: absolute;
   inset: 0;
-  background: rgba(255,255,255,0.16); /* grey overlay that keeps underlying color visible */
+  background: rgba(255,255,255,0.16); /* grey overlay keeping underlying color visible */
   pointer-events: none;
-  border-radius: 0;
 }
 
 /* Floating tooltip that follows mouse when not signed in */
@@ -127,4 +127,35 @@ tr.row-hour > th {
   border-radius: 6px;
   font-size: 12px;
   box-shadow: 0 4px 14px rgba(0,0,0,0.4);
+}
+
+/* NOW marker within the current day's column */
+.now-marker {
+  position: absolute;
+  height: 0;
+  border-top: 2px solid #e53935;
+  z-index: 6; /* above table cells, below sticky header */
+  display: none; /* shown only when inside displayed week */
+}
+.now-marker .label {
+  position: absolute;
+  left: 6px;
+  top: -12px;
+  background: #1a1a1a;
+  color: #e53935;
+  border: 1px solid #4a0f0f;
+  border-radius: 6px 6px 6px 0;
+  padding: 2px 6px;
+  font-size: 11px;
+  line-height: 1.2;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.35);
+}
+.now-marker .label::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: -4px;
+  width: 0; height: 0;
+  border-top: 4px solid #4a0f0f;
+  border-right: 4px solid transparent;
 }
