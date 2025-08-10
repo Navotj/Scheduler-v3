@@ -1,5 +1,5 @@
 (function () {
-  // 24h with 30-min intervals; hour labels only (half-hour labels appear when zoomed in, controlled via CSS on schedule.html)
+  // 24h with 30-min intervals; hour labels only (half-hour labels appear when zoomed in via CSS)
   const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const SLOTS_PER_HOUR = 2;         // 30-minute steps
   const HOURS_START = 0;            // 00:00
@@ -124,24 +124,21 @@
 
       const hour = Math.floor(r / SLOTS_PER_HOUR) + HOURS_START;
       const half = r % SLOTS_PER_HOUR === 1; // 0 => :00, 1 => :30
-
-      // time column: show only full hours by default (half-hour label is hidden by CSS until zoomed)
-      const timeCell = document.createElement('td');
-      timeCell.className = 'time-col';
-      const hh = String(hour).padStart(2, '0');
+      tr.className = half ? 'row-half' : 'row-hour';
 
       if (!half) {
+        // Hour row: create a time cell that spans both this row and the next half-hour row
+        const timeCell = document.createElement('td');
+        timeCell.className = 'time-col hour';
+        timeCell.rowSpan = 2;
+        const hh = String(hour).padStart(2, '0');
         const spanHour = document.createElement('span');
         spanHour.className = 'time-label hour';
         spanHour.textContent = `${hh}:00`;
         timeCell.appendChild(spanHour);
-      } else {
-        const spanHalf = document.createElement('span');
-        spanHalf.className = 'time-label half';
-        spanHalf.textContent = `${hh}:30`;
-        timeCell.appendChild(spanHalf);
+        tr.appendChild(timeCell);
       }
-      tr.appendChild(timeCell);
+      // For half rows, we DO NOT append a time cell (rowSpan=2 above covers it)
 
       for (let c = 0; c < 7; c++) {
         const cur = addDays(base, c);

@@ -46,10 +46,16 @@ router.post(
       return res.status(401).json({ error: 'invalid credentials' });
 
     const token = generateToken(user);
+
+    // IMPORTANT: secure=false if you're serving backend over HTTP (no TLS) so browser will accept/send the cookie.
+    // Set COOKIE_SECURE=true in env when you migrate to HTTPS.
+    const secure = String(process.env.COOKIE_SECURE).toLowerCase() === 'true';
+
     res.cookie('token', token, {
       httpOnly: true,
-      sameSite: 'Strict',
-      secure: true
+      sameSite: 'Lax',
+      secure,
+      path: '/'
     });
 
     res.json({ success: true });
@@ -71,7 +77,7 @@ router.get('/auth/check', async (req, res) => {
 
 // logout
 router.post('/logout', (req, res) => {
-  res.clearCookie('token');
+  res.clearCookie('token', { path: '/' });
   res.json({ success: true });
 });
 

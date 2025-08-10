@@ -1,0 +1,71 @@
+/* Common shared styles: top bar, modal, auth controls */
+
+.top-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  background: #171717;
+  border-bottom: 1px solid #333;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.top-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.top-bar a {
+  color: #9ecbff;
+  text-decoration: none;
+}
+
+.user-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.user-label {
+  opacity: 0.9;
+}
+
+#auth-button {
+  background: #2d6cdf;
+  color: #fff;
+  border: 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+#auth-button:hover { filter: brightness(1.1); }
+
+/* Modal system */
+#modal-overlay {
+  position: fixed;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0,0,0,0.6);
+  z-index: 1000;
+}
+
+#modal-container {
+  background: #151515;
+  border: 1px solid #2b2b2b;
+  border-radius: 12px;
+  width: min(520px, 92vw);
+  padding: 20px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+}
+
+/* Generic layout container */
+.container {
+  max-width: 1200px;
+  margin: 16px auto 40px;
+  padding: 0 12px;
+}

@@ -4,49 +4,9 @@
   <meta charset="UTF-8" />
   <title>Weekly Schedule — NAT20</title>
   <link rel="icon" href="/assets/favicon.ico" type="image/x-icon">
-  <link rel="stylesheet" href="/styles/index.css" />
-  <style>
-    :root {
-      --row-height: 18px;
-      --col-width: 110px;
-      --font-size: 12px;
-    }
-
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; background: #111; color: #eee; margin: 0; }
-    .top-bar { display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; background: #171717; border-bottom: 1px solid #333; position: sticky; top: 0; z-index: 10; }
-    .top-left { display: flex; align-items: center; gap: 12px; }
-    .top-bar a { color: #9ecbff; text-decoration: none; }
-    .user-info { display: flex; align-items: center; gap: 12px; }
-    #auth-button { background: #2d6cdf; color: #fff; border: 0; padding: 8px 12px; border-radius: 8px; cursor: pointer; }
-    #auth-button:hover { filter: brightness(1.1); }
-
-    .container { max-width: 1200px; margin: 16px auto 40px; padding: 0 12px; }
-    .controls { display: flex; gap: 8px; align-items: center; margin: 12px 0 10px; flex-wrap: wrap; position: relative; }
-    .controls button { background: #262626; color: #fff; border: 1px solid #333; padding: 6px 10px; border-radius: 8px; cursor: pointer; }
-    .controls button.active { outline: 2px solid #2d6cdf; }
-    .controls button:disabled { opacity: 0.5; cursor: not-allowed; }
-    .signin-hint { position: absolute; left: 0; bottom: -20px; color: #f55; font-size: 13px; display: none; }
-
-    .grid { border: 1px solid #2a2a2a; border-radius: 12px; overflow: auto; height: calc(100vh - 160px); background: #101010; }
-
-    .table { border-collapse: collapse; width: 100%; min-width: 820px; user-select: none; font-size: var(--font-size); }
-    .table th, .table td { border: 1px solid #2b2b2b; text-align: center; }
-    .table th { position: sticky; top: 0; background: #151515; z-index: 5; padding: 6px; font-weight: 600; }
-    .time-col { position: sticky; left: 0; background: #151515; z-index: 4; width: 70px; min-width: 70px; }
-
-    .slot-cell { width: var(--col-width); min-width: var(--col-width); height: var(--row-height); cursor: crosshair; background: #121212; }
-    .slot-cell.selected { background: #234b1f; }
-    .slot-cell.preview-add { background: #1f3e7a; }
-    .slot-cell.preview-sub { background: #6b1e1e; }
-
-    .time-label { padding: 0 6px; }
-    .time-label.hour { color: #ddd; }
-    .time-label.half { color: #888; display: none; }
-
-    body.zoom-dense .time-label.half { display: none; }
-    body.zoom-medium .time-label.half { display: none; }
-    body.zoom-large .time-label.half { display: inline; }
-  </style>
+  <link rel="stylesheet" href="/styles/styles.css" />
+  <link rel="stylesheet" href="/styles/common.css" />
+  <link rel="stylesheet" href="/styles/schedule.css" />
 </head>
 <body class="zoom-dense">
   <div id="modal-overlay" style="display: none;">
@@ -73,13 +33,14 @@
       <button id="mode-subtract">Subtract</button>
       <button id="save">Save</button>
       <span class="muted">Shift+Scroll = Zoom, Scroll = Pan</span>
-      <span id="signin-hint" class="signin-hint">Sign in required</span>
     </div>
 
     <div class="grid" id="grid">
       <table class="table" id="schedule-table" aria-label="Weekly availability grid"></table>
     </div>
   </div>
+
+  <div id="signin-tooltip" class="signin-tooltip">Sign in required</div>
 
   <script src="/scripts/schedule.js"></script>
   <script src="/scripts/login.js"></script>
@@ -187,28 +148,32 @@
       setAuthState(false, null);
     }
 
-    // >>> expose a unified setter so login.js can update this page's state
     window.setAuthState = function(authenticated, username) {
       isAuthenticated = !!authenticated;
       currentUsername = authenticated ? username : null;
       updateAuthUI();
       window.schedule.setAuth(isAuthenticated);
     };
-    // <<<
 
-    // Hover hint for disabled controls
-    (function setupHoverHint() {
+    // Floating tooltip that follows mouse over disabled buttons
+    (function setupSigninTooltip() {
       const controls = document.getElementById('controls');
-      const hint = document.getElementById('signin-hint');
-      controls.addEventListener('mouseover', (e) => {
-        if (!isAuthenticated && e.target.tagName === 'BUTTON') {
-          hint.style.display = 'block';
+      const tip = document.getElementById('signin-tooltip');
+
+      controls.addEventListener('mousemove', (e) => {
+        const target = e.target;
+        if (target.tagName === 'BUTTON' && target.disabled) {
+          tip.style.display = 'block';
+          tip.style.left = (e.clientX + 14) + 'px';
+          tip.style.top = (e.clientY + 16) + 'px';
+          tip.textContent = 'Sign in required';
+        } else {
+          tip.style.display = 'none';
         }
       });
-      controls.addEventListener('mouseout', (e) => {
-        if (e.target.tagName === 'BUTTON') {
-          hint.style.display = 'none';
-        }
+
+      controls.addEventListener('mouseleave', () => {
+        tip.style.display = 'none';
       });
     })();
 
