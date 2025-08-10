@@ -134,13 +134,14 @@ tr.row-hour > th {
   position: absolute;
   height: 0;
   border-top: 2px solid #e53935;
-  z-index: 6; /* above table cells, below sticky header */
+  z-index: 8; /* above table cells, below sticky header */
   display: none; /* shown only when inside displayed week */
+  pointer-events: none;
 }
 .now-marker .label {
   position: absolute;
   left: 6px;
-  top: -12px;
+  top: -14px;
   background: #1a1a1a;
   color: #e53935;
   border: 1px solid #4a0f0f;
