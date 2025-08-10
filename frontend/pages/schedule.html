@@ -6,6 +6,12 @@
   <link rel="icon" href="/assets/favicon.ico" type="image/x-icon">
   <link rel="stylesheet" href="/styles/index.css" />
   <style>
+    :root {
+      --row-height: 18px;     /* base row height for :00 and :30 rows */
+      --col-width: 110px;     /* base width per day column */
+      --font-size: 12px;      /* base font size inside cells */
+    }
+
     body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; background: #111; color: #eee; margin: 0; }
     .top-bar { display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; background: #171717; border-bottom: 1px solid #333; position: sticky; top: 0; z-index: 10; }
     .top-left { display: flex; align-items: center; gap: 12px; }
@@ -13,30 +19,47 @@
     .user-info { display: flex; align-items: center; gap: 12px; }
     #auth-button { background: #2d6cdf; color: #fff; border: 0; padding: 8px 12px; border-radius: 8px; cursor: pointer; }
     #auth-button:hover { filter: brightness(1.1); }
+
     .container { max-width: 1200px; margin: 16px auto 40px; padding: 0 12px; }
-    .controls { display: flex; gap: 8px; align-items: center; margin: 12px 0 16px; flex-wrap: wrap; position: relative; }
-    .controls button { background: #262626; color: #fff; border: 1px solid #333; padding: 8px 10px; border-radius: 8px; cursor: pointer; }
+    .controls { display: flex; gap: 8px; align-items: center; margin: 12px 0 10px; flex-wrap: wrap; position: relative; }
+    .controls button { background: #262626; color: #fff; border: 1px solid #333; padding: 6px 10px; border-radius: 8px; cursor: pointer; }
     .controls button.active { outline: 2px solid #2d6cdf; }
     .controls button:disabled { opacity: 0.5; cursor: not-allowed; }
-    .signin-hint { position: absolute; left: 0; bottom: -22px; color: #f55; font-size: 14px; display: none; }
-    .week-label { margin-left: 8px; color: #bbb; }
-    .grid { overflow: auto; border: 1px solid #2a2a2a; border-radius: 12px; }
-    .table { border-collapse: collapse; width: 100%; min-width: 880px; user-select: none; }
-    .table th, .table td { border: 1px solid #2b2b2b; text-align: center; font-size: 14px; }
-    .table th { position: sticky; top: 0; background: #151515; z-index: 5; padding: 8px; }
-    .time-col { position: sticky; left: 0; background: #151515; z-index: 4; width: 76px; min-width: 76px; }
-    .slot-cell { width: 120px; min-width: 120px; height: 28px; cursor: crosshair; background: #121212; }
+    .signin-hint { position: absolute; left: 0; bottom: -20px; color: #f55; font-size: 13px; display: none; }
+
+    .grid {
+      border: 1px solid #2a2a2a; border-radius: 12px; overflow: auto;
+      /* dynamic height: take most of the viewport */
+      height: calc(100vh - 160px);
+      background: #101010;
+    }
+
+    .table { border-collapse: collapse; width: 100%; min-width: 820px; user-select: none; font-size: var(--font-size); }
+    .table th, .table td { border: 1px solid #2b2b2b; text-align: center; }
+    .table th { position: sticky; top: 0; background: #151515; z-index: 5; padding: 6px; font-weight: 600; }
+    .time-col { position: sticky; left: 0; background: #151515; z-index: 4; width: 70px; min-width: 70px; }
+
+    .slot-cell { width: var(--col-width); min-width: var(--col-width); height: var(--row-height); cursor: crosshair; background: #121212; }
     .slot-cell.selected { background: #234b1f; }
     .slot-cell.preview-add { background: #1f3e7a; }
     .slot-cell.preview-sub { background: #6b1e1e; }
+
+    .time-label { padding: 0 6px; }
+    .time-label.hour { color: #ddd; }
+    .time-label.half { color: #888; display: none; } /* revealed at higher zoom */
+
     .muted { color: #aaa; }
-    .disabled-overlay { pointer-events: none; }
     /* Modal */
     #modal-overlay { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,0.6); z-index: 100; }
     #modal-container { background: #151515; border: 1px solid #2b2b2b; border-radius: 12px; width: min(520px, 92vw); padding: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+
+    /* Zoom thresholds: show half-hour text when zoomed enough (handled via a class on body) */
+    body.zoom-dense .time-label.half { display: none; }
+    body.zoom-medium .time-label.half { display: none; }
+    body.zoom-large .time-label.half { display: inline; }
   </style>
 </head>
-<body>
+<body class="zoom-dense">
   <div id="modal-overlay" style="display: none;">
     <div id="modal-container"></div>
   </div>
@@ -60,11 +83,11 @@
       <button id="mode-add" class="active">Add</button>
       <button id="mode-subtract">Subtract</button>
       <button id="save">Save</button>
-      <span class="muted">Drag to box-select slots</span>
+      <span class="muted">Shift+Scroll = Zoom, Scroll = Pan</span>
       <span id="signin-hint" class="signin-hint">Sign in required</span>
     </div>
 
-    <div class="grid">
+    <div class="grid" id="grid">
       <table class="table" id="schedule-table" aria-label="Weekly availability grid"></table>
     </div>
   </div>
@@ -86,9 +109,9 @@
           signal: controller.signal
         });
         if (res.status === 200) {
-          // Optional: ask /me in future for username; for now keep label generic
+          const data = await res.json();
           isAuthenticated = true;
-          currentUsername = 'user';
+          currentUsername = data.username || 'user';
         } else {
           isAuthenticated = false;
           currentUsername = null;
@@ -118,9 +141,8 @@
         authButton.onclick = () => openModal('/pages/login.html');
       }
 
-      // Disable/enable controls
       controls.querySelectorAll('button').forEach(btn => {
-        if (btn.id === 'save' || btn.id === 'prev-week' || btn.id === 'next-week' || btn.id === 'mode-add' || btn.id === 'mode-subtract') {
+        if (['save','prev-week','next-week','mode-add','mode-subtract'].includes(btn.id)) {
           btn.disabled = disabled;
         }
       });

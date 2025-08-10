@@ -1,5 +1,5 @@
 (function () {
-  // 24h with 30-min intervals
+  // 24h with 30-min intervals; hour labels only, half-hour label appears when zoomed in
   const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const SLOTS_PER_HOUR = 2; // 30-minute steps
   const HOURS_START = 0;    // 00:00
@@ -8,6 +8,13 @@
   let weekOffset = 0;                 // 0 = current week, -1 previous, +1 next
   let paintMode = 'add';              // 'add' | 'subtract'
   let isAuthenticated = false;
+
+  // Zoom state
+  // zoomFactor scales row height, column width, and font size
+  let zoomFactor = 1.0;
+  const ZOOM_MIN = 0.6;
+  const ZOOM_MAX = 2.0;
+  const ZOOM_STEP = 0.1;
 
   // Selection data
   // key: "YYYY-MM-DDTHH:MM:00" (local) -> true
@@ -20,6 +27,7 @@
 
   // Cached DOM
   let table;
+  let grid;
 
   function getStartOfWeek(date) {
     // Week starts on Sunday
@@ -63,8 +71,32 @@
     document.getElementById('week-label').textContent = `${fmt(start)} – ${fmt(end)}, ${year}`;
   }
 
+  function applyZoomStyles() {
+    const root = document.documentElement;
+    // Base values from CSS in schedule.html :root
+    const baseRow = 18;     // px
+    const baseCol = 110;    // px
+    const baseFont = 12;    // px
+
+    root.style.setProperty('--row-height', `${(baseRow * zoomFactor).toFixed(2)}px`);
+    root.style.setProperty('--col-width', `${(baseCol * zoomFactor).toFixed(2)}px`);
+    root.style.setProperty('--font-size', `${(baseFont * zoomFactor).toFixed(2)}px`);
+
+    // Toggle half-hour label visibility by body class based on zoom
+    const body = document.body;
+    body.classList.remove('zoom-dense', 'zoom-medium', 'zoom-large');
+    if (zoomFactor < 1.1) {
+      body.classList.add('zoom-dense');   // only hours visible
+    } else if (zoomFactor < 1.5) {
+      body.classList.add('zoom-medium');  // still only hours
+    } else {
+      body.classList.add('zoom-large');   // show :30 labels
+    }
+  }
+
   function buildGrid() {
     table = document.getElementById('schedule-table');
+    grid = document.getElementById('grid');
     table.innerHTML = '';
 
     const today = new Date();
@@ -93,8 +125,7 @@
 
     const tbody = document.createElement('tbody');
 
-    // 24h * 2 slots per hour = 48 rows
-    const totalRows = (HOURS_END - HOURS_START) * SLOTS_PER_HOUR;
+    const totalRows = (HOURS_END - HOURS_START) * SLOTS_PER_HOUR; // 48
     for (let r = 0; r < totalRows; r++) {
       const tr = document.createElement('tr');
 
@@ -104,7 +135,19 @@
       const timeCell = document.createElement('td');
       timeCell.className = 'time-col';
       const hh = String(hour).padStart(2, '0');
-      timeCell.textContent = `${hh}:${half ? '30' : '00'}`;
+
+      // Only show hour marks on :00 rows, leave :30 blank unless zoomed-in class shows minor label (handled by CSS)
+      if (!half) {
+        const spanHour = document.createElement('span');
+        spanHour.className = 'time-label hour';
+        spanHour.textContent = `${hh}:00`;
+        timeCell.appendChild(spanHour);
+      } else {
+        const spanHalf = document.createElement('span');
+        spanHalf.className = 'time-label half';
+        spanHalf.textContent = `${hh}:30`;
+        timeCell.appendChild(spanHalf);
+      }
       tr.appendChild(timeCell);
 
       for (let c = 0; c < 7; c++) {
@@ -164,6 +207,9 @@
       isDragging = false;
       dragStart = dragEnd = null;
     });
+
+    // Attach zoom handlers after grid exists
+    setupZoomHandlers();
   }
 
   function forEachCellInBox(fn) {
@@ -230,7 +276,6 @@
   function isInRangeLocal(iso, start, end) {
     const d = new Date(iso);
     return d >= start && d <= end;
-    // Note: This treats iso string as local time; if you need TZ-robustness, pass epoch seconds instead.
   }
 
   async function saveWeek() {
@@ -303,7 +348,38 @@
     document.getElementById('save').addEventListener('click', saveWeek);
   }
 
+  function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+  function setupZoomHandlers() {
+    if (!grid) grid = document.getElementById('grid');
+
+    // Shift + Wheel => zoom. Normal wheel => scroll/pan as usual.
+    grid.addEventListener('wheel', (e) => {
+      if (!e.shiftKey) return; // allow normal scrolling
+      e.preventDefault();
+      const delta = Math.sign(e.deltaY); // 1 for down, -1 for up
+      zoomFactor = clamp(zoomFactor - delta * ZOOM_STEP, ZOOM_MIN, ZOOM_MAX);
+      applyZoomStyles();
+    }, { passive: false });
+
+    // Keyboard shortcuts for zoom if desired (+/- with Shift)
+    window.addEventListener('keydown', (e) => {
+      if (!e.shiftKey) return;
+      if (e.key === '=' || e.key === '+') {
+        zoomFactor = clamp(zoomFactor + ZOOM_STEP, ZOOM_MIN, ZOOM_MAX);
+        applyZoomStyles();
+      } else if (e.key === '-' || e.key === '_') {
+        zoomFactor = clamp(zoomFactor - ZOOM_STEP, ZOOM_MIN, ZOOM_MAX);
+        applyZoomStyles();
+      } else if (e.key === '0') {
+        zoomFactor = 1.0;
+        applyZoomStyles();
+      }
+    });
+  }
+
   async function init() {
+    applyZoomStyles();
     attachEvents();
     await loadWeekSelections();
     buildGrid();
