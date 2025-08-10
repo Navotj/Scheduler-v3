@@ -1,18 +1,24 @@
 :root {
-  --row-height: 18px;   /* base half-hour slot height */
-  --font-size: 12px;    /* base font size inside cells */
+  --row-height: 18px;   /* half-hour slot height */
+  --font-size: 12px;
 }
 
-.controls {
+/* Layout */
+.two-col {
+  display: grid;
+  grid-template-columns: 1fr 340px;
+  gap: 16px;
+}
+
+.left-col .controls {
   display: flex;
   gap: 8px;
   align-items: center;
   margin: 12px 0 10px;
   flex-wrap: wrap;
-  position: relative;
 }
 
-.controls button {
+.left-col .controls button {
   background: #262626;
   color: #fff;
   border: 1px solid #333;
@@ -20,19 +26,16 @@
   border-radius: 8px;
   cursor: pointer;
 }
-.controls button.active { outline: 2px solid #2d6cdf; }
-.controls button:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .grid {
-  position: relative; /* for overlays like now-marker */
   border: 1px solid #2a2a2a;
   border-radius: 12px;
   overflow: auto;
-  height: calc(100vh - 160px);
+  height: calc(100vh - 200px);
   background: #101010;
 }
 
-/* Table and grid */
+/* Table */
 .table {
   border-collapse: collapse;
   width: 100%;
@@ -42,16 +45,13 @@
 }
 .table th,
 .table td { border: 1px solid #2b2b2b; text-align: center; }
-
-/* Keep day/date header text size constant (no zoom scaling) */
-.table thead th {
+.table th {
   position: sticky;
   top: 0;
   background: #151515;
   z-index: 5;
   padding: 6px;
   font-weight: 600;
-  font-size: 13px !important; /* fixed size regardless of --font-size */
 }
 
 /* Sticky time column */
@@ -65,24 +65,23 @@
   border-right: 1px solid #2b2b2b;
 }
 
-/* Hour cell spans two slot rows; center its label and make it larger */
+/* Hour cell spans two rows */
 .time-col.hour {
   font-size: calc(var(--font-size) * 1.15);
   line-height: calc(var(--row-height) * 2);
 }
 
-/* Slot cells */
+/* Slots (read-only shading) */
 .slot-cell {
-  position: relative;
-  min-width: 110px;
   width: 110px;
+  min-width: 110px;
   height: var(--row-height);
-  cursor: crosshair;
-  background-color: #121212;
+  background: #121212;
 }
-.slot-cell.selected { background-color: #234b1f; }
-.slot-cell.preview-add { background-color: #1f3e7a; }
-.slot-cell.preview-sub { background-color: #6b1e1e; }
+
+.slot-cell.dim {
+  filter: grayscale(0.75) brightness(0.8);
+}
 
 /* Thicker separators at hour rows */
 tr.row-hour > td,
@@ -91,96 +90,112 @@ tr.row-hour > th {
   border-top-color: #3a3a3a;
 }
 
-/* Weekend shading — do not override selection color */
-.slot-cell.col-weekend:not(.selected) {
-  background-image: repeating-linear-gradient(
-    135deg,
-    rgba(255,255,255,0.045) 0px,
-    rgba(255,255,255,0.045) 8px,
-    rgba(255,255,255,0.02) 8px,
-    rgba(255,255,255,0.02) 16px
-  );
-}
-.slot-cell.col-weekend.selected {
-  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06);
-}
-
-/* Past slots overlay */
-.slot-cell.past { cursor: not-allowed; }
-.slot-cell.past::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: rgba(255,255,255,0.16);
-  pointer-events: none;
-}
-
-/* Floating tooltip (not signed in) */
-.signin-tooltip {
+/* Hover tooltip */
+.cell-tooltip {
   position: fixed;
-  top: 0;
-  left: 0;
-  display: none;
-  pointer-events: none;
-  z-index: 5000;
-  background: #1c1c1c;
-  color: #f55;
-  border: 1px solid #883333;
-  padding: 6px 8px;
-  border-radius: 6px;
+  z-index: 6000;
+  background: #141414;
+  border: 1px solid #333;
+  color: #eee;
+  padding: 8px 10px;
+  border-radius: 8px;
   font-size: 12px;
-  box-shadow: 0 4px 14px rgba(0,0,0,0.4);
-}
-
-/* NOW marker (horizontal red line confined to today's column) */
-.now-marker {
-  position: absolute;
-  height: 0;
-  border-top: 2px solid #e53935;
-  z-index: 8;
-  display: none;
+  max-width: 280px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
   pointer-events: none;
 }
 
-/* Bubble to the LEFT of the red line with right-pointing pointer; perfectly centered on the line */
-.now-marker .bubble {
-  position: absolute;
-  right: 100%;
-  top: 0;
-  transform: translateY(-50%);
+/* Right column panels */
+.right-col .panel {
+  background: #171717;
+  border: 1px solid #2a2a2a;
+  border-radius: 12px;
+  padding: 14px;
+  margin-bottom: 16px;
+}
+
+.right-col h3 {
+  margin: 0 0 10px 0;
+  font-size: 15px;
+}
+
+.right-col .row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.right-col .field {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.right-col input[type="text"],
+.right-col input[type="number"],
+.right-col select {
   background: #0f0f0f;
-  color: #e53935;
-  border: 1px solid #e53935;
+  color: #eee;
+  border: 1px solid #333;
+  border-radius: 8px;
+  padding: 6px 8px;
+}
+
+.right-col .actions button,
+.add-user button {
+  background: #2d6cdf;
+  color: #fff;
+  border: 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.member-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.member-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #121212;
+  border: 1px solid #2a2a2a;
+  border-radius: 8px;
+  padding: 6px 8px;
+  margin-bottom: 6px;
+}
+
+.member-list button {
+  background: #3a3a3a;
+  color: #fff;
+  border: 1px solid #4a4a4a;
   border-radius: 6px;
   padding: 4px 8px;
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  line-height: 1;
-  white-space: nowrap;
-  box-shadow: 0 2px 10px rgba(0,0,0,0.35);
+  cursor: pointer;
 }
 
-/* Red pointer triangle that touches the line */
-.now-marker .bubble::after {
-  content: "";
-  position: absolute;
-  left: 100%;
-  top: 50%;
-  transform: translateY(-50%);
-  border-left: 8px solid #e53935;
-  border-top: 6px solid transparent;
-  border-bottom: 6px solid transparent;
+/* Step legend */
+.legend { margin-top: 8px; color: #bbb; }
+.legend-steps { display: flex; gap: 4px; }
+.legend-steps .chip {
+  width: 16px;
+  height: 12px;
+  border-radius: 3px;
+  border: 1px solid #2b2b2b;
+}
+.legend-labels {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 4px;
+  font-size: 12px;
 }
 
-/* Inner triangle to create hollow effect (black fill) */
-.now-marker .bubble::before {
-  content: "";
-  position: absolute;
-  left: 100%;
-  top: 50%;
-  transform: translate(calc(-1px), -50%);
-  border-left: 7px solid #0f0f0f;
-  border-top: 5px solid transparent;
-  border-bottom: 5px solid transparent;
+/* Highlighted cells for selected result interval */
+.slot-cell.highlight {
+  outline: 2px solid #ffd54a;
+  outline-offset: -2px;
 }
