@@ -1,69 +1,77 @@
-body {
-  font-family: sans-serif;
-  background: #111;
-  color: #eee;
-  padding: 20px;
-  margin: 0;
+/* Home page layout & cards */
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px;
+  margin-top: 20px;
 }
 
-input,
-button {
-  font-size: 16px;
-  padding: 5px;
-  margin: 5px 0;
-}
-
-pre {
-  background: #222;
-  padding: 10px;
-  border: 1px solid #444;
-}
-
-.top-bar {
+.card {
+  background: #171717;
+  border: 1px solid #2a2a2a;
+  border-radius: 12px;
+  padding: 16px;
   display: flex;
+  flex-direction: column;
   justify-content: space-between;
-  align-items: center;
-  margin-bottom: 20px;
+  min-height: 160px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.25);
 }
 
-.user-info {
-  display: flex;
-  gap: 10px;
-  align-items: center;
+.card h2 {
+  margin: 0 0 8px 0;
+  font-size: 18px;
+  color: #fff;
 }
 
-.user-label {
-  font-size: 0.9em;
-  color: #aaa;
+.card p {
+  margin: 0 0 12px 0;
+  color: #bbb;
+  line-height: 1.4;
 }
 
-/* Modal system */
-#modal-overlay {
-  position: fixed;
-  top: 0; left: 0; right: 0; bottom: 0;
-  background: rgba(0, 0, 0, 0.7);
-  backdrop-filter: blur(5px);
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  z-index: 1000;
-}
-
-#modal-container {
-  background: #222;
-  padding: 30px;
+.card a,
+.card button.link {
+  display: inline-block;
+  padding: 8px 10px;
   border-radius: 8px;
-  width: 340px;
-  max-width: 90%;
-  box-shadow: 0 0 15px #000;
+  text-decoration: none;
+  background: #262626;
+  color: #fff;
+  border: 1px solid #333;
+  cursor: pointer;
+  transition: background-color 0.15s ease, transform 0.05s ease;
 }
 
-#main-content {
-  filter: none;
-  pointer-events: auto;
+.card a:hover,
+.card button.link:hover {
+  background: #2f2f2f;
 }
 
-body.modal-active #main-content {
-  filter: blur(4px);
+.card a:active,
+.card button.link:active {
+  transform: translateY(1px);
+}
+
+/* Footer */
+
+.footer {
+  color: #888;
+  text-align: center;
+  padding: 24px 0 40px;
+}
+
+/* Modal blur effect for main content while auth modal is open */
+
+body.modal-active main {
+  filter: blur(3px);
   pointer-events: none;
+}
+
+/* Minor tweaks for the top bar title spacing on the homepage */
+
+.top-bar h1 {
+  margin: 0;
+  font-size: 20px;
 }
