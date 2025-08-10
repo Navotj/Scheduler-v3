@@ -33,6 +33,7 @@
   let table;
   let grid;
   let resultsEl;
+  let resultsPanelEl;
   let nowMarkerEl;
 
   // derived week arrays (rebuilt after paintCounts)
@@ -201,6 +202,7 @@
     paintCounts();
     shadePast();
     positionNowMarker();
+    syncResultsHeight();
   }
 
   function getDayStartSec(dayIndex) {
@@ -287,7 +289,7 @@
       const day = Number(td.dataset.day);
       const row = Number(td.dataset.row);
       const g = day * ROWS_PER_DAY + row;
-      counts[g] = Math.min(slotCount(epoch), 999); // raw count (not capped for logic)
+      counts[g] = slotCount(epoch); // raw count for logic
       const who = new Set();
       for (const u of members) {
         const set = userSlotSets.get(u);
@@ -315,7 +317,14 @@
     }
   }
 
-  // --- NOW marker (restricted to current day column; bubble left of the line) ---
+  function nowGlobalIndex() {
+    const nowSec = Math.floor(Date.now() / 1000);
+    const { baseEpoch } = getWeekStartEpochAndYMD();
+    const idx = Math.ceil((nowSec - baseEpoch) / SLOT_SEC);
+    return Math.max(0, idx);
+  }
+
+  // --- NOW marker (restricted to current day column; centered bubble) ---
   function positionNowMarker() {
     const nowSec = Math.floor(Date.now() / 1000);
     const { baseEpoch } = getWeekStartEpochAndYMD();
@@ -344,23 +353,21 @@
       nowMarkerEl.style.left = `${colLeft}px`;
       nowMarkerEl.style.width = `${colWidth}px`;
 
+      // center the bubble within the active day column
       const bubble = nowMarkerEl.querySelector('.bubble');
       if (bubble) {
-        const w = bubble.offsetWidth;
-        const bubbleLeft = colLeft - w - 8;
-        bubble.style.left = `${bubbleLeft}px`;
-        bubble.style.right = '';
+        bubble.style.left = (colLeft + colWidth / 2) + 'px';
       }
     }
   }
 
   function bindMarkerReposition() {
     grid.addEventListener('scroll', positionNowMarker);
-    window.addEventListener('resize', positionNowMarker);
+    window.addEventListener('resize', () => { positionNowMarker(); syncResultsHeight(); });
     setInterval(positionNowMarker, 30000);
   }
 
-  // --- Filter dimming (global across week; respects midnight) ---
+  // --- Filter dimming (global across week; respects midnight). Past slots are always dim. ---
   function applyFilterDimming() {
     const maxMissing = parseInt(document.getElementById('max-missing').value || '0', 10);
     const minHours = parseFloat(document.getElementById('min-hours').value || '1');
@@ -371,11 +378,13 @@
     for (const td of tds) td.classList.remove('dim');
     if (!totalMembers || needed <= 0) return;
 
+    const startIdx = nowGlobalIndex(); // ignore past
+
     let g = 0;
     while (g < WEEK_ROWS) {
-      if ((counts[g] || 0) < needed) { dimCell(g); g++; continue; }
+      if (g < startIdx || (counts[g] || 0) < needed) { dimCell(g); g++; continue; }
       let h = g;
-      while (h < WEEK_ROWS && (counts[h] || 0) >= needed) h++;
+      while (h < WEEK_ROWS && h >= startIdx && (counts[h] || 0) >= needed) h++;
       const blockLen = h - g;
       if (blockLen < minSlots) {
         for (let t = g; t < h; t++) dimCell(t);
@@ -390,12 +399,13 @@
     if (cell) cell.classList.add('dim');
   }
 
-  // --- Results / candidates (supports midnight; no duplicate sessions per participant count) ---
+  // --- Results / candidates (supports midnight; no duplicate sessions per participant count; skip past) ---
   function findCandidates() {
     const maxMissing = parseInt(document.getElementById('max-missing').value || '0', 10);
     const minHours = parseFloat(document.getElementById('min-hours').value || '1');
     const needed = Math.max(0, totalMembers - maxMissing);
     const minSlots = Math.max(1, Math.round(minHours * SLOTS_PER_HOUR));
+    const startIdx = nowGlobalIndex();
 
     const sessions = [];
     if (!totalMembers || needed <= 0) { renderResults(sessions); return; }
@@ -403,25 +413,29 @@
     const { baseEpoch } = getWeekStartEpochAndYMD();
 
     for (let k = totalMembers; k >= needed; k--) {
-      let g = 0;
+      let g = startIdx;
       while (g < WEEK_ROWS) {
         if ((counts[g] || 0) < k) { g++; continue; }
 
-        let inter = new Set(sets[g]);
+        // expand while keeping >= k AND intersect users to true participant set
         let s = g;
         let t = g + 1;
+        let inter = new Set(sets[g]);
         while (t < WEEK_ROWS && (counts[t] || 0) >= k) {
-          // intersect and check threshold k
           const avail = sets[t];
           inter = new Set([...inter].filter(x => avail.has(x)));
           if (inter.size < k) break;
           t++;
         }
 
+        // clamp start to now (t already >= g+1 >= startIdx+1)
+        s = Math.max(s, startIdx);
+
         const length = t - s;
         if (length >= minSlots && inter.size >= k) {
           const startSec = baseEpoch + s * SLOT_SEC;
           const endSec = baseEpoch + t * SLOT_SEC;
+
           sessions.push({
             gStart: s, gEnd: t,
             start: startSec, end: endSec,
@@ -524,6 +538,7 @@
   // --- Tooltip ---
   function onCellHoverMove(e) {
     const td = e.currentTarget;
+    if (td.classList.contains('past')) return; // no interaction for past
     const epoch = Number(td.dataset.epoch);
     const lists = availabilityListsAt(epoch);
     const tip = document.getElementById('cell-tooltip');
@@ -574,12 +589,21 @@
     }
   }
 
+  // --- Results panel sizing to match grid bottom ---
+  function syncResultsHeight() {
+    if (!grid || !resultsPanelEl || !resultsEl) return;
+    const h = grid.clientHeight; // visible height of the grid
+    resultsPanelEl.style.maxHeight = h + 'px';
+    resultsEl.style.maxHeight = (h - resultsPanelEl.querySelector('h3').offsetHeight - 24) + 'px';
+  }
+
   // --- Zoom (vertical only) ---
   function applyZoomStyles() {
     const base = 18;
     const px = clamp(Math.round(base * zoomFactor), 10, 42);
     document.documentElement.style.setProperty('--row-height', `${px}px`);
     positionNowMarker();
+    syncResultsHeight();
   }
 
   function setupZoomHandlers() {
@@ -626,6 +650,7 @@
     table = document.getElementById('scheduler-table');
     grid = document.getElementById('grid');
     resultsEl = document.getElementById('results');
+    resultsPanelEl = document.getElementById('results-panel');
     nowMarkerEl = document.getElementById('now-marker');
 
     // controls
