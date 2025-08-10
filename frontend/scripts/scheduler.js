@@ -1,62 +1,40 @@
 (function () {
-  const SLOTS_PER_HOUR = 2;
+  const SLOTS_PER_HOUR = 2;        // 30-min steps
   const HOURS_START = 0;
   const HOURS_END = 24;
-  const SLOT_SEC = 30 * 60;
+  const SLOT_SEC = 1800;
 
+  // state
   let weekOffset = 0;
-  let paintMode = 'add';
   let isAuthenticated = false;
+  let currentUsername = null;
 
-  const DEFAULT_SETTINGS = { timezone: 'auto', clock: '24', weekStart: 'sun', defaultZoom: 1.0, highlightWeekends: false };
-
+  // settings
+  const DEFAULT_SETTINGS = { timezone: 'auto', clock: '24', weekStart: 'sun', defaultZoom: 1.0 };
   let settings = { ...DEFAULT_SETTINGS };
   let tz = resolveTimezone(settings.timezone);
   let hour12 = settings.clock === '12';
   let weekStartIdx = settings.weekStart === 'mon' ? 1 : 0;
-  let highlightWeekends = !!settings.highlightWeekends;
 
-  let zoomFactor = clamp(typeof settings.defaultZoom === 'number' ? settings.defaultZoom : 1.0, 0.6, 2.0);
-  const ZOOM_MIN = 0.6;
-  const ZOOM_MAX = 2.0;
-  const ZOOM_STEP = 0.1;
+  // vertical zoom only
+  let zoomFactor = 1.0;
+  const ZOOM_MIN = 0.6, ZOOM_MAX = 2.0, ZOOM_STEP = 0.1;
 
-  const selected = new Set();
+  // members and availability
+  let members = []; // array of usernames
+  const userSlotSets = new Map(); // username -> Set(epoch)
+  let totalMembers = 0;
 
-  let isDragging = false;
-  let dragStart = null;
-  let dragEnd = null;
-
+  // cached
   let table;
   let grid;
-  let nowMarker;
 
+  // utils
   function resolveTimezone(val) {
     if (!val || val === 'auto') return (Intl.DateTimeFormat().resolvedOptions().timeZone) || 'UTC';
     return val;
   }
-
   function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
-
-  function loadLocal() {
-    try {
-      const raw = localStorage.getItem('nat20_settings');
-      return raw ? JSON.parse(raw) : null;
-    } catch { return null; }
-  }
-
-  async function fetchRemoteSettings() {
-    try {
-      const res = await fetch('http://backend.nat20scheduling.com:3000/settings', { credentials: 'include', cache: 'no-cache' });
-      if (res.ok) return await res.json();
-    } catch {}
-    return null;
-  }
-
-  function saveLocal(obj) {
-    localStorage.setItem('nat20_settings', JSON.stringify(obj));
-    window.dispatchEvent(new StorageEvent('storage', { key: 'nat20_settings', newValue: JSON.stringify(obj) }));
-  }
 
   function tzOffsetMinutes(tzName, date) {
     const parts = new Intl.DateTimeFormat('en-US', {
@@ -80,12 +58,14 @@
     return Math.floor(ts / 1000);
   }
 
-  function getTodayYMDInTZ(tzName) {
-    const parts = new Intl.DateTimeFormat('en-US', { timeZone: tzName, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
+  function getYMDInTZ(date, tzName) {
+    const parts = new Intl.DateTimeFormat('en-US', { timeZone: tzName, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(date);
     const map = {};
     for (const p of parts) map[p.type] = p.value;
     return { y: Number(map.year), m: Number(map.month), d: Number(map.day) };
   }
+
+  function getTodayYMDInTZ(tzName) { return getYMDInTZ(new Date(), tzName); }
 
   function ymdAddDays(ymd, add) {
     const tmp = new Date(Date.UTC(ymd.y, ymd.m - 1, ymd.d));
@@ -98,11 +78,45 @@
     return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(wd);
   }
 
+  function getWeekStartEpochAndYMD() {
+    const todayYMD = getTodayYMDInTZ(tz);
+    const todayMid = epochFromZoned(todayYMD.y, todayYMD.m, todayYMD.d, 0, 0, tz);
+    const todayIdx = weekdayIndexInTZ(todayMid, tz);
+    const diff = (todayIdx - weekStartIdx + 7) % 7;
+    const baseYMD = ymdAddDays(todayYMD, -diff + weekOffset * 7);
+    const baseEpoch = epochFromZoned(baseYMD.y, baseYMD.m, baseYMD.d, 0, 0, tz);
+    return { baseEpoch, baseYMD };
+  }
+
   function formatHourLabel(hour) {
     if (!hour12) return `${String(hour).padStart(2, '0')}:00`;
     const h = (hour % 12) || 12;
     const ampm = hour < 12 ? 'AM' : 'PM';
     return `${h} ${ampm}`;
+  }
+
+  function palette(total) {
+    const arr = ['#2a2a2a']; // 0 available
+    const hue = 140, sat = 55;
+    const base = 18, steps = 22; // lightness 18%..40%
+    if (total <= 0) return arr;
+    for (let i = 1; i <= total; i++) {
+      const light = base + Math.round((steps * i) / total);
+      arr.push(`hsl(${hue}, ${sat}%, ${light}%)`);
+    }
+    return arr;
+  }
+
+  function colorFor(count, total) {
+    const pal = palette(total);
+    const idx = Math.max(0, Math.min(count, pal.length - 1));
+    return pal[idx];
+  }
+
+  function minutesToHhmm(mins) {
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    return `${h}h ${String(m).padStart(2, '0')}m`;
   }
 
   function renderWeekLabel(startEpoch) {
@@ -115,60 +129,21 @@
     document.getElementById('week-label').textContent = `${fmt(startDate)} – ${fmt(endDate)}, ${year}`;
   }
 
-  function getWeekStartEpochAndYMD() {
-    const todayYMD = getTodayYMDInTZ(tz);
-    const todayMid = epochFromZoned(todayYMD.y, todayYMD.m, todayYMD.d, 0, 0, tz);
-    const todayIdx = weekdayIndexInTZ(todayMid, tz);
-    const diff = (todayIdx - weekStartIdx + 7) % 7;
-    const baseYMD = ymdAddDays(todayYMD, -diff + weekOffset * 7);
-    const baseEpoch = epochFromZoned(baseYMD.y, baseYMD.m, baseYMD.d, 0, 0, tz);
-    return { baseEpoch, baseYMD };
-  }
-
-  function ensureNowMarker() {
-    grid = document.getElementById('grid');
-    table = document.getElementById('schedule-table');
-    nowMarker = document.getElementById('now-marker');
-
-    if (!nowMarker && grid) {
-      nowMarker = document.createElement('div');
-      nowMarker.id = 'now-marker';
-      nowMarker.className = 'now-marker';
-      const bubble = document.createElement('span');
-      bubble.className = 'bubble';
-      bubble.textContent = 'NOW';
-      nowMarker.appendChild(bubble);
-      grid.appendChild(nowMarker);
-    }
-  }
-
   function applyZoomStyles() {
     const root = document.documentElement;
-    const baseRow = 18;
-    const baseFont = 12;
-
+    const baseRow = 18, baseFont = 12;
+    zoomFactor = clamp(zoomFactor, ZOOM_MIN, ZOOM_MAX);
     root.style.setProperty('--row-height', `${(baseRow * zoomFactor).toFixed(2)}px`);
     root.style.setProperty('--font-size', `${(baseFont * zoomFactor).toFixed(2)}px`);
-
-    const body = document.body;
-    body.classList.remove('zoom-dense', 'zoom-medium', 'zoom-large');
-    if (zoomFactor < 1.1) body.classList.add('zoom-dense');
-    else if (zoomFactor < 1.5) body.classList.add('zoom-medium');
-    else body.classList.add('zoom-large');
-
-    requestAnimationFrame(updateNowMarker);
   }
 
   function buildGrid() {
-    table = document.getElementById('schedule-table');
+    table = document.getElementById('scheduler-table');
     grid = document.getElementById('grid');
-    ensureNowMarker();
     table.innerHTML = '';
 
     const { baseEpoch, baseYMD } = getWeekStartEpochAndYMD();
     renderWeekLabel(baseEpoch);
-
-    const nowEpoch = Math.floor(Date.now() / 1000);
 
     const thead = document.createElement('thead');
     const hr = document.createElement('tr');
@@ -198,7 +173,6 @@
     const totalRows = (HOURS_END - HOURS_START) * SLOTS_PER_HOUR;
     for (let r = 0; r < totalRows; r++) {
       const tr = document.createElement('tr');
-
       const hour = Math.floor(r / SLOTS_PER_HOUR) + HOURS_START;
       const half = r % SLOTS_PER_HOUR === 1;
       tr.className = half ? 'row-half' : 'row-hour';
@@ -223,44 +197,10 @@
         td.dataset.epoch = String(epoch);
         td.dataset.row = r;
         td.dataset.col = c;
+        td.style.background = colorFor(slotCount(epoch), totalMembers);
 
-        if (highlightWeekends) {
-          const weekdayStr = new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'short' }).format(new Date(dayEpochs[c].epoch * 1000));
-          if (weekdayStr === 'Sat' || weekdayStr === 'Sun') td.classList.add('col-weekend');
-        }
-
-        if (selected.has(epoch)) td.classList.add('selected');
-
-        if (epoch < nowEpoch) td.classList.add('past');
-
-        td.addEventListener('mousedown', (e) => {
-          if (!isAuthenticated) return showSigninTooltip(e);
-          if (td.classList.contains('past')) return;
-          e.preventDefault();
-          isDragging = true;
-          dragStart = { row: r, col: c };
-          dragEnd = { row: r, col: c };
-          updatePreview();
-        });
-
-        td.addEventListener('mouseenter', (e) => {
-          if (!isAuthenticated) return moveSigninTooltip(e);
-          if (!isDragging) return;
-          if (td.classList.contains('past')) return;
-          dragEnd = { row: r, col: c };
-          updatePreview();
-        });
-
-        td.addEventListener('mouseup', () => {
-          if (!isAuthenticated) return;
-          if (!isDragging) return;
-          if (td.classList.contains('past')) return;
-          dragEnd = { row: r, col: c };
-          applyBoxSelection();
-          clearPreview();
-          isDragging = false;
-          dragStart = dragEnd = null;
-        });
+        td.addEventListener('mousemove', onCellHoverMove);
+        td.addEventListener('mouseleave', hideTooltip);
 
         tr.appendChild(td);
       }
@@ -269,180 +209,107 @@
     }
 
     table.appendChild(tbody);
-
-    document.addEventListener('mouseup', () => {
-      if (!isAuthenticated) return;
-      if (isDragging) {
-        applyBoxSelection();
-        clearPreview();
-      }
-      isDragging = false;
-      dragStart = dragEnd = null;
-    });
-
     setupZoomHandlers();
-
-    requestAnimationFrame(updateNowMarker);
+    applyFilterDimming();
+    renderLegend();
   }
 
-  function forEachCellInBox(fn) {
-    if (!dragStart || !dragEnd) return;
-    const r1 = Math.min(dragStart.row, dragEnd.row);
-    const r2 = Math.max(dragStart.row, dragEnd.row);
-    const c1 = Math.min(dragStart.col, dragEnd.col);
-    const c2 = Math.max(dragStart.col, dragEnd.col);
+  function onCellHoverMove(e) {
+    const td = e.currentTarget;
+    const epoch = Number(td.dataset.epoch);
+    const lists = availabilityListsAt(epoch);
+    const tip = document.getElementById('cell-tooltip');
+    const avail = lists.available.length ? `Available: ${lists.available.join(', ')}` : 'Available: —';
+    const unavail = lists.unavailable.length ? `Unavailable: ${lists.unavailable.join(', ')}` : 'Unavailable: —';
+    tip.innerHTML = `<div>${avail}</div><div style="margin-top:6px; color:#bbb;">${unavail}</div>`;
+    tip.style.display = 'block';
+    tip.style.left = (e.clientX + 14) + 'px';
+    tip.style.top = (e.clientY + 16) + 'px';
+  }
 
-    for (let r = r1; r <= r2; r++) {
-      for (let c = c1; c <= c2; c++) {
-        const cell = table.querySelector(`td.slot-cell[data-row="${r}"][data-col="${c}"]`);
-        if (cell && !cell.classList.contains('past')) fn(cell);
-      }
+  function hideTooltip() {
+    const tip = document.getElementById('cell-tooltip');
+    tip.style.display = 'none';
+  }
+
+  function slotCount(epoch) {
+    let count = 0;
+    for (const u of members) {
+      const set = userSlotSets.get(u);
+      if (set && set.has(epoch)) count++;
     }
+    return count;
   }
 
-  function updatePreview() {
-    clearPreview();
-    forEachCellInBox((cell) => {
-      if (paintMode === 'add') cell.classList.add('preview-add');
-      else cell.classList.add('preview-sub');
-    });
-  }
-
-  function clearPreview() {
-    table.querySelectorAll('.preview-add').forEach(el => el.classList.remove('preview-add'));
-    table.querySelectorAll('.preview-sub').forEach(el => el.classList.remove('preview-sub'));
-  }
-
-  function applyBoxSelection() {
-    forEachCellInBox((cell) => {
-      const epoch = Number(cell.dataset.epoch);
-      if (paintMode === 'add') {
-        selected.add(epoch);
-        cell.classList.add('selected');
-      } else {
-        selected.delete(epoch);
-        cell.classList.remove('selected');
-      }
-    });
-  }
-
-  function setMode(mode) {
-    paintMode = mode;
-    document.getElementById('mode-add').classList.toggle('active', mode === 'add');
-    document.getElementById('mode-subtract').classList.toggle('active', mode === 'subtract');
-  }
-
-  function compressToIntervals(sortedEpochs) {
-    const intervals = [];
-    if (!sortedEpochs.length) return intervals;
-    let curFrom = sortedEpochs[0];
-    let prev = sortedEpochs[0];
-    for (let i = 1; i < sortedEpochs.length; i++) {
-      const t = sortedEpochs[i];
-      if (t === prev + SLOT_SEC) prev = t;
-      else { intervals.push({ from: curFrom, to: prev + SLOT_SEC }); curFrom = t; prev = t; }
+  function availabilityListsAt(epoch) {
+    const available = [];
+    const unavailable = [];
+    for (const u of members) {
+      const set = userSlotSets.get(u);
+      if (set && set.has(epoch)) available.push(u);
+      else unavailable.push(u);
     }
-    intervals.push({ from: curFrom, to: prev + SLOT_SEC });
-    return intervals;
+    return { available, unavailable };
   }
 
-  async function saveWeek() {
-    if (!isAuthenticated) return;
-    const { baseEpoch, baseYMD } = getWeekStartEpochAndYMD();
-    const endYMD = ymdAddDays(baseYMD, 7);
-    const endEpoch = epochFromZoned(endYMD.y, endYMD.m, endYMD.d, 0, 0, tz);
-
-    const inside = Array.from(selected).filter(t => t >= baseEpoch && t < endEpoch).sort((a, b) => a - b);
-    const intervals = compressToIntervals(inside);
+  async function fetchRemoteSettings() {
     try {
-      const res = await fetch('http://backend.nat20scheduling.com:3000/availability/save', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ from: baseEpoch, to: endEpoch, intervals, sourceTimezone: tz })
-      });
-      if (!res.ok) {
-        const text = await res.text();
-        alert(`Save failed: ${res.status} ${text}`);
-        return;
-      }
-      alert('Saved!');
-    } catch {
-      alert('Connection error while saving');
-    }
-  }
-
-  async function loadWeekSelections() {
-    const { baseEpoch, baseYMD } = getWeekStartEpochAndYMD();
-    const endYMD = ymdAddDays(baseYMD, 7);
-    const endEpoch = epochFromZoned(endYMD.y, endYMD.m, endYMD.d, 0, 0, tz);
-    try {
-      const res = await fetch(`http://backend.nat20scheduling.com:3000/availability/get?from=${baseEpoch}&to=${endEpoch}`, {
-        credentials: 'include',
-        cache: 'no-cache'
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (Array.isArray(data.intervals)) {
-          for (const t of Array.from(selected)) if (t >= baseEpoch && t < endEpoch) selected.delete(t);
-          for (const iv of data.intervals) {
-            const from = Number(iv.from);
-            const to = Number(iv.to);
-            for (let t = from; t < to; t += SLOT_SEC) selected.add(t);
-          }
-        }
-      }
+      const res = await fetch('http://backend.nat20scheduling.com:3000/settings', { credentials: 'include', cache: 'no-cache' });
+      if (res.ok) return await res.json();
     } catch {}
+    return null;
   }
 
-  function attachEvents() {
-    document.getElementById('prev-week').addEventListener('click', async () => {
-      if (!isAuthenticated) return;
-      weekOffset -= 1;
-      await loadWeekSelections();
-      buildGrid();
-    });
-    document.getElementById('next-week').addEventListener('click', async () => {
-      if (!isAuthenticated) return;
-      weekOffset += 1;
-      await loadWeekSelections();
-      buildGrid();
-    });
-    document.getElementById('mode-add').addEventListener('click', () => { if (!isAuthenticated) return; setMode('add'); });
-    document.getElementById('mode-subtract').addEventListener('click', () => { if (!isAuthenticated) return; setMode('subtract'); });
-    document.getElementById('save').addEventListener('click', saveWeek);
+  async function loadSettings() {
+    const remote = await fetchRemoteSettings();
+    const s = remote || DEFAULT_SETTINGS;
+    settings = { ...DEFAULT_SETTINGS, ...s };
+    tz = resolveTimezone(settings.timezone);
+    hour12 = settings.clock === '12';
+    weekStartIdx = settings.weekStart === 'mon' ? 1 : 0;
+    zoomFactor = clamp(typeof settings.defaultZoom === 'number' ? settings.defaultZoom : 1.0, ZOOM_MIN, ZOOM_MAX);
+    applyZoomStyles();
+  }
 
-    const tt = document.getElementById('signin-tooltip');
-    ['mousemove','mouseenter'].forEach(ev => document.addEventListener(ev, (e) => {
-      if (!isAuthenticated) {
-        tt.style.display = 'block';
-        tt.style.left = (e.clientX + 12) + 'px';
-        tt.style.top = (e.clientY + 14) + 'px';
-      }
-    }));
-    document.addEventListener('mouseleave', () => { tt.style.display = 'none'; });
-    document.addEventListener('mousedown', () => { if (!isAuthenticated) tt.style.display = 'block'; });
+  async function fetchMembersAvail() {
+    if (!members.length) {
+      userSlotSets.clear();
+      totalMembers = 0;
+      return;
+    }
+    const { baseEpoch, baseYMD } = getWeekStartEpochAndYMD();
+    const endYMD = ymdAddDays(baseYMD, 7);
+    const endEpoch = epochFromZoned(endYMD.y, endYMD.m, endYMD.d, 0, 0, tz);
 
-    window.addEventListener('storage', (e) => {
-      if (e.key === 'nat20_settings') {
-        const s = loadLocal();
-        if (!s) return;
-        settings = { ...DEFAULT_SETTINGS, ...s };
-        tz = resolveTimezone(settings.timezone);
-        hour12 = settings.clock === '12';
-        weekStartIdx = settings.weekStart === 'mon' ? 1 : 0;
-        highlightWeekends = !!settings.highlightWeekends;
-        zoomFactor = clamp(typeof settings.defaultZoom === 'number' ? settings.defaultZoom : zoomFactor, ZOOM_MIN, ZOOM_MAX);
-        applyZoomStyles();
-        buildGrid();
-      }
+    const payload = { from: baseEpoch, to: endEpoch, usernames: members };
+    const res = await fetch('http://backend.nat20scheduling.com:3000/availability/get_many', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(payload)
     });
+
+    const data = res.ok ? await res.json() : { intervals: {} };
+    userSlotSets.clear();
+
+    for (const uname of members) {
+      const intervals = (data.intervals && data.intervals[uname]) || [];
+      const set = new Set();
+      for (const iv of intervals) {
+        const from = Math.max(iv.from, baseEpoch);
+        const to = Math.min(iv.to, endEpoch);
+        let t = Math.ceil(from / SLOT_SEC) * SLOT_SEC;
+        for (; t < to; t += SLOT_SEC) set.add(t);
+      }
+      userSlotSets.set(uname, set);
+    }
+    totalMembers = members.length;
   }
 
   function setupZoomHandlers() {
     if (!grid) grid = document.getElementById('grid');
     grid.addEventListener('wheel', (e) => {
-      if (!e.shiftKey) return; // normal vertical panning
+      if (!e.shiftKey) return; // normal scroll
       e.preventDefault();
       const delta = Math.sign(e.deltaY);
       zoomFactor = clamp(zoomFactor - delta * ZOOM_STEP, ZOOM_MIN, ZOOM_MAX);
@@ -455,88 +322,236 @@
       else if (e.key === '-' || e.key === '_') { zoomFactor = clamp(zoomFactor - ZOOM_STEP, ZOOM_MIN, ZOOM_MAX); applyZoomStyles(); }
       else if (e.key === '0') { zoomFactor = 1.0; applyZoomStyles(); }
     });
-
-    grid.addEventListener('scroll', () => requestAnimationFrame(updateNowMarker), { passive: true });
-    window.addEventListener('resize', () => requestAnimationFrame(updateNowMarker));
   }
 
-  // --- NOW MARKER (scroll/zoom invariant using offsets vs. scroll) ---
-  function updateNowMarker() {
-    ensureNowMarker();
-    if (!grid || !table || !nowMarker) return;
+  function attachUI() {
+    document.getElementById('prev-week').addEventListener('click', async () => {
+      weekOffset -= 1;
+      await fetchMembersAvail();
+      buildGrid();
+    });
+    document.getElementById('next-week').addEventListener('click', async () => {
+      weekOffset += 1;
+      await fetchMembersAvail();
+      buildGrid();
+    });
 
-    const { baseYMD } = getWeekStartEpochAndYMD();
-    const todayYMD = getTodayYMDInTZ(tz);
+    document.getElementById('add-user-btn').addEventListener('click', addUserFromInput);
+    document.getElementById('add-username').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); addUserFromInput(); }
+    });
+    const addMeBtn = document.getElementById('add-me-btn');
+    addMeBtn.addEventListener('click', () => {
+      if (!currentUsername) return;
+      if (!members.includes(currentUsername)) {
+        members.push(currentUsername);
+        renderMemberList();
+        rebuild();
+      }
+    });
 
-    const dayOffset = Math.round((Date.UTC(todayYMD.y, todayYMD.m - 1, todayYMD.d) - Date.UTC(baseYMD.y, baseYMD.m - 1, baseYMD.d)) / 86400000);
-    if (dayOffset < 0 || dayOffset > 6) {
-      nowMarker.style.display = 'none';
-      return;
-    }
-
-    const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour12: false, hour: '2-digit', minute: '2-digit' }).formatToParts(new Date());
-    const hh = Number(parts.find(p => p.type === 'hour').value);
-    const mm = Number(parts.find(p => p.type === 'minute').value);
-
-    const rowIndex = hh * 2 + (mm >= 30 ? 1 : 0);
-    const frac = (mm % 30) / 30;
-
-    const targetCell = table.querySelector(`td.slot-cell[data-col="${dayOffset}"][data-row="${rowIndex}"]`);
-    const colStartCell = table.querySelector(`td.slot-cell[data-col="${dayOffset}"][data-row="0"]`);
-    if (!targetCell || !colStartCell) {
-      nowMarker.style.display = 'none';
-      return;
-    }
-
-    // Compute using offsets relative to the table, then translate into grid coordinates by subtracting grid scroll.
-    const tableOffsetTop = table.offsetTop || 0;
-    const tableOffsetLeft = table.offsetLeft || 0;
-
-    const contentTop = tableOffsetTop + targetCell.offsetTop + (targetCell.offsetHeight * frac);
-    const contentLeft = tableOffsetLeft + colStartCell.offsetLeft;
-    const contentWidth = colStartCell.offsetWidth;
-
-    nowMarker.style.display = 'block';
-    nowMarker.style.top = (contentTop - grid.scrollTop) + 'px';
-    nowMarker.style.left = (contentLeft - grid.scrollLeft) + 'px';
-    nowMarker.style.width = contentWidth + 'px';
+    document.getElementById('find-btn').addEventListener('click', () => {
+      const results = computeCandidates();
+      renderResults(results);
+    });
   }
-  // --- /NOW MARKER ---
+
+  function addUserFromInput() {
+    const inp = document.getElementById('add-username');
+    const val = inp.value.trim();
+    if (!val) return;
+    if (!members.includes(val)) {
+      members.push(val);
+      renderMemberList();
+      rebuild();
+    }
+    inp.value = '';
+  }
+
+  function removeMember(uname) {
+    members = members.filter(u => u !== uname);
+    renderMemberList();
+    rebuild();
+  }
+
+  async function rebuild() {
+    await fetchMembersAvail();
+    buildGrid();
+  }
+
+  function renderMemberList() {
+    const ul = document.getElementById('member-list');
+    ul.innerHTML = '';
+    for (const u of members) {
+      const li = document.createElement('li');
+      li.innerHTML = `<span>${u}</span>`;
+      const btn = document.createElement('button');
+      btn.textContent = 'Remove';
+      btn.addEventListener('click', () => removeMember(u));
+      li.appendChild(btn);
+      ul.appendChild(li);
+    }
+    const maxMissing = document.getElementById('max-missing');
+    maxMissing.max = String(Math.max(0, members.length));
+    renderLegend();
+  }
+
+  function renderLegend() {
+    const wrap = document.getElementById('legend-steps');
+    const lblTotal = document.getElementById('legend-total');
+    if (!wrap) return;
+    wrap.innerHTML = '';
+    const pal = palette(totalMembers);
+    for (let i = 0; i < pal.length; i++) {
+      const chip = document.createElement('span');
+      chip.className = 'chip';
+      chip.style.background = pal[i];
+      wrap.appendChild(chip);
+    }
+    lblTotal.textContent = totalMembers > 0 ? String(totalMembers) : 'All';
+  }
+
+  function applyFilterDimming() {
+    const maxMissingEl = document.getElementById('max-missing');
+    const maxMissing = Math.max(0, Number(maxMissingEl.value || 0));
+    const cells = table.querySelectorAll('td.slot-cell');
+    for (const td of cells) {
+      const epoch = Number(td.dataset.epoch);
+      const count = slotCount(epoch);
+      const missing = totalMembers - count;
+      if (totalMembers > 0 && missing > maxMissing) td.classList.add('dim');
+      else td.classList.remove('dim');
+    }
+  }
+
+  function computeCandidates() {
+    const maxMissing = Math.max(0, Number(document.getElementById('max-missing').value || 0));
+    const minHours = Math.max(0, Number(document.getElementById('min-hours').value || 0));
+    const minMins = Math.max(0, Number(document.getElementById('min-mins').value || 0));
+    const minDurationSec = (minHours * 60 + minMins) * 60;
+    const sortMethod = document.getElementById('sort-method').value;
+
+    const { baseEpoch, baseYMD } = getWeekStartEpochAndYMD();
+    const endYMD = ymdAddDays(baseYMD, 7);
+    const endEpoch = epochFromZoned(endYMD.y, endYMD.m, endYMD.d, 0, 0, tz);
+
+    const slots = [];
+    for (let t = baseEpoch; t < endEpoch; t += SLOT_SEC) {
+      const available = [];
+      for (const u of members) {
+        const set = userSlotSets.get(u);
+        if (set && set.has(t)) available.push(u);
+      }
+      const key = available.slice().sort().join('|'); // constant set key
+      slots.push({ t, available, key });
+    }
+
+    const segments = [];
+    let segStart = null, segKey = null, segAvail = null;
+    for (const s of slots) {
+      if (segKey === null) {
+        segStart = s.t;
+        segKey = s.key;
+        segAvail = s.available;
+      } else if (s.key !== segKey) {
+        const segEnd = s.t;
+        if (segAvail) {
+          const participants = segAvail.length;
+          const missing = totalMembers - participants;
+          const duration = segEnd - segStart;
+          if (participants > 0 && missing <= maxMissing && duration >= minDurationSec) {
+            segments.push({ from: segStart, to: segEnd, participants, missing, users: segAvail.slice() });
+          }
+        }
+        segStart = s.t;
+        segKey = s.key;
+        segAvail = s.available;
+      }
+    }
+    if (segKey !== null) {
+      const segEnd = endEpoch;
+      if (segAvail) {
+        const participants = segAvail.length;
+        const missing = totalMembers - participants;
+        const duration = segEnd - segStart;
+        if (participants > 0 && missing <= maxMissing && duration >= minDurationSec) {
+          segments.push({ from: segStart, to: segEnd, participants, missing, users: segAvail.slice() });
+        }
+      }
+    }
+
+    segments.sort((a, b) => {
+      if (sortMethod === 'earliest') return a.from - b.from;
+      if (sortMethod === 'latest') return b.from - a.from;
+      if (sortMethod === 'longest') return (b.to - b.from) - (a.to - a.from) || a.from - b.from;
+      if (sortMethod === 'most') return (b.participants - a.participants) || ((b.to - b.from) - (a.to - a.from)) || (a.from - b.from);
+      return a.from - b.from;
+    });
+
+    return segments.slice(0, 50);
+  }
+
+  function formatRangeLocal(fromSec, toSec) {
+    const opts = { timeZone: tz, hour12, weekday: 'short', month: 'short', day: 'numeric',
+                   hour: '2-digit', minute: '2-digit' };
+    const fmt = new Intl.DateTimeFormat(undefined, opts);
+    const a = fmt.format(new Date(fromSec * 1000));
+    const b = new Intl.DateTimeFormat(undefined, { timeZone: tz, hour12, hour: '2-digit', minute: '2-digit' }).format(new Date(toSec * 1000));
+    return `${a} – ${b}`;
+  }
+
+  function clearHighlights() {
+    table.querySelectorAll('.slot-cell.highlight').forEach(el => el.classList.remove('highlight'));
+  }
+
+  function highlightRange(fromSec, toSec) {
+    for (let t = fromSec; t < toSec; t += SLOT_SEC) {
+      const cell = table.querySelector(`td.slot-cell[data-epoch="${t}"]`);
+      if (cell) cell.classList.add('highlight');
+    }
+  }
+
+  function renderResults(list) {
+    applyFilterDimming();
+    const wrap = document.getElementById('results');
+    wrap.innerHTML = '';
+    if (!list.length) {
+      wrap.textContent = 'No matches.';
+      return;
+    }
+    for (const item of list) {
+      const div = document.createElement('div');
+      div.className = 'result';
+      const durMin = Math.round((item.to - item.from) / 60);
+      div.innerHTML = `
+        <div class="res-top">${formatRangeLocal(item.from, item.to)}</div>
+        <div class="res-sub">${item.participants}/${totalMembers} available · ${minutesToHhmm(durMin)}</div>
+        <div class="res-users">Users: ${item.users.join(', ')}</div>
+      `;
+      div.addEventListener('mouseenter', () => { clearHighlights(); highlightRange(item.from, item.to); });
+      div.addEventListener('mouseleave', () => { clearHighlights(); });
+      wrap.appendChild(div);
+    }
+  }
 
   async function init() {
-    const remote = await fetchRemoteSettings();
-    const local = loadLocal();
-    const s = remote || local || DEFAULT_SETTINGS;
-    settings = { ...DEFAULT_SETTINGS, ...s };
-    tz = resolveTimezone(settings.timezone);
-    hour12 = settings.clock === '12';
-    weekStartIdx = settings.weekStart === 'mon' ? 1 : 0;
-    highlightWeekends = !!settings.highlightWeekends;
-    zoomFactor = clamp(typeof settings.defaultZoom === 'number' ? settings.defaultZoom : 1.0, ZOOM_MIN, ZOOM_MAX);
-    saveLocal(settings);
-
-    applyZoomStyles();
-    attachEvents();
-    await loadWeekSelections();
+    table = document.getElementById('scheduler-table');
+    grid = document.getElementById('grid');
+    attachUI();
+    await loadSettings();
+    await fetchMembersAvail();
     buildGrid();
 
-    // keep "now" in sync every minute
-    setInterval(updateNowMarker, 60000);
+    // re-apply dimming when filter inputs change
+    document.getElementById('max-missing').addEventListener('input', applyFilterDimming);
+    document.getElementById('min-hours').addEventListener('input', () => {});
+    document.getElementById('min-mins').addEventListener('input', () => {});
   }
 
-  function setAuth(authenticated) { isAuthenticated = !!authenticated; }
-
-  function showSigninTooltip(e) {
-    const tt = document.getElementById('signin-tooltip');
-    tt.style.display = 'block';
-    tt.style.left = (e.clientX + 12) + 'px';
-    tt.style.top = (e.clientY + 14) + 'px';
-  }
-  function moveSigninTooltip(e) {
-    const tt = document.getElementById('signin-tooltip');
-    tt.style.left = (e.clientX + 12) + 'px';
-    tt.style.top = (e.clientY + 14) + 'px';
+  function setAuth(auth, username) {
+    isAuthenticated = !!auth;
+    currentUsername = username || null;
   }
 
-  window.schedule = { init, setAuth };
+  window.scheduler = { init, setAuth };
 })();
