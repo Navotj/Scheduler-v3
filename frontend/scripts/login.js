@@ -23,7 +23,15 @@ window.initLoginForm = function () {
         errorDisplay.textContent = '✅ Sign-in successful. Loading...';
         setTimeout(() => {
           if (window.closeModal) window.closeModal();
-          if (window.setAuthState) window.setAuthState(true, username);
+          // Prefer unified setter if present (works for index.html and schedule.html)
+          if (typeof window.setAuthState === 'function') {
+            window.setAuthState(true, username);
+          } else {
+            // Fallback for any page not exposing setAuthState
+            window.isAuthenticated = true;
+            window.currentUsername = username;
+            if (typeof window.updateAuthUI === 'function') window.updateAuthUI();
+          }
         }, 1000);
       } else {
         const data = await res.json();

@@ -7,9 +7,9 @@
   <link rel="stylesheet" href="/styles/index.css" />
   <style>
     :root {
-      --row-height: 18px;     /* base row height for :00 and :30 rows */
-      --col-width: 110px;     /* base width per day column */
-      --font-size: 12px;      /* base font size inside cells */
+      --row-height: 18px;
+      --col-width: 110px;
+      --font-size: 12px;
     }
 
     body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; background: #111; color: #eee; margin: 0; }
@@ -27,12 +27,7 @@
     .controls button:disabled { opacity: 0.5; cursor: not-allowed; }
     .signin-hint { position: absolute; left: 0; bottom: -20px; color: #f55; font-size: 13px; display: none; }
 
-    .grid {
-      border: 1px solid #2a2a2a; border-radius: 12px; overflow: auto;
-      /* dynamic height: take most of the viewport */
-      height: calc(100vh - 160px);
-      background: #101010;
-    }
+    .grid { border: 1px solid #2a2a2a; border-radius: 12px; overflow: auto; height: calc(100vh - 160px); background: #101010; }
 
     .table { border-collapse: collapse; width: 100%; min-width: 820px; user-select: none; font-size: var(--font-size); }
     .table th, .table td { border: 1px solid #2b2b2b; text-align: center; }
@@ -46,14 +41,8 @@
 
     .time-label { padding: 0 6px; }
     .time-label.hour { color: #ddd; }
-    .time-label.half { color: #888; display: none; } /* revealed at higher zoom */
+    .time-label.half { color: #888; display: none; }
 
-    .muted { color: #aaa; }
-    /* Modal */
-    #modal-overlay { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,0.6); z-index: 100; }
-    #modal-container { background: #151515; border: 1px solid #2b2b2b; border-radius: 12px; width: min(520px, 92vw); padding: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
-
-    /* Zoom thresholds: show half-hour text when zoomed enough (handled via a class on body) */
     body.zoom-dense .time-label.half { display: none; }
     body.zoom-medium .time-label.half { display: none; }
     body.zoom-large .time-label.half { display: inline; }
@@ -195,11 +184,17 @@
           credentials: 'include'
         });
       } catch {}
-      isAuthenticated = false;
-      currentUsername = null;
-      updateAuthUI();
-      window.schedule.setAuth(false);
+      setAuthState(false, null);
     }
+
+    // >>> expose a unified setter so login.js can update this page's state
+    window.setAuthState = function(authenticated, username) {
+      isAuthenticated = !!authenticated;
+      currentUsername = authenticated ? username : null;
+      updateAuthUI();
+      window.schedule.setAuth(isAuthenticated);
+    };
+    // <<<
 
     // Hover hint for disabled controls
     (function setupHoverHint() {
@@ -222,7 +217,7 @@
     window.closeModal = closeModal;
 
     window.addEventListener('DOMContentLoaded', () => {
-      window.schedule.init(); // from schedule.js
+      window.schedule.init();
       checkAuth();
     });
   </script>
