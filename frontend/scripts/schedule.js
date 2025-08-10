@@ -132,10 +132,10 @@
       nowMarker = document.createElement('div');
       nowMarker.id = 'now-marker';
       nowMarker.className = 'now-marker';
-      const label = document.createElement('span');
-      label.className = 'label';
-      label.textContent = 'Now';
-      nowMarker.appendChild(label);
+      const bubble = document.createElement('span');
+      bubble.className = 'bubble';
+      bubble.textContent = 'NOW';
+      nowMarker.appendChild(bubble);
       grid.appendChild(nowMarker);
     }
   }
@@ -458,7 +458,7 @@
     window.addEventListener('resize', () => requestAnimationFrame(updateNowMarker));
   }
 
-  // --- NOW MARKER (stable positioning tied to today's column and current time) ---
+  // --- NOW MARKER (pixel-accurate; stable across scroll/zoom) ---
   function ymdUTC(ymd) { return Date.UTC(ymd.y, ymd.m - 1, ymd.d); }
   function diffDays(aYMD, bYMD) { return Math.round((ymdUTC(bYMD) - ymdUTC(aYMD)) / 86400000); }
 
@@ -481,18 +481,20 @@
     const rowIndex = hh * 2 + (mm >= 30 ? 1 : 0);
     const frac = (mm % 30) / 30;
 
-    const dayStartCell = table.querySelector(`td.slot-cell[data-col="${dayOffset}"][data-row="0"]`);
-    if (!dayStartCell) {
+    const cell = table.querySelector(`td.slot-cell[data-col="${dayOffset}"][data-row="${rowIndex}"]`);
+    const dayStart = table.querySelector(`td.slot-cell[data-col="${dayOffset}"][data-row="0"]`);
+    if (!cell || !dayStart) {
       nowMarker.style.display = 'none';
       return;
     }
 
-    const rowH = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--row-height')) || 18;
+    const gridRect = grid.getBoundingClientRect();
+    const cellRect = cell.getBoundingClientRect();
+    const colRect = dayStart.getBoundingClientRect();
 
-    const baseTop = dayStartCell.offsetTop;
-    const top = (baseTop - grid.scrollTop) + (rowIndex * rowH) + (frac * rowH);
-    const left = (dayStartCell.offsetLeft - grid.scrollLeft);
-    const width = dayStartCell.offsetWidth;
+    const top = (cellRect.top - gridRect.top) + (cellRect.height * frac);
+    const left = (colRect.left - gridRect.left);
+    const width = colRect.width;
 
     nowMarker.style.display = 'block';
     nowMarker.style.top = `${top}px`;
