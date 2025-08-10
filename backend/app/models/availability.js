@@ -8,4 +8,6 @@ const availabilitySchema = new mongoose.Schema({
   sourceTimezone: { type: String }
 });
 
+availabilitySchema.index({ userId: 1, from: 1, to: 1 });
+
 module.exports = mongoose.model('Availability', availabilitySchema);

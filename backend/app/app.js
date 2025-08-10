@@ -5,6 +5,7 @@ const cookieParser = require('cookie-parser');
 require('dotenv').config();
 
 const authRoutes = require('./routes/auth');
+const availabilityRoutes = require('./routes/availability');
 
 const app = express();
 
@@ -32,10 +33,11 @@ mongoose.connect(MONGO_URI, {
   process.exit(1);
 });
 
-// attach auth routes
+// attach routes
 app.use(authRoutes);
+app.use(availabilityRoutes);
 
-// mongoose-based query endpoint
+// legacy mongoose-based query endpoint used for initial testing
 const personSchema = new mongoose.Schema({
   name: String
 }, { collection: COLLECTION_NAME });

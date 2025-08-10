@@ -5,7 +5,8 @@ const { generateToken, verifyToken } = require('../utils/jwt');
 const { body, validationResult } = require('express-validator');
 
 // register new user
-router.post('/register',
+router.post(
+  '/register',
   body('email').isEmail(),
   body('username').isLength({ min: 3 }),
   body('password').isLength({ min: 6 }),
@@ -22,12 +23,10 @@ router.post('/register',
     if (existingUsername) return res.status(400).json({ error: 'username already taken' });
 
     const user = new userModel({
-    email: email.trim().toLowerCase(),
-    username: username.trim()
+      email: email.trim().toLowerCase(),
+      username: username.trim()
     });
 
-    console.log('Saving user:', user);
-    
     await user.setPassword(password);
     await user.save();
 
@@ -35,8 +34,9 @@ router.post('/register',
   }
 );
 
-// login and set jwt cookie -
-router.post('/login',
+// login and set jwt cookie
+router.post(
+  '/login',
   body('username').isString().notEmpty(),
   body('password').notEmpty(),
   async (req, res) => {
@@ -56,12 +56,14 @@ router.post('/login',
   }
 );
 
-// check jwt validity
-router.get('/auth/check', (req, res) => {
+// check jwt validity (returns username to populate UI)
+router.get('/auth/check', async (req, res) => {
   const token = req.cookies.token;
   try {
-    verifyToken(token);
-    res.sendStatus(200);
+    const payload = verifyToken(token);
+    const user = await userModel.findById(payload.id).select('username email').lean();
+    if (!user) return res.sendStatus(401);
+    res.status(200).json({ username: user.username, email: user.email });
   } catch {
     res.sendStatus(401);
   }
