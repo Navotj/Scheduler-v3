@@ -7,6 +7,7 @@ require('dotenv').config();
 const authRoutes = require('./routes/auth');
 const availabilityRoutes = require('./routes/availability');
 const settingsRoutes = require('./routes/settings');
+const usersRoutes = require('./routes/users');
 
 const app = express();
 
@@ -37,6 +38,8 @@ app.use(authRoutes);
 // Mount availability router under /availability so endpoints are /availability/get, /availability/save, /availability/get_many
 app.use('/availability', availabilityRoutes);
 app.use(settingsRoutes);
+// NEW: users routes (username existence check)
+app.use('/users', usersRoutes);
 
 // legacy test endpoint
 const personSchema = new mongoose.Schema({

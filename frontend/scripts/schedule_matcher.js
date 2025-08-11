@@ -507,11 +507,28 @@
       usersLine.className = 'res-users';
       usersLine.textContent = `Users: ${it.users.join(', ')}`;
 
+      // Actions tab (Copy Discord invitation)
+      const actions = document.createElement('div');
+      actions.className = 'result-actions';
+      const copyBtn = document.createElement('button');
+      copyBtn.type = 'button';
+      copyBtn.textContent = 'Copy Discord invitation';
+      copyBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const text = buildDiscordInvite(it);
+        const ok = await copyToClipboard(text);
+        const old = copyBtn.textContent;
+        copyBtn.textContent = ok ? 'Copied to clipboard' : 'Failed to copy';
+        setTimeout(() => { copyBtn.textContent = old; }, 1200);
+      });
+      actions.appendChild(copyBtn);
+
       wrap.appendChild(top);
       wrap.appendChild(sub);
       wrap.appendChild(usersLine);
+      wrap.appendChild(actions);
 
-      // hover highlight (grid + card border)
+      // hover highlight (grid + card ring)
       wrap.addEventListener('mouseenter', () => {
         highlightRangeGlobal(it.gStart, it.gEnd, true);
         wrap.classList.add('hovered');
@@ -594,16 +611,22 @@
     syncResultsHeight();
   }
 
-  // --- Results panel sizing to grid bottom (subtract the space already used above it) ---
+  // --- Results panel sizing to grid bottom (subtract effective paddings) ---
   function syncResultsHeight() {
     if (!grid || !resultsPanelEl || !resultsEl) return;
     const gridRect = grid.getBoundingClientRect();
     const panelRect = resultsPanelEl.getBoundingClientRect();
-    const pad = 16; // small breathing room
-    const available = Math.max(120, Math.floor(gridRect.bottom - panelRect.top - pad));
-    resultsPanelEl.style.height = available + 'px';
+    const available = Math.max(120, Math.floor(gridRect.bottom - panelRect.top - 8));
+
+    // account for panel paddings and title height
+    const panelStyles = getComputedStyle(resultsPanelEl);
+    const pTop = parseFloat(panelStyles.paddingTop) || 0;
+    const pBottom = parseFloat(panelStyles.paddingBottom) || 0;
     const titleH = resultsPanelEl.querySelector('h3').offsetHeight;
-    resultsEl.style.height = Math.max(60, available - titleH - pad) + 'px';
+
+    resultsPanelEl.style.height = available + 'px';
+    const inner = Math.max(60, available - (pTop + pBottom + titleH) - 6);
+    resultsEl.style.height = inner + 'px';
   }
 
   // --- Right column vertical alignment with grid top (match controls height) ---
@@ -642,6 +665,24 @@
     currentUsername = ok ? username : null;
   }
 
+  // --- Username validation ---
+  async function userExists(name) {
+    try {
+      const url = `${BASE_URL}/users/exists?username=${encodeURIComponent(name)}`;
+      const res = await fetch(url, { credentials: 'include', cache: 'no-cache' });
+      if (!res.ok) return false;
+      const data = await res.json();
+      return !!data.exists;
+    } catch {
+      return false;
+    }
+  }
+  function setMemberError(msg) {
+    const el = document.getElementById('member-error');
+    if (!el) return;
+    el.textContent = msg || '';
+  }
+
   // --- Members UI ---
   function renderMembers() {
     const ul = document.getElementById('member-list');
@@ -663,6 +704,44 @@
     }
     updateLegend();
     syncResultsHeight();
+  }
+
+  // --- Clipboard helpers ---
+  async function copyToClipboard(text) {
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+      // fallback for non-HTTPS
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      const ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+      return ok;
+    } catch {
+      return false;
+    }
+  }
+
+  function buildDiscordInvite(item) {
+    const start = Math.floor(item.start); // seconds
+    const end = Math.floor(item.end);
+    const users = item.users.slice().sort();
+    const missing = members.filter(m => !item.users.includes(m)).sort();
+
+    const playersLine = users.length ? `players: ${users.join(', ')}` : 'players: —';
+    const missingLine = missing.length ? `missing: ${missing.join(', ')}` : 'missing: —';
+
+    return `session at <t:${start}:F> until <t:${end}:t>
+${playersLine}
+${missingLine}
+please confirm`;
   }
 
   // --- Init / wiring ---
@@ -692,7 +771,16 @@
       const input = document.getElementById('add-username');
       const name = (input.value || '').trim();
       if (!name) return;
-      if (!members.includes(name)) members.push(name);
+      if (members.includes(name)) { input.value = ''; return; }
+
+      setMemberError('');
+      const exists = await userExists(name);
+      if (!exists) {
+        setMemberError('User not found');
+        return;
+      }
+
+      members.push(name);
       input.value = '';
       renderMembers();
       await fetchMembersAvail();
@@ -700,6 +788,7 @@
 
     document.getElementById('add-me-btn').addEventListener('click', async () => {
       if (!isAuthenticated || !currentUsername) return;
+      setMemberError('');
       if (!members.includes(currentUsername)) members.push(currentUsername);
       renderMembers();
       await fetchMembersAvail();
