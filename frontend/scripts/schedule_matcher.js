@@ -110,23 +110,22 @@
     return { baseEpoch, baseYMD };
   }
 
-  function fmtTime(h, m) {
-    if (hour12) {
-      const ampm = h >= 12 ? 'pm' : 'am';
-      let hr = h % 12; if (hr === 0) hr = 12;
-      const mm = String(m).padStart(2, '0');
-      return `${hr}:${mm} ${ampm}`;
-    }
-    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+  function fmtTimeLocal(date, tzName, hour12Flag) {
+    return new Intl.DateTimeFormat('en-GB', {
+      timeZone: tzName,
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: !!hour12Flag
+    }).format(date);
   }
 
   function fmtRangeSec(startSec, endSec) {
     const a = new Date(startSec * 1000);
     const b = new Date(endSec * 1000);
-    const dow = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][a.getUTCDay()];
-    const sh = a.getUTCHours(); const sm = a.getUTCMinutes();
-    const eh = b.getUTCHours(); const em = b.getUTCMinutes();
-    return `${dow}, ${fmtTime(sh, sm)} – ${fmtTime(eh, em)}`;
+    const dow = new Intl.DateTimeFormat('en-GB', { timeZone: tz, weekday: 'short' }).format(a);
+    const s = fmtTimeLocal(a, tz, hour12);
+    const e = fmtTimeLocal(b, tz, hour12);
+    return `${dow}, ${s} – ${e}`;
   }
 
   function rowHeightPx() {
@@ -178,7 +177,9 @@
         const th = document.createElement('th');
         th.className = 'time-col hour';
         th.rowSpan = 2;
-        th.textContent = fmtTime(hh, 0);
+        // label is local time, but since it's just "HH:00", the current timezone is fine
+        const hStr = fmtTimeLocal(new Date(Date.UTC(2000,0,1,hh,0,0)), tz, hour12).replace(/^[A-Za-z]{3},\s*/,'');
+        th.textContent = hStr;
         tr.appendChild(th);
       }
 
@@ -528,7 +529,7 @@
       wrap.appendChild(usersLine);
       wrap.appendChild(actions);
 
-      // hover highlight (grid + card ring)
+      // hover highlight (grid + card border)
       wrap.addEventListener('mouseenter', () => {
         highlightRangeGlobal(it.gStart, it.gEnd, true);
         wrap.classList.add('hovered');
