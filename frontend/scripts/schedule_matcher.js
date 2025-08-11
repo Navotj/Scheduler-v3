@@ -110,21 +110,22 @@
     return { baseEpoch, baseYMD };
   }
 
-  function fmtTimeLocal(date, tzName, hour12Flag) {
-    return new Intl.DateTimeFormat('en-GB', {
-      timeZone: tzName,
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: !!hour12Flag
-    }).format(date);
+  function fmtTime(h, m) {
+    if (hour12) {
+      const ampm = h >= 12 ? 'pm' : 'am';
+      let hr = h % 12; if (hr === 0) hr = 12;
+      const mm = String(m).padStart(2, '0');
+      return `${hr}:${mm} ${ampm}`;
+    }
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
   }
 
   function fmtRangeSec(startSec, endSec) {
     const a = new Date(startSec * 1000);
     const b = new Date(endSec * 1000);
     const dow = new Intl.DateTimeFormat('en-GB', { timeZone: tz, weekday: 'short' }).format(a);
-    const s = fmtTimeLocal(a, tz, hour12);
-    const e = fmtTimeLocal(b, tz, hour12);
+    const s = new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12 }).format(a);
+    const e = new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12 }).format(b);
     return `${dow}, ${s} – ${e}`;
   }
 
@@ -177,9 +178,7 @@
         const th = document.createElement('th');
         th.className = 'time-col hour';
         th.rowSpan = 2;
-        // label is local time, but since it's just "HH:00", the current timezone is fine
-        const hStr = fmtTimeLocal(new Date(Date.UTC(2000,0,1,hh,0,0)), tz, hour12).replace(/^[A-Za-z]{3},\s*/,'');
-        th.textContent = hStr;
+        th.textContent = fmtTime(hh, 0);  // keep grid unchanged; no timezone shift
         tr.appendChild(th);
       }
 
@@ -345,12 +344,12 @@
     nowMarkerEl.style.display = 'block';
 
     const secondsIntoWeek = nowSec - baseEpoch;
+    theadTopCache = table.querySelector('thead')?.offsetHeight || 0;
     const dayIdx = Math.floor(secondsIntoWeek / 86400);
     const secondsIntoDay = secondsIntoWeek - dayIdx * 86400;
     const rowsIntoDay = secondsIntoDay / SLOT_SEC;
 
-    const thead = table.querySelector('thead');
-    const headerH = thead ? thead.offsetHeight : 0;
+    const headerH = theadTopCache;
     const topPx = headerH + rowsIntoDay * rowHeightPx();
     nowMarkerEl.style.top = `${topPx}px`;
 
@@ -360,9 +359,9 @@
       const colWidth = firstCell.offsetWidth;
       nowMarkerEl.style.left = `${colLeft}px`;
       nowMarkerEl.style.width = `${colWidth}px`;
-      // Bubble centered via CSS translate.
     }
   }
+  let theadTopCache = 0;
 
   function bindMarkerReposition() {
     grid.addEventListener('scroll', () => { positionNowMarker(); });
@@ -370,7 +369,7 @@
     setInterval(positionNowMarker, 30000);
   }
 
-  // --- Filter dimming (global across week; respects midnight). Past slots are always dim. ---
+  // --- Filter dimming ---
   function applyFilterDimming() {
     const maxMissing = parseInt(document.getElementById('max-missing').value || '0', 10);
     const minHours = parseFloat(document.getElementById('min-hours').value || '1');
@@ -402,7 +401,7 @@
     if (cell) cell.classList.add('dim');
   }
 
-  // --- Results / candidates (supports midnight; no duplicate sessions per participant count; skip past) ---
+  // --- Results / candidates ---
   function findCandidates() {
     const maxMissing = parseInt(document.getElementById('max-missing').value || '0', 10);
     const minHours = parseFloat(document.getElementById('min-hours').value || '1');
@@ -431,7 +430,7 @@
           t++;
         }
 
-        // clamp start to now (t already >= g+1 >= startIdx+1)
+        // clamp start to now
         s = Math.max(s, startIdx);
 
         const length = t - s;
@@ -448,7 +447,6 @@
           });
         }
 
-        // jump to end of this >=k block to avoid duplicates for same k
         while (t < WEEK_ROWS && (counts[t] || 0) >= k) t++;
         g = t;
       }
@@ -612,14 +610,13 @@
     syncResultsHeight();
   }
 
-  // --- Results panel sizing to grid bottom (subtract effective paddings) ---
+  // --- Results panel sizing to grid bottom ---
   function syncResultsHeight() {
     if (!grid || !resultsPanelEl || !resultsEl) return;
     const gridRect = grid.getBoundingClientRect();
     const panelRect = resultsPanelEl.getBoundingClientRect();
     const available = Math.max(120, Math.floor(gridRect.bottom - panelRect.top - 8));
 
-    // account for panel paddings and title height
     const panelStyles = getComputedStyle(resultsPanelEl);
     const pTop = parseFloat(panelStyles.paddingTop) || 0;
     const pBottom = parseFloat(panelStyles.paddingBottom) || 0;
@@ -630,7 +627,7 @@
     resultsEl.style.height = inner + 'px';
   }
 
-  // --- Right column vertical alignment with grid top (match controls height) ---
+  // --- Right column vertical alignment with grid top ---
   function syncRightColOffset() {
     if (!rightColEl || !controlsEl) return;
     const styles = getComputedStyle(controlsEl);

@@ -2,6 +2,7 @@
   --row-height: 18px;   /* half-hour slot height */
   --font-size: 12px;
   --line: #2b2b2b;
+  --control-height: 38px;
 }
 
 /* Layout */
@@ -148,7 +149,8 @@ tr.row-hour > th {
 
 .right-col .field .row { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 6px; align-items: center; }
 
-.sort-row { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: end; gap: 10px; margin-bottom: 10px; }
+/* Sort row: align centers; unify heights */
+.sort-row { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; gap: 10px; margin-bottom: 10px; }
 
 .right-col input[type="text"],
 .right-col input[type="number"],
@@ -160,7 +162,7 @@ tr.row-hour > th {
   padding: 6px 8px;
   width: 100%;
   min-width: 0;
-  height: 36px;
+  height: var(--control-height);
   box-sizing: border-box;
 }
 
@@ -184,9 +186,9 @@ tr.row-hour > th {
 
 /* Ensure Find matches select height exactly */
 .btn-find {
-  align-self: end;
-  height: 36px;
-  line-height: 36px;
+  align-self: center;
+  height: var(--control-height);
+  line-height: calc(var(--control-height) - 2px);
   padding: 0 12px;
   box-sizing: border-box;
 }
@@ -218,7 +220,7 @@ tr.row-hour > th {
 
 /* Results panel constrained to grid bottom with its own scroll */
 .results-panel { display: flex; flex-direction: column; overflow: hidden; }
-.results { overflow: auto; box-sizing: border-box; }
+.results { overflow: auto; box-sizing: border-box; padding: 0 6px; }
 
 /* Sleek dark scrollbar (results only) */
 .results { scrollbar-width: thin; scrollbar-color: #444 #121212; }
@@ -233,14 +235,14 @@ tr.row-hour > th {
   border: 1px solid #2a2a2a;
   border-radius: 10px;
   padding: 10px 12px;
-  margin: 8px 0;
+  margin: 8px 6px;
   transition: border-color 0.12s ease;
 }
 .results .result .res-top { font-weight: 600; margin-bottom: 4px; }
 .results .result .res-sub { font-size: 12px; color: #bbb; margin-bottom: 4px; }
 .results .result .res-users { font-size: 12px; color: #cfe9cf; word-break: break-word; }
 
-/* Yellow outline visible on ALL sides */
+/* Yellow outline visible on ALL sides (border change, not shadow) */
 .results .result.hovered { border-color: #ffd54a; }
 
 /* Copy tab on hover */
