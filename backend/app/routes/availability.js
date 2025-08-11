@@ -36,7 +36,7 @@ router.get(
       .sort({ from: 1 })
       .lean();
 
-    const intervals = docs.map(d => ({ from: d.from, to: d.to, sourceTimezone: d.sourceTimezone || null }));
+    const intervals = docs.map(d => ({ from: d.from, to: d.to }));
     res.json({ intervals });
   }
 );
@@ -50,7 +50,6 @@ router.post(
   body('intervals').isArray({ min: 0 }),
   body('intervals.*.from').optional().isInt({ min: 0 }).toInt(),
   body('intervals.*.to').optional().isInt({ min: 1 }).toInt(),
-  body('sourceTimezone').optional().isString(),
   async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
@@ -58,8 +57,6 @@ router.post(
     const rangeFrom = Number(req.body.from);
     const rangeTo = Number(req.body.to);
     if (!(rangeTo > rangeFrom)) return res.status(400).json({ error: '`to` must be greater than `from`' });
-
-    const sourceTimezone = req.body.sourceTimezone || null;
 
     // Normalize & validate intervals
     const raw = Array.isArray(req.body.intervals) ? req.body.intervals : [];
@@ -92,14 +89,14 @@ router.post(
     });
 
     if (merged.length) {
-      await Availability.insertMany(
-        merged.map(it => ({
-          userId: req.user.id,
-          from: it.from,
-          to: it.to,
-          sourceTimezone
-        }))
-      );
+      const docs = merged.map(it => ({
+        userId: req.user.id,
+        from: it.from,
+        to: it.to,
+        // expiryAt = 7 days after "to"
+        expiryAt: new Date((it.to + 7 * 24 * 60 * 60) * 1000)
+      }));
+      await Availability.insertMany(docs);
     }
 
     res.json({ success: true, count: merged.length });

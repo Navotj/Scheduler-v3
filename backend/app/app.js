@@ -8,6 +8,9 @@ const authRoutes = require('./routes/auth');
 const availabilityRoutes = require('./routes/availability');
 const settingsRoutes = require('./routes/settings');
 
+// Load models that need indexes created
+const Availability = require('./models/availability');
+
 const app = express();
 
 app.use(cors({
@@ -26,8 +29,16 @@ mongoose.connect(MONGO_URI, {
   dbName: DB_NAME,
   useNewUrlParser: true,
   useUnifiedTopology: true
-}).then(() => {
+}).then(async () => {
   console.log(`Connected to MongoDB at ${MONGO_URI}`);
+
+  // Ensure indexes exist in production too
+  try {
+    await Availability.syncIndexes();
+    console.log('Availability indexes synced');
+  } catch (e) {
+    console.error('Failed to sync Availability indexes:', e);
+  }
 }).catch((err) => {
   console.error('Failed to connect to MongoDB:', err);
   process.exit(1);
