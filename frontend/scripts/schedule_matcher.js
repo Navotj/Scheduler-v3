@@ -178,7 +178,7 @@
         const th = document.createElement('th');
         th.className = 'time-col hour';
         th.rowSpan = 2;
-        th.textContent = fmtTime(hh, 0);  // keep grid unchanged; no timezone shift
+        th.textContent = fmtTime(hh, 0);  // grid labels unchanged; no timezone shift
         tr.appendChild(th);
       }
 
@@ -332,6 +332,7 @@
   }
 
   // --- NOW marker (restricted to current day column; centered bubble) ---
+  let theadTopCache = 0;
   function positionNowMarker() {
     const nowSec = Math.floor(Date.now() / 1000);
     const { baseEpoch } = getWeekStartEpochAndYMD();
@@ -361,7 +362,6 @@
       nowMarkerEl.style.width = `${colWidth}px`;
     }
   }
-  let theadTopCache = 0;
 
   function bindMarkerReposition() {
     grid.addEventListener('scroll', () => { positionNowMarker(); });
@@ -410,6 +410,7 @@
     const startIdx = nowGlobalIndex();
 
     const sessions = [];
+    const seen = new Set(); // de-dup across different k values
     if (!totalMembers || needed <= 0) { renderResults(sessions); return; }
 
     const { baseEpoch } = getWeekStartEpochAndYMD();
@@ -430,23 +431,28 @@
           t++;
         }
 
-        // clamp start to now
+        // clamp start to now (t already >= g+1 >= startIdx+1)
         s = Math.max(s, startIdx);
 
         const length = t - s;
         if (length >= minSlots && inter.size >= k) {
           const startSec = baseEpoch + s * SLOT_SEC;
           const endSec = baseEpoch + t * SLOT_SEC;
-
-          sessions.push({
-            gStart: s, gEnd: t,
-            start: startSec, end: endSec,
-            duration: length,
-            participants: inter.size,
-            users: Array.from(inter)
-          });
+          const usersSorted = Array.from(inter).sort();
+          const key = `${startSec}-${endSec}-${usersSorted.join('|')}`;
+          if (!seen.has(key)) {
+            seen.add(key);
+            sessions.push({
+              gStart: s, gEnd: t,
+              start: startSec, end: endSec,
+              duration: length,
+              participants: usersSorted.length,
+              users: usersSorted
+            });
+          }
         }
 
+        // jump to end of this >=k block to avoid duplicates within same k
         while (t < WEEK_ROWS && (counts[t] || 0) >= k) t++;
         g = t;
       }
