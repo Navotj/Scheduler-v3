@@ -38,11 +38,17 @@
   min-width: 820px;
   user-select: none;
   font-size: var(--font-size);
-  border-collapse: separate;
-  border-spacing: 0;
+  border-collapse: collapse; /* match availability_picker line joining */
 }
 .table th,
 .table td { border: 1px solid var(--line); text-align: center; }
+
+/* Thicker separators at hour rows (match availability_picker) */
+tr.row-hour > td,
+tr.row-hour > th {
+  border-top-width: 2px;
+  border-top-color: #3a3a3a;
+}
 
 /* Sticky header */
 .table thead th {
@@ -87,9 +93,24 @@
 }
 
 /* Slot cells */
-.slot-cell { background-clip: padding-box; box-sizing: border-box; }
+.slot-cell {
+  position: relative; /* needed for past overlay */
+  background-clip: padding-box;
+  box-sizing: border-box;
+}
+
+/* Grey-out for "dim" filters (unchanged) */
 .slot-cell.dim { filter: grayscale(40%) brightness(0.85); opacity: 0.45; }
-.slot-cell.past { opacity: 0.25; pointer-events: none; }
+
+/* Past slots — grey overlay like availability_picker (no darkening via opacity) */
+.slot-cell.past { pointer-events: none; }
+.slot-cell.past::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(255,255,255,0.16);
+  pointer-events: none;
+}
 
 /* Availability color scale 0..7 */
 .slot-cell[data-c="0"] { background: #111; }
