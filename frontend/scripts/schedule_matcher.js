@@ -123,10 +123,10 @@
   function fmtRangeSec(startSec, endSec) {
     const a = new Date(startSec * 1000);
     const b = new Date(endSec * 1000);
-    const dow = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][a.getUTCDay()];
-    const sh = a.getUTCHours(); const sm = a.getUTCMinutes();
-    const eh = b.getUTCHours(); const em = b.getUTCMinutes();
-    return `${dow}, ${fmtTime(sh, sm)} – ${fmtTime(eh, em)}`;
+    const dow = new Intl.DateTimeFormat('en-GB', { timeZone: tz, weekday: 'short' }).format(a);
+    const s = new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12 }).format(a);
+    const e = new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12 }).format(b);
+    return `${dow}, ${s} – ${e}`;
   }
 
   function rowHeightPx() {
@@ -178,7 +178,7 @@
         const th = document.createElement('th');
         th.className = 'time-col hour';
         th.rowSpan = 2;
-        th.textContent = fmtTime(hh, 0);
+        th.textContent = fmtTime(hh, 0);  // grid labels unchanged; no timezone shift
         tr.appendChild(th);
       }
 
@@ -332,6 +332,7 @@
   }
 
   // --- NOW marker (restricted to current day column; centered bubble) ---
+  let theadTopCache = 0;
   function positionNowMarker() {
     const nowSec = Math.floor(Date.now() / 1000);
     const { baseEpoch } = getWeekStartEpochAndYMD();
@@ -344,12 +345,12 @@
     nowMarkerEl.style.display = 'block';
 
     const secondsIntoWeek = nowSec - baseEpoch;
+    theadTopCache = table.querySelector('thead')?.offsetHeight || 0;
     const dayIdx = Math.floor(secondsIntoWeek / 86400);
     const secondsIntoDay = secondsIntoWeek - dayIdx * 86400;
     const rowsIntoDay = secondsIntoDay / SLOT_SEC;
 
-    const thead = table.querySelector('thead');
-    const headerH = thead ? thead.offsetHeight : 0;
+    const headerH = theadTopCache;
     const topPx = headerH + rowsIntoDay * rowHeightPx();
     nowMarkerEl.style.top = `${topPx}px`;
 
@@ -359,7 +360,6 @@
       const colWidth = firstCell.offsetWidth;
       nowMarkerEl.style.left = `${colLeft}px`;
       nowMarkerEl.style.width = `${colWidth}px`;
-      // Bubble centered via CSS translate.
     }
   }
 
@@ -369,7 +369,7 @@
     setInterval(positionNowMarker, 30000);
   }
 
-  // --- Filter dimming (global across week; respects midnight). Past slots are always dim. ---
+  // --- Filter dimming ---
   function applyFilterDimming() {
     const maxMissing = parseInt(document.getElementById('max-missing').value || '0', 10);
     const minHours = parseFloat(document.getElementById('min-hours').value || '1');
@@ -401,7 +401,7 @@
     if (cell) cell.classList.add('dim');
   }
 
-  // --- Results / candidates (supports midnight; no duplicate sessions per participant count; skip past) ---
+  // --- Results / candidates ---
   function findCandidates() {
     const maxMissing = parseInt(document.getElementById('max-missing').value || '0', 10);
     const minHours = parseFloat(document.getElementById('min-hours').value || '1');
@@ -410,6 +410,7 @@
     const startIdx = nowGlobalIndex();
 
     const sessions = [];
+    const seen = new Set(); // de-dup across different k values
     if (!totalMembers || needed <= 0) { renderResults(sessions); return; }
 
     const { baseEpoch } = getWeekStartEpochAndYMD();
@@ -437,17 +438,21 @@
         if (length >= minSlots && inter.size >= k) {
           const startSec = baseEpoch + s * SLOT_SEC;
           const endSec = baseEpoch + t * SLOT_SEC;
-
-          sessions.push({
-            gStart: s, gEnd: t,
-            start: startSec, end: endSec,
-            duration: length,
-            participants: inter.size,
-            users: Array.from(inter)
-          });
+          const usersSorted = Array.from(inter).sort();
+          const key = `${startSec}-${endSec}-${usersSorted.join('|')}`;
+          if (!seen.has(key)) {
+            seen.add(key);
+            sessions.push({
+              gStart: s, gEnd: t,
+              start: startSec, end: endSec,
+              duration: length,
+              participants: usersSorted.length,
+              users: usersSorted
+            });
+          }
         }
 
-        // jump to end of this >=k block to avoid duplicates for same k
+        // jump to end of this >=k block to avoid duplicates within same k
         while (t < WEEK_ROWS && (counts[t] || 0) >= k) t++;
         g = t;
       }
@@ -507,9 +512,26 @@
       usersLine.className = 'res-users';
       usersLine.textContent = `Users: ${it.users.join(', ')}`;
 
+      // Actions tab (Copy Discord invitation)
+      const actions = document.createElement('div');
+      actions.className = 'result-actions';
+      const copyBtn = document.createElement('button');
+      copyBtn.type = 'button';
+      copyBtn.textContent = 'Copy Discord invitation';
+      copyBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const text = buildDiscordInvite(it);
+        const ok = await copyToClipboard(text);
+        const old = copyBtn.textContent;
+        copyBtn.textContent = ok ? 'Copied to clipboard' : 'Failed to copy';
+        setTimeout(() => { copyBtn.textContent = old; }, 1200);
+      });
+      actions.appendChild(copyBtn);
+
       wrap.appendChild(top);
       wrap.appendChild(sub);
       wrap.appendChild(usersLine);
+      wrap.appendChild(actions);
 
       // hover highlight (grid + card border)
       wrap.addEventListener('mouseenter', () => {
@@ -594,19 +616,24 @@
     syncResultsHeight();
   }
 
-  // --- Results panel sizing to grid bottom (subtract the space already used above it) ---
+  // --- Results panel sizing to grid bottom ---
   function syncResultsHeight() {
     if (!grid || !resultsPanelEl || !resultsEl) return;
     const gridRect = grid.getBoundingClientRect();
     const panelRect = resultsPanelEl.getBoundingClientRect();
-    const pad = 16; // small breathing room
-    const available = Math.max(120, Math.floor(gridRect.bottom - panelRect.top - pad));
-    resultsPanelEl.style.height = available + 'px';
+    const available = Math.max(120, Math.floor(gridRect.bottom - panelRect.top - 8));
+
+    const panelStyles = getComputedStyle(resultsPanelEl);
+    const pTop = parseFloat(panelStyles.paddingTop) || 0;
+    const pBottom = parseFloat(panelStyles.paddingBottom) || 0;
     const titleH = resultsPanelEl.querySelector('h3').offsetHeight;
-    resultsEl.style.height = Math.max(60, available - titleH - pad) + 'px';
+
+    resultsPanelEl.style.height = available + 'px';
+    const inner = Math.max(60, available - (pTop + pBottom + titleH) - 6);
+    resultsEl.style.height = inner + 'px';
   }
 
-  // --- Right column vertical alignment with grid top (match controls height) ---
+  // --- Right column vertical alignment with grid top ---
   function syncRightColOffset() {
     if (!rightColEl || !controlsEl) return;
     const styles = getComputedStyle(controlsEl);
@@ -642,6 +669,24 @@
     currentUsername = ok ? username : null;
   }
 
+  // --- Username validation ---
+  async function userExists(name) {
+    try {
+      const url = `${BASE_URL}/users/exists?username=${encodeURIComponent(name)}`;
+      const res = await fetch(url, { credentials: 'include', cache: 'no-cache' });
+      if (!res.ok) return false;
+      const data = await res.json();
+      return !!data.exists;
+    } catch {
+      return false;
+    }
+  }
+  function setMemberError(msg) {
+    const el = document.getElementById('member-error');
+    if (!el) return;
+    el.textContent = msg || '';
+  }
+
   // --- Members UI ---
   function renderMembers() {
     const ul = document.getElementById('member-list');
@@ -663,6 +708,44 @@
     }
     updateLegend();
     syncResultsHeight();
+  }
+
+  // --- Clipboard helpers ---
+  async function copyToClipboard(text) {
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+      // fallback for non-HTTPS
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      const ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+      return ok;
+    } catch {
+      return false;
+    }
+  }
+
+  function buildDiscordInvite(item) {
+    const start = Math.floor(item.start); // seconds
+    const end = Math.floor(item.end);
+    const users = item.users.slice().sort();
+    const missing = members.filter(m => !item.users.includes(m)).sort();
+
+    const playersLine = users.length ? `players: ${users.join(', ')}` : 'players: —';
+    const missingLine = missing.length ? `missing: ${missing.join(', ')}` : 'missing: —';
+
+    return `session at <t:${start}:F> until <t:${end}:t>
+${playersLine}
+${missingLine}
+please confirm`;
   }
 
   // --- Init / wiring ---
@@ -692,7 +775,16 @@
       const input = document.getElementById('add-username');
       const name = (input.value || '').trim();
       if (!name) return;
-      if (!members.includes(name)) members.push(name);
+      if (members.includes(name)) { input.value = ''; return; }
+
+      setMemberError('');
+      const exists = await userExists(name);
+      if (!exists) {
+        setMemberError('User not found');
+        return;
+      }
+
+      members.push(name);
       input.value = '';
       renderMembers();
       await fetchMembersAvail();
@@ -700,6 +792,7 @@
 
     document.getElementById('add-me-btn').addEventListener('click', async () => {
       if (!isAuthenticated || !currentUsername) return;
+      setMemberError('');
       if (!members.includes(currentUsername)) members.push(currentUsername);
       renderMembers();
       await fetchMembersAvail();
