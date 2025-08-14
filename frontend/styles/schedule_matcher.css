@@ -3,10 +3,10 @@
   --font-size: 12px;
   --line: #2b2b2b;
   --line-strong: #3a3a3a;
-  --control-height: 30px;        /* tighter controls */
+  --control-height: 28px;        /* tighter controls */
   --timecol-width: 76px;
   --grid-pad: 8px;               /* visual padding around the scrollable grid */
-  --topbar-height: 44px;         /* reduced top bar space for layout calcs */
+  --topbar-height: 40px;         /* reduced top bar space for layout calcs */
 }
 
 /* ───────────────────────── Layout Shell ───────────────────────── */
@@ -23,8 +23,8 @@
   flex-direction: column;
   gap: 12px;
   position: sticky;
-  top: calc(var(--topbar-height) + 8px);
-  max-height: calc(100vh - var(--topbar-height) - 16px);
+  top: calc(var(--topbar-height) + 6px);
+  max-height: calc(100vh - var(--topbar-height) - 12px);
   overflow: auto;
 }
 
@@ -42,12 +42,10 @@
 }
 
 /* ─────────────────────── Top bar tighten ─────────────────────── */
-header, .topbar, .navbar {
-  padding: 6px 10px;
-}
+header, .topbar, .navbar { padding: 4px 8px; }
 header .btn, .topbar .btn, .navbar .btn, header button, .navbar button {
-  height: 30px;
-  padding: 4px 10px;
+  height: 28px;
+  padding: 3px 8px;
   font-size: 13px;
 }
 
@@ -56,11 +54,11 @@ header .btn, .topbar .btn, .navbar .btn, header button, .navbar button {
   display: flex;
   gap: 8px;
   align-items: center;
-  margin: 8px 0 8px;
+  margin: 6px 0 6px;
   flex-wrap: wrap;
 }
 .left-col .controls .helper { margin-left: auto; color: #9aa0a6; font-size: 12px; }
-.left-col .controls button { height: 30px; padding: 4px 10px; }
+.left-col .controls button { height: 28px; padding: 3px 8px; }
 
 /* ─────────────────────── Grid outer shell ─────────────────────── */
 .grid {
@@ -69,7 +67,7 @@ header .btn, .topbar .btn, .navbar .btn, header button, .navbar button {
   border: 1px solid var(--line);
   border-radius: 12px;
   padding: var(--grid-pad); /* inner padding should never reveal content behind */
-  height: calc(100vh - var(--topbar-height) - 108px);
+  height: calc(100vh - var(--topbar-height) - 96px);
   box-sizing: border-box;
   isolation: isolate; /* new stacking context for sticky children */
 }
@@ -83,6 +81,8 @@ header .btn, .topbar .btn, .navbar .btn, header button, .navbar button {
   width: 100%;
   background: #101010;
   border-radius: 8px;
+  backface-visibility: hidden;
+  transform: translateZ(0);
 }
 
 /* Fix scrollbar corner (WebKit) */
@@ -97,13 +97,14 @@ header .btn, .topbar .btn, .navbar .btn, header button, .navbar button {
 
 /* ────────────────────────── Table core ───────────────────────── */
 .table {
-  width: 100%;                  /* always fit the 7 days within the visible area */
-  table-layout: fixed;          /* enforce column widths */
-  border-collapse: separate;    /* IMPORTANT: prevent collapsed-border bleed-through */
-  border-spacing: 0;            /* but keep cells flush */
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: separate;     /* prevent collapsed-border bleed-through */
+  border-spacing: 0;             /* keep cells flush */
   user-select: none;
   font-size: var(--font-size);
   min-width: 0;
+  background: #101010;           /* ensure no transparency anywhere */
 }
 
 /* Headers & cells */
@@ -115,7 +116,7 @@ header .btn, .topbar .btn, .navbar .btn, header button, .navbar button {
   background-clip: border-box;  /* paint under the border to avoid 1px gaps */
 }
 
-/* Sticky header: flush to scroller top (no see-through gap) */
+/* Sticky header */
 .table thead th {
   position: sticky;
   top: 0;
@@ -123,20 +124,17 @@ header .btn, .topbar .btn, .navbar .btn, header button, .navbar button {
   background: #151515;
   font-weight: 600;
   padding: 6px 6px;
-  /* draw our own edge so there's always a solid separator */
   box-shadow: inset 0 -1px 0 var(--line);
 }
 
-/* Day headers — force visible grey outline on ALL days equally */
+/* Day headers — visible grey outline on ALL days */
 .table thead th.day {
   font-size: clamp(10px, 1.05vw, 13px);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  /* use inset box-shadows to create a reliable outline that doesn't depend on borders */
-  box-shadow:
-    inset 0 0 0 1px var(--line),
-    inset 0 -1px 0 var(--line);
+  border: 1px solid var(--line);
+  background-clip: padding-box;
 }
 
 /* Sticky time column */
@@ -144,7 +142,7 @@ header .btn, .topbar .btn, .navbar .btn, header button, .navbar button {
 .table tbody tr > th.time-col {
   position: sticky;
   left: 0;
-  z-index: 7;                   /* above day cells to prevent text showing through */
+  z-index: 5;                   /* behind header but above body borders */
   background: #151515;
   border-right: 1px solid var(--line);
 }
@@ -187,6 +185,9 @@ header .btn, .topbar .btn, .navbar .btn, header button, .navbar button {
   background: #101010;          /* SOLID to block any bleed from sticky left "time" */
   background-clip: border-box;
 }
+
+/* Reinforce horizontal separators to avoid any gaps on scroll */
+.table tbody tr td.slot-cell { box-shadow: inset 0 1px 0 var(--line), inset 0 -1px 0 var(--line); }
 
 /* Thicker separators at each full hour */
 tr.row-hour > td,
@@ -253,7 +254,7 @@ tr.row-hour > th {
   background: #121212;
   border: 1px solid #2a2a2a;
   border-radius: 10px;
-  padding: 8px 10px;
+  padding: 8px 10px 26px 10px; /* bottom space for copy link */
   margin: 8px 6px;
   transition: border-color 0.12s ease;
 }
@@ -264,28 +265,38 @@ tr.row-hour > th {
 /* Yellow outline on hover (all sides) */
 .results .result.hovered { border-color: #ffd54a; }
 
-/* "Copy" button minimal */
+/* Minimal "Copy" link bottom-right, no box; custom tooltip */
 .results .result button {
-  font-weight: 700;
-  font-size: 11px;
-  padding: 2px 6px;
-  line-height: 1.2;
-  border-radius: 6px;
-  background: #2a2a2a;
-  color: #eee;
-  border: 1px solid #3a3a3a;
+  position: absolute;
+  right: 10px;
+  bottom: 8px;
+  background: none;
+  border: none;
+  padding: 0;
   cursor: pointer;
-  max-width: max-content;
-  white-space: nowrap;
+  color: transparent;     /* hide original long text */
+  font-size: 0;           /* prevent layout from text length */
 }
-.results .result button:hover { background: #3a3a3a; }
-
-/* If you set title="Copy Discord invitation" from JS, this keeps UI tiny:
-   Only show the first word (CSS trick), hide the remainder visually. */
-.results .result button {
-  overflow: hidden;
-  text-overflow: clip;
-  max-inline-size: 40px; /* will display "Copy" in most locales */
+.results .result button::before {
+  content: "Copy";
+  font-weight: 700;
+  font-size: 12px;
+  color: #e6e6e6;
+}
+.results .result button:hover::after {
+  content: "Copy Discord invitation";
+  position: fixed;
+  z-index: 7000;
+  font-size: 11px;
+  background: #141414;
+  color: #eee;
+  border: 1px solid #333;
+  border-radius: 8px;
+  padding: 6px 8px;
+  margin-left: 10px;
+  pointer-events: none;
+  transform: translate(0, -28px);
+  box-shadow: 0 10px 28px rgba(0,0,0,0.45);
 }
 
 /* NOW marker — positioned within .grid-content so it scrolls with content */
@@ -328,12 +339,17 @@ tr.row-hour > th {
   color: #eee;
   border: 1px solid #333;
   border-radius: 8px;
-  padding: 4px 8px;
+  padding: 3px 6px;
   width: 100%;
   min-width: 0;
   height: var(--control-height);
   box-sizing: border-box;
   font-size: 13px;
+}
+
+/* Min/Max width: one digit */
+.right-col > .panel:nth-child(2) input[type="number"] {
+  width: 3.2ch;
 }
 
 /* Members input row */
@@ -343,8 +359,8 @@ tr.row-hour > th {
   gap: 8px;
   align-items: center;
 }
-.add-user input { height: 28px; min-width: 0; }
-.add-user button { height: 28px; line-height: 28px; white-space: nowrap; padding: 0 10px; font-size: 12px; }
+.add-user input { height: 26px; min-width: 0; }
+.add-user button { height: 26px; line-height: 26px; white-space: nowrap; padding: 0 8px; font-size: 12px; }
 
 /* Member list: compact chips, multiple per row */
 .member-list {
@@ -363,60 +379,65 @@ tr.row-hour > th {
   background: #121212;
   border: 1px solid #2a2a2a;
   border-radius: 10px;
-  padding: 6px 26px 6px 10px; /* leave room for the X button */
+  padding: 6px 24px 6px 10px; /* room for the X button */
   max-width: 100%;
   font-size: 12px;
   line-height: 1.2;
 }
+
+/* Remove button: red X at top-right, no "Remove" text */
 .member-list li button {
   position: absolute;
   top: 4px; right: 4px;
-  width: 18px; height: 18px;
-  border-radius: 6px;
-  background: #3b3b3b;
+  width: 16px; height: 16px;
+  line-height: 16px;
+  border-radius: 4px;
+  background: transparent;
   border: 0;
-  color: #eee;
+  color: transparent;           /* hide text */
+  font-size: 0;                 /* hide text */
   padding: 0;
   cursor: pointer;
 }
 .member-list li button::before {
   content: "×";
-  font-size: 14px;
-  line-height: 18px;
+  font-size: 16px;
+  color: #ff4d4d;
   display: block;
   text-align: center;
+  line-height: 16px;
 }
-.member-list li button:hover { background: #4a4a4a; }
+.member-list li button:hover::before { color: #ff6b6b; }
 
 /* Inline error */
 .error-text { color: #ff6b6b; font-size: 12px; min-height: 1.2em; margin: 4px 2px 2px 2px; }
 
 /* Buttons */
 .btn { display: inline-flex; align-items: center; gap: 8px; }
-.btn.btn-primary { background: #2d6cdf; color: #fff; border: 0; padding: 6px 10px; border-radius: 8px; cursor: pointer; height: 30px; }
-.btn.btn-secondary { background: #272727; color: #fff; border: 1px solid #3a3a3a; padding: 6px 10px; border-radius: 8px; cursor: pointer; height: 30px; }
+.btn.btn-primary { background: #2d6cdf; color: #fff; border: 0; padding: 5px 8px; border-radius: 8px; cursor: pointer; height: 28px; }
+.btn.btn-secondary { background: #272727; color: #fff; border: 1px solid #3a3a3a; padding: 5px 8px; border-radius: 8px; cursor: pointer; height: 28px; }
 
 /* Ensure Find matches select height exactly */
 .btn-find {
   align-self: center;
   height: var(--control-height);
   line-height: calc(var(--control-height) - 2px);
-  padding: 0 10px;
+  padding: 0 8px;
   box-sizing: border-box;
 }
 
 /* Legend */
-.legend { margin-top: 8px; }
-.legend-steps { display: grid; gap: 4px; }
+.legend { margin-top: 6px; }
+.legend-steps { display: grid; gap: 3px; }
 .legend-steps .chip { width: 100%; height: 10px; border-radius: 6px; border: 1px solid var(--line); }
-.legend-labels { display: grid; gap: 4px; margin-top: 2px; font-size: 12px; }
+.legend-labels { display: grid; gap: 3px; margin-top: 2px; font-size: 12px; }
 .legend-labels span { text-align: center; }
 
 /* ──────────────────────────────────────────────────────────────
-   Small vertical space: put Filters and Results side-by-side,
-   same size, with a fixed height that matches the table box
+   Filters and Results side-by-side on wide screens ALWAYS,
+   same height, bottoms aligned to the grid box
    ────────────────────────────────────────────────────────────── */
-@media (max-height: 850px) and (min-width: 1101px) {
+@media (min-width: 1101px) {
   .right-col {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -427,22 +448,18 @@ tr.row-hour > th {
     overflow: visible;
   }
   /* Members spans full width on the first row */
-  .right-col > .panel:nth-child(1) {
-    grid-column: 1 / -1;
-  }
+  .right-col > .panel:nth-child(1) { grid-column: 1 / -1; }
   /* Filters (assumed second panel) */
   .right-col > .panel:nth-child(2) {
     grid-column: 1 / 2;
-    height: calc(100vh - var(--topbar-height) - 108px); /* bottom aligns with table */
-    display: flex;
-    flex-direction: column;
+    height: calc(100vh - var(--topbar-height) - 96px);
     overflow: auto;
     min-height: 0;
   }
   /* Results panel */
   .right-col > .results-panel {
     grid-column: 2 / 3;
-    height: calc(100vh - var(--topbar-height) - 108px); /* bottom aligns with table */
+    height: calc(100vh - var(--topbar-height) - 96px);
     display: flex;
     flex-direction: column;
     overflow: hidden;
