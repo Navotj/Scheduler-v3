@@ -374,8 +374,8 @@ tr.row-hour > th {
 
 /* Min/Max are one digit: sane middle-ground width */
 .right-col > .panel:nth-of-type(2) input[type="number"] {
-  width: 5.2ch;
-  min-width: 42px;
+  width: 6.2ch;
+  min-width: 52px;
   text-align: center;
 }
 input[type="number"] { -moz-appearance: textfield; }
