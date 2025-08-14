@@ -70,14 +70,14 @@ header .btn, .topbar .btn, .navbar .btn, header button, .navbar button {
   padding: var(--grid-pad);
   height: var(--panels-height);
   box-sizing: border-box;
-  isolation: isolate; /* new stacking context for sticky children */
+  isolation: isolate;
 }
 
 /* The actual scroller sits inside the padded box */
 .grid-content {
   position: relative;
   overflow-y: auto;
-  overflow-x: hidden;            /* never allow horizontal scrolling */
+  overflow-x: hidden;
   height: 100%;
   width: 100%;
   background: #101010;
@@ -100,12 +100,12 @@ header .btn, .topbar .btn, .navbar .btn, header button, .navbar button {
 .table {
   width: 100%;
   table-layout: fixed;
-  border-collapse: separate;     /* prevent collapsed-border bleed-through */
-  border-spacing: 0;             /* keep cells flush */
+  border-collapse: separate;
+  border-spacing: 0;
   user-select: none;
   font-size: var(--font-size);
   min-width: 0;
-  background: #101010;           /* ensure no transparency anywhere */
+  background: #101010;
 }
 
 /* Headers & cells */
@@ -143,7 +143,7 @@ header .btn, .topbar .btn, .navbar .btn, header button, .navbar button {
 .table tbody tr > th.time-col {
   position: sticky;
   left: 0;
-  z-index: 5;                   /* behind header but above body borders */
+  z-index: 5;
   background: #151515;
   border-right: 1px solid var(--line);
 }
@@ -348,9 +348,9 @@ tr.row-hour > th {
   font-size: 14px;
 }
 
-/* Min/Max are one digit: give a sane middle-ground width */
+/* Min/Max are one digit: sane middle-ground width */
 .right-col > .panel:nth-child(2) input[type="number"] {
-  width: 5.2ch;                 /* middle ground */
+  width: 5.2ch;
   min-width: 42px;
   text-align: center;
 }
@@ -390,29 +390,31 @@ input[type="number"]::-webkit-inner-spin-button { margin: 0; }
   line-height: 1.2;
 }
 
-/* Remove button: red X at top-right, perfectly aligned; hide any text */
-.member-list li button {
-  position: absolute;
-  top: 4px; right: 4px;
-  width: 16px; height: 16px;
-  display: grid;
-  place-items: center;
-  background: transparent;
-  border: 0;
-  padding: 0;
-  cursor: pointer;
-  font-size: 0;
-  color: transparent;
+/* Remove button: force red X at absolute top-right; nuke all other styles */
+.member-list li > button {
+  position: absolute !important;
+  top: 4px !important;
+  right: 4px !important;
+  width: 16px !important;
+  height: 16px !important;
+  display: block !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  background: transparent !important;
+  border: 0 !important;
+  cursor: pointer !important;
+  line-height: 1 !important;
+  color: transparent !important;
+  font-size: 0 !important;
 }
-.member-list li button::before {
+.member-list li > button::before {
   content: "×";
   font-size: 16px;
   line-height: 1;
   color: #ff4d4d;
 }
-.member-list li button:hover::before { color: #ff6b6b; }
-.member-list li button span,
-.member-list li button * { display: none !important; }
+.member-list li > button:hover::before { color: #ff6b6b; }
+.member-list li > button * { display: none !important; }
 
 /* Inline error */
 .error-text { color: #ff6b6b; font-size: 12px; min-height: 1.2em; margin: 4px 2px 2px 2px; }
@@ -441,41 +443,27 @@ input[type="number"]::-webkit-inner-spin-button { margin: 0; }
 /* ──────────────────────────────────────────────────────────────
    Filters and Results side-by-side on wide screens,
    EXACT SAME HEIGHTS, bottoms aligned to the grid box.
+   This targets the second row flexibly regardless of node order.
    ────────────────────────────────────────────────────────────── */
 @media (min-width: 1101px) {
   .right-col {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-rows: auto 1fr;
     gap: 12px;
     align-items: start;
     max-height: none;
     overflow: visible;
   }
-  /* Members spans full width on the first row */
-  .right-col > .panel:nth-child(1) { grid-column: 1 / -1; }
 
-  /* Filters panel (second child) */
-  .right-col > .panel:nth-child(2) {
-    grid-column: 1 / 2;
-    height: var(--panels-height);
-    overflow: auto;
-    min-height: 0;
-  }
+  /* First child (Members) spans full width */
+  .right-col > :first-child { grid-column: 1 / -1; }
 
-  /* Results panel (third child) */
-  .right-col > .results-panel {
-    grid-column: 2 / 3;
-    height: var(--panels-height);
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-    min-height: 0;
-  }
-  .right-col > .results-panel .results {
-    flex: 1 1 auto;
+  /* Every child after the first (Filters, Results, etc.) gets the SAME height */
+  .right-col > :not(:first-child) {
+    height: var(--panels-height) !important;
+    min-height: 0 !important;
     overflow: auto;
-    min-height: 0;
   }
 }
 
