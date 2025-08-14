@@ -38,6 +38,7 @@
   overflow: auto;
 }
 
+/* Panels */
 .panel {
   background: #121212;
   border: 1px solid #242424;
@@ -45,14 +46,30 @@
   padding: 10px 10px 16px 10px;  /* extra bottom padding */
   box-sizing: border-box;
 }
-
 .right-col h3 {
   margin: 0 0 8px 0;
   font-size: 15px;
 }
 
-/* ─────────────────────── Top bar tighten ─────────────────────── */
-header, .topbar, .navbar { padding: 4px 8px; }
+/* Results container must have IDENTICAL chrome (height calc uses border-box) */
+.results-panel {
+  background: #121212;
+  border: 1px solid #242424;
+  border-radius: 12px;
+  padding: 10px 10px 16px 10px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ─────────────────────── Top bar tweaks ─────────────────────── */
+header, .topbar, .navbar {
+  position: static !important;     /* non-sticky */
+  top: auto !important;
+  padding: 4px 8px;                 /* tighter */
+  margin-bottom: 6px !important;    /* reduce dead space below */
+}
 header .btn, .topbar .btn, .navbar .btn, header button, .navbar button {
   height: 28px;
   padding: 3px 8px;
@@ -247,8 +264,7 @@ tr.row-hour > th {
 /* Results highlight */
 .slot-cell.highlight { outline: 2px solid #ffd54a; outline-offset: -2px; }
 
-/* Results panel */
-.results-panel { display: flex; flex-direction: column; overflow: hidden; }
+/* Results list area inside the results panel */
 .results { flex: 1 1 auto; overflow: auto; box-sizing: border-box; padding: 0 6px; min-height: 0; }
 
 /* Sleek scrollbar (results only) */
@@ -482,7 +498,7 @@ input[type="number"]::-webkit-inner-spin-button { margin: 0; }
     box-sizing: border-box;
   }
 
-  /* Results (right) — fills remaining space */
+  /* Results (right) — fills remaining space with IDENTICAL chrome/height */
   .right-col > .results-panel {
     grid-column: 2;
     grid-row: 2;
