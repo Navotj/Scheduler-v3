@@ -142,7 +142,7 @@ header + *, nav + *, .navbar + *, .topbar + *, .header + * { margin-top: 0 !impo
   background-clip: border-box;   /* paint under the border to avoid 1px gaps */
 }
 
-/* Sticky header */
+/* Sticky header (top row only) */
 .table thead th {
   position: sticky;
   top: 0;
@@ -163,12 +163,11 @@ header + *, nav + *, .navbar + *, .topbar + *, .header + * { margin-top: 0 !impo
   background-clip: padding-box;
 }
 
-/* Sticky time column */
-.table thead tr > th:first-child,
+/* Time column — NOT sticky-left; scrolls with the grid */
 .table tbody tr > th.time-col {
-  position: sticky;
-  left: 0;
-  z-index: 5;                   /* behind header but above body borders */
+  position: static;
+  left: auto;
+  z-index: auto;
   background: #151515;
   border-right: 1px solid var(--line);
 }
@@ -235,15 +234,23 @@ tr.row-hour > th {
   pointer-events: none;
 }
 
-/* Availability color scale 0..7 */
-.slot-cell[data-c="0"] { background: #111; }
-.slot-cell[data-c="1"] { background: #16361c; }
-.slot-cell[data-c="2"] { background: #1d4a25; }
-.slot-cell[data-c="3"] { background: #1f5f2e; }
-.slot-cell[data-c="4"] { background: #256f35; }
-.slot-cell[data-c="5"] { background: #2a7f3d; }
-.slot-cell[data-c="6"] { background: #2f9046; }
-.slot-cell[data-c="7"] { background: #35a351; }
+/* Availability color scale 0..7 — tuned for higher contrast
+   1 is much closer to black; 4 vs 5 clearly distinct */
+.slot-cell[data-c="0"] { background: #0b0b0b; } /* black */
+.slot-cell[data-c="1"] { background: #0e120f; }
+.slot-cell[data-c="2"] { background: #132418; }
+.slot-cell[data-c="3"] { background: #163a22; }
+.slot-cell[data-c="4"] { background: #1d5a2f; }
+.slot-cell[data-c="5"] { background: #277e3f; }
+.slot-cell[data-c="6"] { background: #33a353; }
+.slot-cell[data-c="7"] { background: #49c86b; }
+
+/* Compress-low mode (>=11 members): 0..4 all render as black */
+.compress-low .slot-cell[data-c="0"],
+.compress-low .slot-cell[data-c="1"],
+.compress-low .slot-cell[data-c="2"],
+.compress-low .slot-cell[data-c="3"],
+.compress-low .slot-cell[data-c="4"] { background: #0b0b0b !important; }
 
 /* Hover tooltip */
 .cell-tooltip {
@@ -381,6 +388,22 @@ tr.row-hour > th {
 input[type="number"] { -moz-appearance: textfield; }
 input[type="number"]::-webkit-outer-spin-button,
 input[type="number"]::-webkit-inner-spin-button { margin: 0; }
+
+/* "h" unit after min-length — pinned to input, never disturbs layout */
+.field .row {
+  position: relative;
+  display: block;
+  overflow: hidden; /* if there's not enough space, the "h" will be clipped */
+}
+.field .row input { width: 100%; }
+.field .row span {
+  position: absolute;
+  right: -2px;                /* allow it to hang half outside */
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+  white-space: nowrap;
+}
 
 /* Members input row */
 .add-user {

@@ -160,6 +160,7 @@
       }).format(d);
       const th = document.createElement('th');
       th.textContent = label;
+      th.className = 'day';
       trh.appendChild(th);
     }
     thead.appendChild(trh);
@@ -206,6 +207,10 @@
     positionNowMarker();
     syncRightColOffset();
     syncResultsHeight();
+
+    // after layout, set default zoom: as zoomed-out as possible,
+    // but stop when all 24 hours fit in view.
+    requestAnimationFrame(() => requestAnimationFrame(initialZoomToFit24h));
   }
 
   function getDayStartSec(dayIndex) {
@@ -590,27 +595,44 @@
     return { available, unavailable };
   }
 
-  // --- Legend (dynamic 0..members.length) ---
+  // --- Legend (dynamic with grouping, 5-per-row layout) ---
   function updateLegend() {
     const steps = document.getElementById('legend-steps');
     const labels = document.getElementById('legend-labels');
     steps.innerHTML = '';
     labels.innerHTML = '';
 
-    const maxVal = members.length; // show 0..N inclusive
-    const count = Math.max(1, maxVal + 1);
+    const n = members.length;
+    const chips = [];
 
-    steps.style.gridTemplateColumns = `repeat(${count}, 1fr)`;
-    labels.style.gridTemplateColumns = `repeat(${count}, 1fr)`;
+    // Toggle "compress-low" for both grid and legend rendering when n >= 11
+    document.documentElement.classList.toggle('compress-low', n >= 11);
 
-    for (let i = 0; i < count; i++) {
+    if (n >= 11) {
+      const threshold = Math.max(0, n - 10); // participants <= threshold => merged to black
+      chips.push({ c: 0, label: `≤${threshold}` });
+      for (let i = threshold + 1; i <= n; i++) {
+        chips.push({ c: Math.min(i, 7), label: String(i) });
+      }
+    } else {
+      for (let i = 0; i <= n; i++) {
+        chips.push({ c: Math.min(i, 7), label: String(i) });
+      }
+    }
+
+    // 5 columns per row max (5+ starts a new row)
+    const cols = Math.min(5, Math.max(1, chips.length));
+    steps.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+    labels.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+
+    for (const item of chips) {
       const chip = document.createElement('div');
       chip.className = 'chip slot-cell';
-      chip.dataset.c = String(Math.min(i, 7)); // palette up to 7
+      chip.dataset.c = String(item.c);
       steps.appendChild(chip);
 
       const lab = document.createElement('span');
-      lab.textContent = String(i);
+      lab.textContent = item.label;
       labels.appendChild(lab);
     }
 
@@ -663,6 +685,23 @@
       zoomFactor = clamp(zoomFactor - delta * ZOOM_STEP, ZOOM_MIN, ZOOM_MAX);
       applyZoomStyles();
     }, { passive: false });
+  }
+
+  // Compute initial zoom: as zoomed out as possible, but stop once all 24h fit.
+  function initialZoomToFit24h() {
+    const base = 18; // px at zoom 1.0
+    const contentEl = document.getElementById('grid-content');
+    const thead = table.querySelector('thead');
+    if (!contentEl || !thead) return;
+
+    const available = Math.max(0, contentEl.clientHeight - thead.offsetHeight - 2);
+    const needed = ROWS_PER_DAY * base;                   // at zoom=1.0
+    const zFit = clamp(available / needed, ZOOM_MIN, ZOOM_MAX);
+
+    // If zFit >= ZOOM_MIN then we can show all hours — stop at just-fitting zoom.
+    // Otherwise, use the minimum allowed zoom (as zoomed out as possible).
+    zoomFactor = zFit >= ZOOM_MIN ? zFit : ZOOM_MIN;
+    applyZoomStyles();
   }
 
   // --- Auth from host page ---
