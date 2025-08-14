@@ -51,18 +51,6 @@
   font-size: 15px;
 }
 
-/* Results container must have IDENTICAL chrome (height calc uses border-box) */
-.results-panel {
-  background: #121212;
-  border: 1px solid #242424;
-  border-radius: 12px;
-  padding: 10px 10px 16px 10px;
-  box-sizing: border-box;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
 /* ─────────────────────── Top bar tweaks ─────────────────────── */
 /* Force non-sticky and tighten spacing regardless of actual class names */
 header, nav, .navbar, .topbar, .top-bar, .appbar, .app-bar, .header, .page-header, .site-header, .toolbar, .masthead {
@@ -234,8 +222,7 @@ tr.row-hour > th {
   pointer-events: none;
 }
 
-/* Availability color scale 0..7 — tuned for higher contrast
-   1 is much closer to black; 4 vs 5 clearly distinct */
+/* Availability color scale 0..7 — tuned for higher contrast */
 .slot-cell[data-c="0"] { background: #0b0b0b; } /* black */
 .slot-cell[data-c="1"] { background: #0e120f; }
 .slot-cell[data-c="2"] { background: #132418; }
@@ -385,9 +372,14 @@ tr.row-hour > th {
   min-width: 52px;
   text-align: center;
 }
+
+/* Number input spinner normalization (global) */
 input[type="number"] { -moz-appearance: textfield; }
 input[type="number"]::-webkit-outer-spin-button,
 input[type="number"]::-webkit-inner-spin-button { margin: 0; }
+
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; }
 
 /* "h" unit after min-length — pinned to input, never disturbs layout */
 .field .row {
@@ -482,10 +474,15 @@ input[type="number"]::-webkit-inner-spin-button { margin: 0; }
 
 /* Legend */
 .legend { margin-top: 6px; }
-.legend-steps { display: grid; gap: 3px; }
-.legend-steps .chip { width: 100%; height: 10px; border-radius: 6px; border: 1px solid var(--line); }
-.legend-labels { display: grid; gap: 3px; margin-top: 2px; font-size: 12px; }
-.legend-labels span { text-align: center; }
+.legend-blocks { display: grid; gap: 6px; }
+.legend-blocks .steps-row,
+.legend-blocks .labels-row {
+  display: grid;
+  gap: 3px;
+  grid-template-columns: repeat(var(--legend-cols, 5), 1fr);
+}
+.legend-blocks .chip { width: 100%; height: 10px; border-radius: 6px; border: 1px solid var(--line); }
+.legend-blocks .labels-row span { text-align: center; font-size: 12px; }
 
 /* ──────────────────────────────────────────────────────────────
    WIDE SCREENS: Right column under Members uses the REMAINING height.
@@ -535,3 +532,10 @@ input[type="number"]::-webkit-inner-spin-button { margin: 0; }
   .right-col { position: static; max-height: none; overflow: visible; }
   .grid { height: auto; min-height: 60vh; }
 }
+
+/* ──────────── Filters panel: thinner scrollbar (like select) ─────────── */
+#filters-panel { scrollbar-width: thin; scrollbar-color: #444 #121212; }
+#filters-panel::-webkit-scrollbar { width: 6px; }
+#filters-panel::-webkit-scrollbar-track { background: transparent; }
+#filters-panel::-webkit-scrollbar-thumb { background: #3a3a3a; border-radius: 8px; }
+#filters-panel::-webkit-scrollbar-thumb:hover { background: #4a4a4a; }

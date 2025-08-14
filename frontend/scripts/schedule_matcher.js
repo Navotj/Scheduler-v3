@@ -179,7 +179,7 @@
         const th = document.createElement('th');
         th.className = 'time-col hour';
         th.rowSpan = 2;
-        th.textContent = fmtTime(hh, 0);  // grid labels unchanged; no timezone shift
+        th.textContent = fmtTime(hh, 0);
         tr.appendChild(th);
       }
 
@@ -208,8 +208,6 @@
     syncRightColOffset();
     syncResultsHeight();
 
-    // after layout, set default zoom: as zoomed-out as possible,
-    // but stop when all 24 hours fit in view.
     requestAnimationFrame(() => requestAnimationFrame(initialZoomToFit24h));
   }
 
@@ -228,7 +226,7 @@
       applyFilterDimming();
       updateLegend();
       syncResultsHeight();
-      findCandidates(); // keep results synced when list is empty
+      findCandidates();
       return;
     }
     const { baseEpoch, baseYMD } = getWeekStartEpochAndYMD();
@@ -276,7 +274,7 @@
     applyFilterDimming();
     updateLegend();
     syncResultsHeight();
-    findCandidates(); // auto-refresh results after fetching availability
+    findCandidates();
   }
 
   // --- Paint counts into cells (0..7+) and build week arrays ---
@@ -297,13 +295,12 @@
       const epoch = Number(td.dataset.epoch);
       const c = Math.min(7, slotCount(epoch));
       td.dataset.c = String(c);
-      td.classList.remove('dim', 'highlight'); // don't remove 'past' here
+      td.classList.remove('dim', 'highlight');
 
-      // store for global scanning
       const day = Number(td.dataset.day);
       const row = Number(td.dataset.row);
       const g = day * ROWS_PER_DAY + row;
-      counts[g] = slotCount(epoch); // raw count for logic
+      counts[g] = slotCount(epoch);
       const who = new Set();
       for (const u of members) {
         const set = userSlotSets.get(u);
@@ -384,10 +381,10 @@
     const minSlots = Math.max(1, Math.round(minHours * SLOTS_PER_HOUR));
 
     const tds = table.querySelectorAll('.slot-cell');
-    for (const td of tds) td.classList.remove('dim'); // keep 'past' intact
+    for (const td of tds) td.classList.remove('dim');
     if (!totalMembers || needed <= 0) return;
 
-    const startIdx = nowGlobalIndex(); // ignore past
+    const startIdx = nowGlobalIndex();
 
     let g = 0;
     while (g < WEEK_ROWS) {
@@ -417,7 +414,7 @@
     const startIdx = nowGlobalIndex();
 
     const sessions = [];
-    const seen = new Set(); // de-dup across different k values
+    const seen = new Set();
     if (!totalMembers || needed <= 0) { renderResults(sessions); return; }
 
     const { baseEpoch } = getWeekStartEpochAndYMD();
@@ -427,7 +424,6 @@
       while (g < WEEK_ROWS) {
         if ((counts[g] || 0) < k) { g++; continue; }
 
-        // expand while keeping >= k AND intersect users to true participant set
         let s = g;
         let t = g + 1;
         let inter = new Set(sets[g]);
@@ -438,7 +434,6 @@
           t++;
         }
 
-        // clamp start to now (t already >= g+1 >= startIdx+1)
         s = Math.max(s, startIdx);
 
         const length = t - s;
@@ -459,13 +454,11 @@
           }
         }
 
-        // jump to end of this >=k block to avoid duplicates within same k
         while (t < WEEK_ROWS && (counts[t] || 0) >= k) t++;
         g = t;
       }
     }
 
-    // Sort
     const sortMode = document.getElementById('sort-method').value;
     sessions.sort((a, b) => {
       if (sortMode === 'most') {
@@ -519,7 +512,6 @@
       usersLine.className = 'res-users';
       usersLine.textContent = `Users: ${it.users.join(', ')}`;
 
-      // Actions tab (Copy Discord invitation)
       const actions = document.createElement('div');
       actions.className = 'result-actions';
       const copyBtn = document.createElement('button');
@@ -540,7 +532,6 @@
       wrap.appendChild(usersLine);
       wrap.appendChild(actions);
 
-      // hover highlight (grid + card border)
       wrap.addEventListener('mouseenter', () => {
         highlightRangeGlobal(it.gStart, it.gEnd, true);
         wrap.classList.add('hovered');
@@ -569,7 +560,7 @@
   // --- Tooltip ---
   function onCellHoverMove(e) {
     const td = e.currentTarget;
-    if (td.classList.contains('past')) return; // no interaction for past
+    if (td.classList.contains('past')) return;
     const epoch = Number(td.dataset.epoch);
     const lists = availabilityListsAt(epoch);
     const tip = document.getElementById('cell-tooltip');
@@ -595,21 +586,19 @@
     return { available, unavailable };
   }
 
-  // --- Legend (dynamic with grouping, 5-per-row layout) ---
+  // --- Legend (dynamic with grouping, 5-per-row; alternating rows per group) ---
   function updateLegend() {
-    const steps = document.getElementById('legend-steps');
-    const labels = document.getElementById('legend-labels');
-    steps.innerHTML = '';
-    labels.innerHTML = '';
+    const blocks = document.getElementById('legend-blocks');
+    if (!blocks) return;
+    blocks.innerHTML = '';
 
     const n = members.length;
     const chips = [];
 
-    // Toggle "compress-low" for both grid and legend rendering when n >= 11
     document.documentElement.classList.toggle('compress-low', n >= 11);
 
     if (n >= 11) {
-      const threshold = Math.max(0, n - 10); // participants <= threshold => merged to black
+      const threshold = Math.max(0, n - 10); // participants ≤ threshold => merged to black
       chips.push({ c: 0, label: `≤${threshold}` });
       for (let i = threshold + 1; i <= n; i++) {
         chips.push({ c: Math.min(i, 7), label: String(i) });
@@ -620,23 +609,35 @@
       }
     }
 
-    // 5 columns per row max (5+ starts a new row)
-    const cols = Math.min(5, Math.max(1, chips.length));
-    steps.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
-    labels.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+    const COLS = 5;
+    for (let i = 0; i < chips.length; i += COLS) {
+      const size = Math.min(COLS, chips.length - i);
 
-    for (const item of chips) {
-      const chip = document.createElement('div');
-      chip.className = 'chip slot-cell';
-      chip.dataset.c = String(item.c);
-      steps.appendChild(chip);
+      const stepsRow = document.createElement('div');
+      stepsRow.className = 'steps-row';
+      stepsRow.style.setProperty('--legend-cols', String(size));
 
-      const lab = document.createElement('span');
-      lab.textContent = item.label;
-      labels.appendChild(lab);
+      const labelsRow = document.createElement('div');
+      labelsRow.className = 'labels-row';
+      labelsRow.style.setProperty('--legend-cols', String(size));
+
+      for (let j = 0; j < size; j++) {
+        const item = chips[i + j];
+
+        const chip = document.createElement('div');
+        chip.className = 'chip slot-cell';
+        chip.dataset.c = String(item.c);
+        stepsRow.appendChild(chip);
+
+        const lab = document.createElement('span');
+        lab.textContent = item.label;
+        labelsRow.appendChild(lab);
+      }
+
+      blocks.appendChild(stepsRow);
+      blocks.appendChild(labelsRow);
     }
 
-    // legend reflow may affect results height
     syncResultsHeight();
   }
 
@@ -687,7 +688,6 @@
     }, { passive: false });
   }
 
-  // Compute initial zoom: as zoomed out as possible, but stop once all 24h fit.
   function initialZoomToFit24h() {
     const base = 18; // px at zoom 1.0
     const contentEl = document.getElementById('grid-content');
@@ -695,11 +695,9 @@
     if (!contentEl || !thead) return;
 
     const available = Math.max(0, contentEl.clientHeight - thead.offsetHeight - 2);
-    const needed = ROWS_PER_DAY * base;                   // at zoom=1.0
+    const needed = ROWS_PER_DAY * base;
     const zFit = clamp(available / needed, ZOOM_MIN, ZOOM_MAX);
 
-    // If zFit >= ZOOM_MIN then we can show all hours — stop at just-fitting zoom.
-    // Otherwise, use the minimum allowed zoom (as zoomed out as possible).
     zoomFactor = zFit >= ZOOM_MIN ? zFit : ZOOM_MIN;
     applyZoomStyles();
   }
@@ -741,7 +739,7 @@
       btn.addEventListener('click', async () => {
         members = members.filter(u => u !== name);
         renderMembers();
-        await fetchMembersAvail(); // auto updates results via findCandidates()
+        await fetchMembersAvail();
       });
       li.appendChild(txt);
       li.appendChild(btn);
@@ -758,7 +756,6 @@
         await navigator.clipboard.writeText(text);
         return true;
       }
-      // fallback for non-HTTPS
       const ta = document.createElement('textarea');
       ta.value = text;
       ta.style.position = 'fixed';
@@ -775,7 +772,7 @@
   }
 
   function buildDiscordInvite(item) {
-    const start = Math.floor(item.start); // seconds
+    const start = Math.floor(item.start);
     const end = Math.floor(item.end);
     const users = item.users.slice().sort();
     const missing = members.filter(m => !item.users.includes(m)).sort();
@@ -799,19 +796,17 @@ please confirm`;
     rightColEl = document.getElementById('right-col');
     controlsEl = document.getElementById('controls');
 
-    // controls
     document.getElementById('prev-week').addEventListener('click', async () => {
       weekOffset -= 1;
       buildTable();
-      await fetchMembersAvail(); // results auto-refresh inside
+      await fetchMembersAvail();
     });
     document.getElementById('next-week').addEventListener('click', async () => {
       weekOffset += 1;
       buildTable();
-      await fetchMembersAvail(); // results auto-refresh inside
+      await fetchMembersAvail();
     });
 
-    // members add/remove
     document.getElementById('add-user-btn').addEventListener('click', async () => {
       const input = document.getElementById('add-username');
       const name = (input.value || '').trim();
@@ -828,7 +823,7 @@ please confirm`;
       members.push(name);
       input.value = '';
       renderMembers();
-      await fetchMembersAvail(); // results auto-refresh inside
+      await fetchMembersAvail();
     });
 
     document.getElementById('add-me-btn').addEventListener('click', async () => {
@@ -836,20 +831,19 @@ please confirm`;
       setMemberError('');
       if (!members.includes(currentUsername)) members.push(currentUsername);
       renderMembers();
-      await fetchMembersAvail(); // results auto-refresh inside
+      await fetchMembersAvail();
     });
 
-    // filters
     document.getElementById('max-missing').addEventListener('input', () => {
       applyFilterDimming();
       syncResultsHeight();
-      findCandidates(); // auto update results
+      findCandidates();
     });
     const minHoursEl = document.getElementById('min-hours');
     minHoursEl.addEventListener('input', () => {
       applyFilterDimming();
       syncResultsHeight();
-      findCandidates(); // auto update results
+      findCandidates();
     });
     minHoursEl.addEventListener('wheel', (e) => {
       e.preventDefault();
@@ -861,18 +855,15 @@ please confirm`;
       minHoursEl.value = String(next);
       applyFilterDimming();
       syncResultsHeight();
-      findCandidates(); // auto update results
+      findCandidates();
     }, { passive: false });
 
-    // sort changes should re-render immediately
     document.getElementById('sort-method').addEventListener('change', () => {
       findCandidates();
     });
 
-    // settings
     await loadSettings();
 
-    // restore previous members
     try {
       const prev = JSON.parse(sessionStorage.getItem('nat20_members') || '[]');
       if (Array.isArray(prev)) members = prev.filter(x => typeof x === 'string');
@@ -880,7 +871,7 @@ please confirm`;
 
     buildTable();
     renderMembers();
-    await fetchMembersAvail(); // will trigger initial findCandidates()
+    await fetchMembersAvail();
 
     window.addEventListener('beforeunload', () => {
       sessionStorage.setItem('nat20_members', JSON.stringify(members));
@@ -889,7 +880,6 @@ please confirm`;
     setupZoomHandlers();
     bindMarkerReposition();
 
-    // initial alignment
     syncRightColOffset();
     syncResultsHeight();
   }
@@ -915,9 +905,7 @@ please confirm`;
     applyZoomStyles();
   }
 
-  // expose to host page
   window.scheduler = { init, setAuth };
 
-  // auto-boot if DOM already ready
   if (document.readyState !== 'loading') init();
 })();

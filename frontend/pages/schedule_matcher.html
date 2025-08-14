@@ -53,7 +53,7 @@
         <ul id="member-list" class="member-list" aria-live="polite"></ul>
       </div>
 
-      <div class="panel">
+      <div class="panel" id="filters-panel">
         <h3>Filters</h3>
 
         <div class="field-row">
@@ -62,7 +62,7 @@
             <input type="number" id="max-missing" min="0" value="0" />
           </div>
 
-          <div class="field">
+        <div class="field">
             <label for="min-hours">Min length</label>
             <div class="row">
               <input type="number" id="min-hours" min="0" step="0.5" value="1" />
@@ -86,8 +86,7 @@
         </div>
 
         <div class="legend">
-          <div id="legend-steps" class="legend-steps" aria-label="Availability legend"></div>
-          <div id="legend-labels" class="legend-labels"></div>
+          <div id="legend-blocks" class="legend-blocks" aria-label="Availability legend"></div>
         </div>
       </div>
 
