@@ -64,17 +64,16 @@
 }
 
 /* ─────────────────────── Top bar tweaks ─────────────────────── */
-header, .topbar, .navbar {
-  position: static !important;     /* non-sticky */
+/* Force non-sticky and tighten spacing regardless of actual class names */
+header, nav, .navbar, .topbar, .top-bar, .appbar, .app-bar, .header, .page-header, .site-header, .toolbar, .masthead {
+  position: static !important;
   top: auto !important;
-  padding: 4px 8px;                 /* tighter */
-  margin-bottom: 6px !important;    /* reduce dead space below */
+  z-index: auto !important;
+  padding: 4px 8px !important;     /* tighter bar */
+  margin-bottom: 6px !important;   /* less dead space below */
+  box-shadow: none !important;
 }
-header .btn, .topbar .btn, .navbar .btn, header button, .navbar button {
-  height: 28px;
-  padding: 3px 8px;
-  font-size: 13px;
-}
+header + *, nav + *, .navbar + *, .topbar + *, .header + * { margin-top: 0 !important; }
 
 /* Controls row above the grid */
 .left-col .controls {
@@ -468,6 +467,7 @@ input[type="number"]::-webkit-inner-spin-button { margin: 0; }
 /* ──────────────────────────────────────────────────────────────
    WIDE SCREENS: Right column under Members uses the REMAINING height.
    Row 1 (Members) is auto; Row 2 expands (1fr) to fill, keeping bottoms aligned with the table.
+   Force child placement and identical heights using nth-child to avoid class mismatches.
    ────────────────────────────────────────────────────────────── */
 @media (min-width: 1101px) {
   .right-col {
@@ -482,38 +482,28 @@ input[type="number"]::-webkit-inner-spin-button { margin: 0; }
   }
 
   /* Members spans row 1 across both columns */
-  .right-col > :first-child {
-    grid-column: 1 / -1;
-    grid-row: 1;
-    min-height: auto;
-  }
+  .right-col > *:first-child { grid-column: 1 / -1; grid-row: 1; }
 
-  /* Filters (left) — fills remaining space, scrolls internally */
-  .right-col > .panel:nth-of-type(2) {
-    grid-column: 1;
-    grid-row: 2;
-    height: 100%;
-    min-height: 0;
+  /* Force Filters to row2/col1 and Results to row2/col2 */
+  .right-col > *:nth-child(2) { grid-column: 1; grid-row: 2; }
+  .right-col > *:nth-child(3) { grid-column: 2; grid-row: 2; }
+
+  /* Make BOTH row-2 boxes identical height and scrolling behavior */
+  .right-col > *:nth-child(2),
+  .right-col > *:nth-child(3) {
+    height: 100% !important;
+    min-height: 0 !important;
     overflow: auto;
     box-sizing: border-box;
+    /* ensure same chrome in case Results isn't using .panel class */
+    background: #121212;
+    border: 1px solid #242424;
+    border-radius: 12px;
+    padding: 10px 10px 16px 10px;
   }
 
-  /* Results (right) — fills remaining space with IDENTICAL chrome/height */
-  .right-col > .results-panel {
-    grid-column: 2;
-    grid-row: 2;
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-    min-height: 0;
-    box-sizing: border-box;
-  }
-  .right-col > .results-panel .results {
-    flex: 1 1 auto;
-    overflow: auto;
-    min-height: 0;
-  }
+  /* Results inner list must flex to fill the panel */
+  .right-col > *:nth-child(3) .results { flex: 1 1 auto; overflow: auto; min-height: 0; }
 }
 
 /* One-column fallback on narrow screens */
