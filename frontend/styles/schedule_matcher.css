@@ -7,7 +7,22 @@
   --timecol-width: 76px;
   --grid-pad: 8px;               /* padding around the scrollable grid */
   --topbar-height: 40px;         /* compact top bar */
-  --panels-height: calc(100vh - var(--topbar-height) - 96px);
+
+  /* Viewport-aware height variable (resizes with browser UI changes) */
+  --vh: 100vh;
+}
+
+/* Prefer dynamic viewport units when supported */
+@supports (height: 100dvh) {
+  :root { --vh: 100dvh; }
+}
+@supports (height: 100svh) {
+  :root { --vh: 100svh; }
+}
+
+/* Unified panel height: table + filters + results all use this */
+:root {
+  --panels-height: calc(var(--vh) - var(--topbar-height) - 96px);
 }
 
 /* ───────────────────────── Layout Shell ───────────────────────── */
@@ -25,7 +40,7 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
-  max-height: calc(100vh - var(--topbar-height) - 12px);
+  max-height: calc(var(--vh) - var(--topbar-height) - 12px);
   overflow: auto;
 }
 
@@ -33,7 +48,7 @@
   background: #121212;
   border: 1px solid #242424;
   border-radius: 12px;
-  padding: 10px;
+  padding: 10px 10px 16px 10px;  /* extra bottom padding as requested */
   box-sizing: border-box;
 }
 
@@ -68,9 +83,9 @@ header .btn, .topbar .btn, .navbar .btn, header button, .navbar button {
   border: 1px solid var(--line);
   border-radius: 12px;
   padding: var(--grid-pad);
-  height: var(--panels-height);
+  height: var(--panels-height);   /* EXACTLY matches right panels */
   box-sizing: border-box;
-  isolation: isolate; /* new stacking context for sticky children */
+  isolation: isolate;             /* new stacking context for sticky children */
 }
 
 /* The actual scroller sits inside the padded box */
@@ -113,8 +128,8 @@ header .btn, .topbar .btn, .navbar .btn, header button, .navbar button {
 .table td {
   border: 1px solid var(--line);
   text-align: center;
-  background: #101010;          /* SOLID background so nothing can shine through */
-  background-clip: border-box;  /* paint under the border to avoid 1px gaps */
+  background: #101010;           /* SOLID background so nothing can shine through */
+  background-clip: border-box;   /* paint under the border to avoid 1px gaps */
 }
 
 /* Sticky header */
@@ -384,13 +399,13 @@ input[type="number"]::-webkit-inner-spin-button { margin: 0; }
   background: #121212;
   border: 1px solid #2a2a2a;
   border-radius: 10px;
-  padding: 4px 22px 4px 10px;   /* less vertical padding; room for the X */
+  padding: 4px 22px 4px 10px;   /* room for the X */
   max-width: 100%;
   font-size: 12px;
   line-height: 1.2;
 }
 
-/* Remove control: catch common variants and force absolute top-right red X */
+/* Remove control: force absolute top-right red X and hide any text */
 .member-list li :is(button, .btn, .remove, .remove-btn, .member-remove, [data-remove], [aria-label="Remove"]) {
   position: absolute !important;
   top: 4px !important;
@@ -441,7 +456,7 @@ input[type="number"]::-webkit-inner-spin-button { margin: 0; }
 
 /* ──────────────────────────────────────────────────────────────
    WIDE SCREENS: Filters and Results side-by-side.
-   Keep Results at its GOOD height; clamp FILTERS ONLY to that height.
+   Both are set to the SAME computed viewport-based height.
    ────────────────────────────────────────────────────────────── */
 @media (min-width: 1101px) {
   .right-col {
@@ -457,25 +472,27 @@ input[type="number"]::-webkit-inner-spin-button { margin: 0; }
   /* First block (Members) spans full width */
   .right-col > :first-child { grid-column: 1 / -1; }
 
-  /* Results stays exactly matched to grid/table height */
+  /* Filters block (the next .panel) */
+  .right-col > .panel:nth-of-type(2) {
+    grid-column: 1 / 2;
+    height: var(--panels-height);
+    min-height: var(--panels-height);
+    max-height: var(--panels-height);
+    overflow: auto;
+  }
+
+  /* Results block */
   .right-col > .results-panel {
     grid-column: 2 / 3;
     height: var(--panels-height);
+    min-height: var(--panels-height);
+    max-height: var(--panels-height);
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    min-height: 0;
   }
   .right-col > .results-panel .results {
     flex: 1 1 auto;
-    overflow: auto;
-    min-height: 0;
-  }
-
-  /* FILTERS ONLY — clamp to the same height and scroll inside */
-  .right-col > .panel:nth-of-type(2) {
-    grid-column: 1 / 2;
-    max-height: var(--panels-height);
     overflow: auto;
     min-height: 0;
   }
