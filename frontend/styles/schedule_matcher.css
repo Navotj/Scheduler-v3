@@ -390,18 +390,28 @@ input[type="number"] { appearance: auto; -moz-appearance: auto; }
 .right-col input[type="number"]:focus::-webkit-inner-spin-button,
 .right-col input[type="number"]:focus::-webkit-outer-spin-button { opacity: 1; }
 
-/* Ensure the 'h' suffix never pushes or covers the spinner: push it farther outside & below input z-order */
-.field .row { position: relative; display: block; overflow: hidden; }
+/* layout of the input + suffix */
+.field .row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;          /* small space between box and 'h' */
+  position: relative;
+  overflow: visible;
+}
+
 .field .row input { width: 100%; position: relative; z-index: 1; }
+
+/* the 'h' sits directly after the input, not absolutely positioned */
 .field .row span {
-  position: absolute;
-  right: -2px;              /* hang slightly outside the box */
-  top: 50%;
-  transform: translateY(-50%);
+  position: static;
+  transform: none;
+  margin-left: 0;
   pointer-events: none;
   white-space: nowrap;
-  z-index: 2;               /* above the input so it stays visible */
 }
+
+/* no extra right padding; keep spinner hard against the right edge */
+#min-hours { padding-right: 0; }
 
 /* Members input row */
 .add-user {
