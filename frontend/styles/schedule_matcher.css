@@ -13,17 +13,11 @@
 }
 
 /* Prefer dynamic viewport units when supported */
-@supports (height: 100dvh) {
-  :root { --vh: 100dvh; }
-}
-@supports (height: 100svh) {
-  :root { --vh: 100svh; }
-}
+@supports (height: 100dvh) { :root { --vh: 100dvh; } }
+@supports (height: 100svh) { :root { --vh: 100svh; } }
 
-/* Unified panel height: table uses this; Filters/Results row will match it */
-:root {
-  --panels-height: calc(var(--vh) - var(--topbar-height) - 96px);
-}
+/* Unified height used by the schedule grid and the entire right column (below the top bar) */
+:root { --panels-height: calc(var(--vh) - var(--topbar-height) - 96px); }
 
 /* ───────────────────────── Layout Shell ───────────────────────── */
 .two-col {
@@ -33,7 +27,7 @@
   align-items: start;
 }
 
-/* Right column */
+/* Right column: becomes a two-row grid on wide screens; the WHOLE COLUMN has the same height as the table. */
 .right-col {
   position: sticky;
   top: calc(var(--topbar-height) + 6px);
@@ -83,7 +77,7 @@ header .btn, .topbar .btn, .navbar .btn, header button, .navbar button {
   border: 1px solid var(--line);
   border-radius: 12px;
   padding: var(--grid-pad);
-  height: var(--panels-height);   /* EXACTLY matches right panels’ bottom row */
+  height: var(--panels-height);   /* matches the right column height */
   box-sizing: border-box;
   isolation: isolate;             /* new stacking context for sticky children */
 }
@@ -369,8 +363,8 @@ tr.row-hour > th {
   min-width: 42px;
   text-align: center;
 }
+input[type="number"] { -moz-appearance: textfield; }
 input[type="number"]::-webkit-outer-spin-button,
-input[type="number"]::-webkit-inner-spin_button,
 input[type="number"]::-webkit-inner-spin-button { margin: 0; }
 
 /* Members input row */
@@ -456,17 +450,17 @@ input[type="number"]::-webkit-inner-spin-button { margin: 0; }
 .legend-labels span { text-align: center; }
 
 /* ──────────────────────────────────────────────────────────────
-   WIDE SCREENS: Filters and Results underneath Members.
-   We give the SECOND ROW a FIXED height equal to the table height,
-   so both panels stretch equally and the bottoms align perfectly.
+   WIDE SCREENS: Right column under Members uses the REMAINING height.
+   Row 1 (Members) is auto; Row 2 expands (1fr) to fill, keeping bottoms aligned with the table.
    ────────────────────────────────────────────────────────────── */
 @media (min-width: 1101px) {
   .right-col {
     display: grid;
+    height: var(--panels-height);                 /* entire column = table height */
     grid-template-columns: 1fr 1fr;
-    grid-template-rows: auto var(--panels-height); /* row 2 fixed to table height */
+    grid-template-rows: auto 1fr;                 /* remaining space is row 2 */
     gap: 12px;
-    align-items: start;
+    align-items: stretch;
     max-height: none;
     overflow: visible;
   }
@@ -475,19 +469,20 @@ input[type="number"]::-webkit-inner-spin-button { margin: 0; }
   .right-col > :first-child {
     grid-column: 1 / -1;
     grid-row: 1;
+    min-height: auto;
   }
 
-  /* Filters panel sits in row 2 col 1 and fills full height */
+  /* Filters (left) — fills remaining space, scrolls internally */
   .right-col > .panel:nth-of-type(2) {
     grid-column: 1;
     grid-row: 2;
     height: 100%;
-    overflow: auto;
     min-height: 0;
+    overflow: auto;
     box-sizing: border-box;
   }
 
-  /* Results panel sits in row 2 col 2 and fills full height */
+  /* Results (right) — fills remaining space */
   .right-col > .results-panel {
     grid-column: 2;
     grid-row: 2;
@@ -498,7 +493,6 @@ input[type="number"]::-webkit-inner-spin-button { margin: 0; }
     min-height: 0;
     box-sizing: border-box;
   }
-
   .right-col > .results-panel .results {
     flex: 1 1 auto;
     overflow: auto;
