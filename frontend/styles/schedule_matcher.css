@@ -5,6 +5,7 @@
   --control-height: 38px;
   --timecol-width: 76px;
   --day-col-min: clamp(110px, 11.5vw, 180px); /* fluid day width, capped for ultra-wide */
+  --grid-pad: 8px; /* padding inside the scroll box; used to offset sticky elements */
 }
 
 /* Layout */
@@ -56,11 +57,22 @@
   background: #101010;
   border: 1px solid var(--line);
   border-radius: 12px;
-  padding: 8px;
+  padding: var(--grid-pad);
   overflow: auto;
   height: calc(100vh - var(--topbar-height) - 120px); /* fill viewport under topbar/controls */
 }
 
+/* Fix the white square where horizontal & vertical scrollbars meet (WebKit) */
+.grid::-webkit-scrollbar-corner { background: #101010; }
+
+/* Scrollbar styling (subtle) */
+.grid { scrollbar-width: thin; scrollbar-color: #444 #101010; }
+.grid::-webkit-scrollbar { width: 10px; height: 10px; }
+.grid::-webkit-scrollbar-track { background: transparent; }
+.grid::-webkit-scrollbar-thumb { background: #3a3a3a; border-radius: 8px; }
+.grid::-webkit-scrollbar-thumb:hover { background: #4a4a4a; }
+
+/* content layer that scrolls with the table; now-marker is positioned inside this */
 .grid-content { 
   position: relative; 
   min-width: calc(var(--timecol-width) + 7 * var(--day-col-min));
@@ -85,27 +97,29 @@ tr.row-hour > th {
   border-top-color: #3a3a3a;
 }
 
-/* Sticky header */
+/* Sticky header: offset by the same padding as the grid to remove the "gap" */
 .table thead th {
   position: sticky;
-  top: 0;
+  top: var(--grid-pad);
   background: #151515;
   z-index: 5;
   font-weight: 600;
   font-size: 12px;
   padding: 8px 6px;
+  background-clip: padding-box;
 }
 
-/* Sticky time column */
+/* Sticky time column — offset by grid padding so it hugs the inner edge cleanly */
 .table thead tr > th:first-child,
 .table tbody tr > th.time-col {
   position: sticky;
-  left: 0;
+  left: var(--grid-pad);
   z-index: 4;
   background: #151515;
   border-right: 1px solid var(--line);
 }
 
+/* Body cells sizing */
 .table tbody td,
 .table tbody th {
   height: var(--row-height);
@@ -113,6 +127,7 @@ tr.row-hour > th {
   padding: 0;
 }
 
+/* Time column dimensions */
 .time-col {
   width: var(--timecol-width);
   min-width: var(--timecol-width);
@@ -256,6 +271,7 @@ tr.row-hour > th {
 .results::-webkit-scrollbar-thumb { background: #3a3a3a; border-radius: 8px; }
 .results::-webkit-scrollbar-thumb:hover { background: #4a4a4a; }
 
+/* Result cards */
 .results .result {
   position: relative;
   background: #121212;
