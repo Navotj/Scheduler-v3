@@ -1,4 +1,3 @@
-
 resource "aws_instance" "mongodb" {
   ami                    = "ami-0c1b03e30bca3b373"
   instance_type          = "t3.micro"
