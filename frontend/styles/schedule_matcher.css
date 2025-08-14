@@ -27,7 +27,7 @@
   align-items: start;
 }
 
-/* Right column: becomes a two-row grid on wide screens; the WHOLE COLUMN has the same height as the table. */
+/* Right column */
 .right-col {
   position: sticky;
   top: calc(var(--topbar-height) + 6px);
@@ -102,10 +102,10 @@ header + *, nav + *, .navbar + *, .topbar + *, .header + * { margin-top: 0 !impo
 /* Fix scrollbar corner (WebKit) */
 .grid-content::-webkit-scrollbar-corner { background: #101010; }
 
-/* Scrollbar styling */
-.grid-content { scrollbar-width: thin; scrollbar-color: #444 #101010; }
+/* Scrollbar styling (dark mode) */
+.grid-content { scrollbar-width: thin; scrollbar-color: #3a3a3a #101010; }
 .grid-content::-webkit-scrollbar { width: 10px; height: 10px; }
-.grid-content::-webkit-scrollbar-track { background: transparent; }
+.grid-content::-webkit-scrollbar-track { background: #101010; }
 .grid-content::-webkit-scrollbar-thumb { background: #3a3a3a; border-radius: 8px; }
 .grid-content::-webkit-scrollbar-thumb:hover { background: #4a4a4a; }
 
@@ -222,7 +222,8 @@ tr.row-hour > th {
   pointer-events: none;
 }
 
-/* Availability color scale 0..7 — tuned for higher contrast */
+/* Availability color scale 0..7 — tuned for higher contrast
+   1 is closer to black; 4 vs 5 clearly distinct */
 .slot-cell[data-c="0"] { background: #0b0b0b; } /* black */
 .slot-cell[data-c="1"] { background: #0e120f; }
 .slot-cell[data-c="2"] { background: #132418; }
@@ -260,10 +261,10 @@ tr.row-hour > th {
 /* Results list area inside the results panel */
 .results { flex: 1 1 auto; overflow: auto; box-sizing: border-box; padding: 0 6px; min-height: 0; }
 
-/* Sleek scrollbar (results only) */
-.results { scrollbar-width: thin; scrollbar-color: #444 #121212; }
+/* Sleek scrollbar (results only, dark mode) */
+.results { scrollbar-width: thin; scrollbar-color: #3a3a3a #121212; }
 .results::-webkit-scrollbar { width: 8px; }
-.results::-webkit-scrollbar-track { background: transparent; }
+.results::-webkit-scrollbar-track { background: #121212; }
 .results::-webkit-scrollbar-thumb { background: #3a3a3a; border-radius: 8px; }
 .results::-webkit-scrollbar-thumb:hover { background: #4a4a4a; }
 
@@ -376,10 +377,7 @@ tr.row-hour > th {
 /* Number input spinner normalization (global) */
 input[type="number"] { -moz-appearance: textfield; }
 input[type="number"]::-webkit-outer-spin-button,
-input[type="number"]::-webkit-inner-spin-button { margin: 0; }
-
-input[type="number"]::-webkit-outer-spin-button,
-input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; }
+input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 
 /* "h" unit after min-length — pinned to input, never disturbs layout */
 .field .row {
@@ -472,27 +470,25 @@ input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; }
   box-sizing: border-box;
 }
 
-/* Legend */
+/* Legend — alternate rows: colors then numbers, repeat; fixed 5 columns per row */
 .legend { margin-top: 6px; }
+.legend-blocks { display: grid; gap: 6px; }
+.legend-blocks .steps-row,
+.legend-blocks .labels-row { display: grid; gap: 3px; grid-template-columns: repeat(5, 1fr); }
+.legend-blocks .chip { width: 100%; height: 10px; border-radius: 6px; border: 1px solid var(--line); }
+.legend-blocks .labels-row span { text-align: center; font-size: 12px; }
+/* Fillers so last row items don't stretch */
+.legend-blocks .spacer { visibility: hidden; pointer-events: none; }
 
-/* Old single-pair layout (kept for backward compatibility) */
+/* Back-compat for old single-row legend structure (if present) */
 .legend-steps { display: grid; gap: 3px; grid-template-columns: repeat(5, 1fr); }
 .legend-steps .chip { width: 100%; height: 10px; border-radius: 6px; border: 1px solid var(--line); }
 .legend-labels { display: grid; gap: 3px; margin-top: 2px; font-size: 12px; grid-template-columns: repeat(5, 1fr); }
 .legend-labels span { text-align: center; }
 
-/* New alternating layout: always 5 columns per row */
-.legend-blocks { display: grid; gap: 6px; }
-.legend-blocks .steps-row,
-.legend-blocks .labels-row { display: grid; gap: 3px; grid-template-columns: repeat(5, 1fr) !important; }
-.legend-blocks .chip { width: 100%; height: 10px; border-radius: 6px; border: 1px solid var(--line); }
-.legend-blocks .labels-row span { text-align: center; }
-.legend-blocks .spacer { visibility: hidden; pointer-events: none; }
-
 /* ──────────────────────────────────────────────────────────────
    WIDE SCREENS: Right column under Members uses the REMAINING height.
    Row 1 (Members) is auto; Row 2 expands (1fr) to fill, keeping bottoms aligned with the table.
-   Force child placement and identical heights using nth-child to avoid class mismatches.
    ────────────────────────────────────────────────────────────── */
 @media (min-width: 1101px) {
   .right-col {
@@ -509,7 +505,7 @@ input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; }
   /* Members spans row 1 across both columns */
   .right-col > *:first-child { grid-column: 1 / -1; grid-row: 1; }
 
-  /* Force Filters to row2/col1 and Results to row2/col2 */
+  /* Filters -> row2/col1, Results -> row2/col2 */
   .right-col > *:nth-child(2) { grid-column: 1; grid-row: 2; }
   .right-col > *:nth-child(3) { grid-column: 2; grid-row: 2; }
 
@@ -520,7 +516,6 @@ input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; }
     min-height: 0 !important;
     overflow: auto;
     box-sizing: border-box;
-    /* ensure same chrome in case Results isn't using .panel class */
     background: #121212;
     border: 1px solid #242424;
     border-radius: 12px;
@@ -538,15 +533,9 @@ input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; }
   .grid { height: auto; min-height: 60vh; }
 }
 
-/* ──────────── Filters panel: thinner scrollbar (like select) ─────────── */
-/* Filters panel: extra-thin scrollbar (like the select) */
-#filters-panel,
-.right-col > .panel:nth-of-type(2) { scrollbar-width: thin; }
-#filters-panel::-webkit-scrollbar,
-.right-col > .panel:nth-of-type(2)::-webkit-scrollbar { width: 4px; }
-#filters-panel::-webkit-scrollbar-track,
-.right-col > .panel:nth-of-type(2)::-webkit-scrollbar-track { background: transparent; }
-#filters-panel::-webkit-scrollbar-thumb,
-.right-col > .panel:nth-of-type(2)::-webkit-scrollbar-thumb { background: #3a3a3a; border-radius: 8px; }
-#filters-panel::-webkit-scrollbar-thumb:hover,
-.right-col > .panel:nth-of-type(2)::-webkit-scrollbar-thumb:hover { background: #4a4a4a; }
+/* ──────────── Filters panel: extra-thin, dark scrollbar ─────────── */
+#filters-panel { scrollbar-width: thin; scrollbar-color: #3a3a3a #121212; }
+#filters-panel::-webkit-scrollbar { width: 6px; }
+#filters-panel::-webkit-scrollbar-track { background: #121212; }
+#filters-panel::-webkit-scrollbar-thumb { background: #3a3a3a; border-radius: 8px; }
+#filters-panel::-webkit-scrollbar-thumb:hover { background: #4a4a4a; }
