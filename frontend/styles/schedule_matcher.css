@@ -1,13 +1,15 @@
 :root {
-  --row-height: 18px;   /* half-hour slot height */
+  --row-height: 18px;           /* half-hour slot height */
   --font-size: 12px;
   --line: #2b2b2b;
-  --control-height: 38px;
+  --line-strong: #3a3a3a;
+  --control-height: 30px;        /* tighter controls */
   --timecol-width: 76px;
-  --grid-pad: 8px; /* visual padding around the scrollable grid */
+  --grid-pad: 8px;               /* visual padding around the scrollable grid */
+  --topbar-height: 44px;         /* reduced top bar space for layout calcs */
 }
 
-/* Layout */
+/* ───────────────────────── Layout Shell ───────────────────────── */
 .two-col {
   display: grid;
   grid-template-columns: minmax(0, 1fr) clamp(320px, 24vw, 520px);
@@ -15,14 +17,14 @@
   align-items: start;
 }
 
-/* Right column sticks on tall/wide displays */
+/* Right column */
 .right-col {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 12px;
   position: sticky;
-  top: calc(var(--topbar-height) + 12px);
-  max-height: calc(100vh - var(--topbar-height) - 24px);
+  top: calc(var(--topbar-height) + 8px);
+  max-height: calc(100vh - var(--topbar-height) - 16px);
   overflow: auto;
 }
 
@@ -30,37 +32,46 @@
   background: #121212;
   border: 1px solid #242424;
   border-radius: 12px;
-  padding: 12px;
+  padding: 10px;
   box-sizing: border-box;
 }
 
 .right-col h3 {
-  margin: 0 0 10px 0;
+  margin: 0 0 8px 0;
   font-size: 15px;
 }
 
-/* Controls */
+/* ─────────────────────── Top bar tighten ─────────────────────── */
+header, .topbar, .navbar {
+  padding: 6px 10px;
+}
+header .btn, .topbar .btn, .navbar .btn, header button, .navbar button {
+  height: 30px;
+  padding: 4px 10px;
+  font-size: 13px;
+}
+
+/* Controls row above the grid */
 .left-col .controls {
   display: flex;
   gap: 8px;
   align-items: center;
-  margin: 12px 0 10px;
+  margin: 8px 0 8px;
   flex-wrap: wrap;
 }
 .left-col .controls .helper { margin-left: auto; color: #9aa0a6; font-size: 12px; }
-.left-col .controls button { height: 32px; padding: 6px 12px; }
+.left-col .controls button { height: 30px; padding: 4px 10px; }
 
-/* Grid shell (visual box with padding) */
+/* ─────────────────────── Grid outer shell ─────────────────────── */
 .grid {
   position: relative;
   background: #101010;
   border: 1px solid var(--line);
   border-radius: 12px;
-  padding: var(--grid-pad); /* nice inner padding that should not reveal content behind */
-  height: calc(100vh - var(--topbar-height) - 120px);
+  padding: var(--grid-pad); /* inner padding should never reveal content behind */
+  height: calc(100vh - var(--topbar-height) - 108px);
   box-sizing: border-box;
-  /* create a new stacking context so sticky children render cleanly */
-  isolation: isolate;
+  isolation: isolate; /* new stacking context for sticky children */
 }
 
 /* The actual scroller sits inside the padded box */
@@ -71,68 +82,74 @@
   height: 100%;
   width: 100%;
   background: #101010;
-  border-radius: 8px;            /* subtle rounding inside */
+  border-radius: 8px;
 }
 
-/* Fix the white square where scrollbars meet (WebKit) */
+/* Fix scrollbar corner (WebKit) */
 .grid-content::-webkit-scrollbar-corner { background: #101010; }
 
-/* Scrollbar styling (subtle) */
+/* Scrollbar styling */
 .grid-content { scrollbar-width: thin; scrollbar-color: #444 #101010; }
 .grid-content::-webkit-scrollbar { width: 10px; height: 10px; }
 .grid-content::-webkit-scrollbar-track { background: transparent; }
 .grid-content::-webkit-scrollbar-thumb { background: #3a3a3a; border-radius: 8px; }
 .grid-content::-webkit-scrollbar-thumb:hover { background: #4a4a4a; }
 
-/* Table */
+/* ────────────────────────── Table core ───────────────────────── */
 .table {
   width: 100%;                  /* always fit the 7 days within the visible area */
   table-layout: fixed;          /* enforce column widths */
-  border-collapse: collapse;
+  border-collapse: separate;    /* IMPORTANT: prevent collapsed-border bleed-through */
+  border-spacing: 0;            /* but keep cells flush */
   user-select: none;
   font-size: var(--font-size);
-  min-width: 0;                 /* allow shrinking */
+  min-width: 0;
 }
 
 /* Headers & cells */
 .table th,
-.table td { border: 1px solid var(--line); text-align: center; }
+.table td {
+  border: 1px solid var(--line);
+  text-align: center;
+  background: #101010;          /* SOLID background so nothing can shine through */
+  background-clip: border-box;  /* paint under the border to avoid 1px gaps */
+}
 
-/* Sticky header: sits flush against the scroller's top (no gap/see-through) */
+/* Sticky header: flush to scroller top (no see-through gap) */
 .table thead th {
   position: sticky;
-  top: 0;                       /* no offset -> no padding gap behind */
-  z-index: 5;
+  top: 0;
+  z-index: 6;
   background: #151515;
   font-weight: 600;
-  padding: 8px 6px;
-  background-clip: padding-box;
-  /* force a solid line that spans the full width so nothing peeks through */
+  padding: 6px 6px;
+  /* draw our own edge so there's always a solid separator */
   box-shadow: inset 0 -1px 0 var(--line);
 }
 
-/* Header font adapts to fit all 7 days without horizontal scroll */
+/* Day headers — force visible grey outline on ALL days equally */
 .table thead th.day {
   font-size: clamp(10px, 1.05vw, 13px);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  /* ensure a uniform subtle outline on all day headers */
-  outline: 1px solid var(--line);
-  outline-offset: -1px;
+  /* use inset box-shadows to create a reliable outline that doesn't depend on borders */
+  box-shadow:
+    inset 0 0 0 1px var(--line),
+    inset 0 -1px 0 var(--line);
 }
 
-/* Sticky time column: hugs the inner edge (no left padding gap) */
+/* Sticky time column */
 .table thead tr > th:first-child,
 .table tbody tr > th.time-col {
   position: sticky;
   left: 0;
-  z-index: 4;
+  z-index: 7;                   /* above day cells to prevent text showing through */
   background: #151515;
   border-right: 1px solid var(--line);
 }
 
-/* Size rows */
+/* Row sizing */
 .table tbody td,
 .table tbody th {
   height: var(--row-height);
@@ -140,7 +157,7 @@
   padding: 0;
 }
 
-/* Time column fixed width; rest splits evenly across 7 days */
+/* Time column width */
 .time-col {
   width: var(--timecol-width);
   min-width: var(--timecol-width);
@@ -149,13 +166,14 @@
   padding-right: 6px;
   color: #cfcfcf;
   border-right: 1px solid var(--line);
+  background: #151515;
 }
 .time-col.hour {
   font-size: calc(var(--font-size) * 1.15);
   line-height: normal;
 }
 
-/* Evenly distribute 7 day columns by percentage (prevents horizontal scroll) */
+/* Distribute 7 day columns evenly (prevents horizontal scroll) */
 .table thead th.day,
 .table tbody td.slot-cell {
   width: calc((100% - var(--timecol-width)) / 7);
@@ -164,24 +182,23 @@
 
 /* Slot cells */
 .slot-cell {
-  position: relative;           /* needed for overlays */
-  background-clip: padding-box;
+  position: relative;
   box-sizing: border-box;
-  /* ensure cells are never transparent so the Time header can't leak through */
-  background: #101010;
+  background: #101010;          /* SOLID to block any bleed from sticky left "time" */
+  background-clip: border-box;
 }
 
-/* Thicker separators at hour rows */
+/* Thicker separators at each full hour */
 tr.row-hour > td,
 tr.row-hour > th {
   border-top-width: 2px;
-  border-top-color: #3a3a3a;
+  border-top-color: var(--line-strong);
 }
 
-/* Grey-out for "dim" filters */
+/* Grey-out filter */
 .slot-cell.dim { filter: grayscale(40%) brightness(0.85); opacity: 0.45; }
 
-/* Past slots — grey overlay */
+/* Past slots — subtle grey overlay */
 .slot-cell.past { pointer-events: none; }
 .slot-cell.past::after {
   content: "";
@@ -208,91 +225,22 @@ tr.row-hour > th {
   background: #141414;
   border: 1px solid #333;
   color: #eee;
-  padding: 8px 10px;
+  padding: 6px 8px;
   border-radius: 8px;
-  font-size: 12px;
-  max-width: 280px;
+  font-size: 11px;
+  max-width: 260px;
   pointer-events: none;
   box-shadow: 0 10px 28px rgba(0,0,0,0.45);
 }
 
-/* Right column fields & controls */
-.right-col .field { display: grid; grid-template-columns: 1fr; gap: 6px; min-width: 0; }
-.field-row { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 10px; margin-bottom: 10px; }
-.right-col .field label { white-space: nowrap; font-size: 12px; }
-.right-col .field .row { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 6px; align-items: center; }
-
-.right-col input[type="text"],
-.right-col input[type="number"],
-.right-col select {
-  background: #0f0f0f;
-  color: #eee;
-  border: 1px solid #333;
-  border-radius: 8px;
-  padding: 6px 8px;
-  width: 100%;
-  min-width: 0;
-  height: var(--control-height);
-  box-sizing: border-box;
-}
-
-/* Members input row */
-.add-user {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
-  gap: 8px;
-  align-items: center;
-}
-.add-user input { height: 32px; min-width: 0; }
-.add-user button { height: 32px; line-height: 32px; white-space: nowrap; padding: 0 10px; font-size: 12px; }
-
-/* Inline error */
-.error-text { color: #ff6b6b; font-size: 12px; min-height: 1.2em; margin: 6px 2px 2px 2px; }
-
-/* Buttons */
-.btn { display: inline-flex; align-items: center; gap: 8px; }
-.btn.btn-primary { background: #2d6cdf; color: #fff; border: 0; padding: 8px 12px; border-radius: 8px; cursor: pointer; }
-.btn.btn-secondary { background: #272727; color: #fff; border: 1px solid #3a3a3a; padding: 8px 12px; border-radius: 8px; cursor: pointer; }
-
-/* Ensure Find matches select height exactly */
-.btn-find {
-  align-self: center;
-  height: var(--control-height);
-  line-height: calc(var(--control-height) - 2px);
-  padding: 0 12px;
-  box-sizing: border-box;
-}
-
-/* Member list */
-.member-list { list-style: none; margin: 0; padding: 0; }
-.member-list li {
-  display: flex; justify-content: space-between; align-items: center;
-  background: #121212; border: 1px solid #2a2a2a; border-radius: 8px;
-  padding: 6px 8px; margin-bottom: 8px;
-}
-.member-list li button { background: #3b3b3b; border: 0; color: #eee; padding: 6px 10px; border-radius: 8px; cursor: pointer; }
-.member-list li button:hover { background: #4a4a4a; }
-
-/* Legend */
-.legend { margin-top: 10px; }
-.legend-steps { display: grid; gap: 6px; }
-.legend-steps .chip {
-  width: 100%;
-  height: 12px;
-  border-radius: 6px;
-  border: 1px solid var(--line);
-}
-.legend-labels { display: grid; gap: 6px; margin-top: 4px; font-size: 12px; }
-.legend-labels span { text-align: center; }
-
-/* Highlighted cells for selected result interval */
+/* Results highlight */
 .slot-cell.highlight { outline: 2px solid #ffd54a; outline-offset: -2px; }
 
 /* Results panel constrained to grid bottom with its own scroll */
 .results-panel { display: flex; flex-direction: column; overflow: hidden; }
 .results { flex: 1 1 auto; overflow: auto; box-sizing: border-box; padding: 0 6px; min-height: 0; }
 
-/* Sleek dark scrollbar (results only) */
+/* Sleek scrollbar (results only) */
 .results { scrollbar-width: thin; scrollbar-color: #444 #121212; }
 .results::-webkit-scrollbar { width: 8px; }
 .results::-webkit-scrollbar-track { background: transparent; }
@@ -305,16 +253,40 @@ tr.row-hour > th {
   background: #121212;
   border: 1px solid #2a2a2a;
   border-radius: 10px;
-  padding: 10px 12px;
+  padding: 8px 10px;
   margin: 8px 6px;
   transition: border-color 0.12s ease;
 }
-.results .result .res-top { font-weight: 600; margin-bottom: 4px; }
-.results .result .res-sub { font-size: 12px; color: #bbb; margin-bottom: 4px; }
-.results .result .res-users { font-size: 12px; color: #cfe9cf; word-break: break-word; }
+.results .result .res-top { font-weight: 600; margin-bottom: 3px; font-size: 13px; }
+.results .result .res-sub { font-size: 11px; color: #bbb; margin-bottom: 3px; }
+.results .result .res-users { font-size: 11px; color: #cfe9cf; word-break: break-word; }
 
-/* Yellow outline visible on ALL sides (border change, not shadow) */
+/* Yellow outline on hover (all sides) */
 .results .result.hovered { border-color: #ffd54a; }
+
+/* "Copy" button minimal */
+.results .result button {
+  font-weight: 700;
+  font-size: 11px;
+  padding: 2px 6px;
+  line-height: 1.2;
+  border-radius: 6px;
+  background: #2a2a2a;
+  color: #eee;
+  border: 1px solid #3a3a3a;
+  cursor: pointer;
+  max-width: max-content;
+  white-space: nowrap;
+}
+.results .result button:hover { background: #3a3a3a; }
+
+/* If you set title="Copy Discord invitation" from JS, this keeps UI tiny:
+   Only show the first word (CSS trick), hide the remainder visually. */
+.results .result button {
+  overflow: hidden;
+  text-overflow: clip;
+  max-inline-size: 40px; /* will display "Copy" in most locales */
+}
 
 /* NOW marker — positioned within .grid-content so it scrolls with content */
 .now-marker {
@@ -334,7 +306,7 @@ tr.row-hour > th {
   color: #e53935;
   border: 1px solid #e53935;
   border-radius: 6px;
-  padding: 3px 8px;
+  padding: 2px 6px;
   font-size: 10px;
   font-weight: 700;
   text-transform: uppercase;
@@ -343,17 +315,113 @@ tr.row-hour > th {
   box-shadow: 0 2px 10px rgba(0,0,0,0.35);
 }
 
+/* ─────────────── Right column: Filters / Members ─────────────── */
+.right-col .field { display: grid; grid-template-columns: 1fr; gap: 4px; min-width: 0; }
+.field-row { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 8px; margin-bottom: 8px; }
+.right-col .field label { white-space: nowrap; font-size: 12px; }
+
+/* Tighter inputs */
+.right-col input[type="text"],
+.right-col input[type="number"],
+.right-col select {
+  background: #0f0f0f;
+  color: #eee;
+  border: 1px solid #333;
+  border-radius: 8px;
+  padding: 4px 8px;
+  width: 100%;
+  min-width: 0;
+  height: var(--control-height);
+  box-sizing: border-box;
+  font-size: 13px;
+}
+
+/* Members input row */
+.add-user {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 8px;
+  align-items: center;
+}
+.add-user input { height: 28px; min-width: 0; }
+.add-user button { height: 28px; line-height: 28px; white-space: nowrap; padding: 0 10px; font-size: 12px; }
+
+/* Member list: compact chips, multiple per row */
+.member-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.member-list li {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: #121212;
+  border: 1px solid #2a2a2a;
+  border-radius: 10px;
+  padding: 6px 26px 6px 10px; /* leave room for the X button */
+  max-width: 100%;
+  font-size: 12px;
+  line-height: 1.2;
+}
+.member-list li button {
+  position: absolute;
+  top: 4px; right: 4px;
+  width: 18px; height: 18px;
+  border-radius: 6px;
+  background: #3b3b3b;
+  border: 0;
+  color: #eee;
+  padding: 0;
+  cursor: pointer;
+}
+.member-list li button::before {
+  content: "×";
+  font-size: 14px;
+  line-height: 18px;
+  display: block;
+  text-align: center;
+}
+.member-list li button:hover { background: #4a4a4a; }
+
+/* Inline error */
+.error-text { color: #ff6b6b; font-size: 12px; min-height: 1.2em; margin: 4px 2px 2px 2px; }
+
+/* Buttons */
+.btn { display: inline-flex; align-items: center; gap: 8px; }
+.btn.btn-primary { background: #2d6cdf; color: #fff; border: 0; padding: 6px 10px; border-radius: 8px; cursor: pointer; height: 30px; }
+.btn.btn-secondary { background: #272727; color: #fff; border: 1px solid #3a3a3a; padding: 6px 10px; border-radius: 8px; cursor: pointer; height: 30px; }
+
+/* Ensure Find matches select height exactly */
+.btn-find {
+  align-self: center;
+  height: var(--control-height);
+  line-height: calc(var(--control-height) - 2px);
+  padding: 0 10px;
+  box-sizing: border-box;
+}
+
+/* Legend */
+.legend { margin-top: 8px; }
+.legend-steps { display: grid; gap: 4px; }
+.legend-steps .chip { width: 100%; height: 10px; border-radius: 6px; border: 1px solid var(--line); }
+.legend-labels { display: grid; gap: 4px; margin-top: 2px; font-size: 12px; }
+.legend-labels span { text-align: center; }
+
 /* ──────────────────────────────────────────────────────────────
    Small vertical space: put Filters and Results side-by-side,
    same size, with a fixed height that matches the table box
    ────────────────────────────────────────────────────────────── */
 @media (max-height: 850px) and (min-width: 1101px) {
-  /* turn right column into a two-column grid */
   .right-col {
     display: grid;
     grid-template-columns: 1fr 1fr;
     grid-template-rows: auto minmax(0, 1fr);
-    gap: 14px;
+    gap: 12px;
     align-items: stretch;
     max-height: none;
     overflow: visible;
@@ -365,16 +433,16 @@ tr.row-hour > th {
   /* Filters (assumed second panel) */
   .right-col > .panel:nth-child(2) {
     grid-column: 1 / 2;
-    height: calc(100vh - var(--topbar-height) - 120px); /* bottom aligns with table */
+    height: calc(100vh - var(--topbar-height) - 108px); /* bottom aligns with table */
     display: flex;
     flex-direction: column;
     overflow: auto;
     min-height: 0;
   }
-  /* Results (identified by class) */
+  /* Results panel */
   .right-col > .results-panel {
     grid-column: 2 / 3;
-    height: calc(100vh - var(--topbar-height) - 120px); /* bottom aligns with table */
+    height: calc(100vh - var(--topbar-height) - 108px); /* bottom aligns with table */
     display: flex;
     flex-direction: column;
     overflow: hidden;
