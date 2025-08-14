@@ -1,12 +1,13 @@
 :root {
-  --row-height: 18px;           /* half-hour slot height */
+  --row-height: 18px;            /* half-hour slot height */
   --font-size: 12px;
   --line: #2b2b2b;
   --line-strong: #3a3a3a;
-  --control-height: 28px;        /* tighter controls */
+  --control-height: 32px;        /* compact but readable controls */
   --timecol-width: 76px;
-  --grid-pad: 8px;               /* visual padding around the scrollable grid */
-  --topbar-height: 40px;         /* reduced top bar space for layout calcs */
+  --grid-pad: 8px;               /* padding around the scrollable grid */
+  --topbar-height: 40px;         /* compact top bar */
+  --panels-height: calc(100vh - var(--topbar-height) - 96px);
 }
 
 /* ───────────────────────── Layout Shell ───────────────────────── */
@@ -66,8 +67,8 @@ header .btn, .topbar .btn, .navbar .btn, header button, .navbar button {
   background: #101010;
   border: 1px solid var(--line);
   border-radius: 12px;
-  padding: var(--grid-pad); /* inner padding should never reveal content behind */
-  height: calc(100vh - var(--topbar-height) - 96px);
+  padding: var(--grid-pad);
+  height: var(--panels-height);
   box-sizing: border-box;
   isolation: isolate; /* new stacking context for sticky children */
 }
@@ -182,7 +183,7 @@ header .btn, .topbar .btn, .navbar .btn, header button, .navbar button {
 .slot-cell {
   position: relative;
   box-sizing: border-box;
-  background: #101010;          /* SOLID to block any bleed from sticky left "time" */
+  background: #101010;          /* solid to block any bleed from sticky left "time" */
   background-clip: border-box;
 }
 
@@ -237,7 +238,7 @@ tr.row-hour > th {
 /* Results highlight */
 .slot-cell.highlight { outline: 2px solid #ffd54a; outline-offset: -2px; }
 
-/* Results panel constrained to grid bottom with its own scroll */
+/* Results panel */
 .results-panel { display: flex; flex-direction: column; overflow: hidden; }
 .results { flex: 1 1 auto; overflow: auto; box-sizing: border-box; padding: 0 6px; min-height: 0; }
 
@@ -331,7 +332,7 @@ tr.row-hour > th {
 .field-row { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 8px; margin-bottom: 8px; }
 .right-col .field label { white-space: nowrap; font-size: 12px; }
 
-/* Tighter inputs */
+/* Inputs — compact and readable */
 .right-col input[type="text"],
 .right-col input[type="number"],
 .right-col select {
@@ -339,18 +340,22 @@ tr.row-hour > th {
   color: #eee;
   border: 1px solid #333;
   border-radius: 8px;
-  padding: 3px 6px;
+  padding: 4px 8px;
   width: 100%;
   min-width: 0;
   height: var(--control-height);
   box-sizing: border-box;
-  font-size: 13px;
+  font-size: 14px;
 }
 
-/* Min/Max width: one digit */
+/* Min/Max are one digit: give a sane middle-ground width */
 .right-col > .panel:nth-child(2) input[type="number"] {
-  width: 3.2ch;
+  width: 5.2ch;                 /* middle ground */
+  min-width: 42px;
+  text-align: center;
 }
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button { margin: 0; }
 
 /* Members input row */
 .add-user {
@@ -359,8 +364,8 @@ tr.row-hour > th {
   gap: 8px;
   align-items: center;
 }
-.add-user input { height: 26px; min-width: 0; }
-.add-user button { height: 26px; line-height: 26px; white-space: nowrap; padding: 0 8px; font-size: 12px; }
+.add-user input { height: 28px; min-width: 0; }
+.add-user button { height: 28px; line-height: 28px; white-space: nowrap; padding: 0 8px; font-size: 12px; }
 
 /* Member list: compact chips, multiple per row */
 .member-list {
@@ -379,35 +384,35 @@ tr.row-hour > th {
   background: #121212;
   border: 1px solid #2a2a2a;
   border-radius: 10px;
-  padding: 6px 24px 6px 10px; /* room for the X button */
+  padding: 4px 22px 4px 10px;   /* less vertical padding; room for the X */
   max-width: 100%;
   font-size: 12px;
   line-height: 1.2;
 }
 
-/* Remove button: red X at top-right, no "Remove" text */
+/* Remove button: red X at top-right, perfectly aligned; hide any text */
 .member-list li button {
   position: absolute;
   top: 4px; right: 4px;
   width: 16px; height: 16px;
-  line-height: 16px;
-  border-radius: 4px;
+  display: grid;
+  place-items: center;
   background: transparent;
   border: 0;
-  color: transparent;           /* hide text */
-  font-size: 0;                 /* hide text */
   padding: 0;
   cursor: pointer;
+  font-size: 0;
+  color: transparent;
 }
 .member-list li button::before {
   content: "×";
   font-size: 16px;
+  line-height: 1;
   color: #ff4d4d;
-  display: block;
-  text-align: center;
-  line-height: 16px;
 }
 .member-list li button:hover::before { color: #ff6b6b; }
+.member-list li button span,
+.member-list li button * { display: none !important; }
 
 /* Inline error */
 .error-text { color: #ff6b6b; font-size: 12px; min-height: 1.2em; margin: 4px 2px 2px 2px; }
@@ -434,8 +439,8 @@ tr.row-hour > th {
 .legend-labels span { text-align: center; }
 
 /* ──────────────────────────────────────────────────────────────
-   Filters and Results side-by-side on wide screens ALWAYS,
-   same height, bottoms aligned to the grid box
+   Filters and Results side-by-side on wide screens,
+   EXACT SAME HEIGHTS, bottoms aligned to the grid box.
    ────────────────────────────────────────────────────────────── */
 @media (min-width: 1101px) {
   .right-col {
@@ -443,23 +448,25 @@ tr.row-hour > th {
     grid-template-columns: 1fr 1fr;
     grid-template-rows: auto minmax(0, 1fr);
     gap: 12px;
-    align-items: stretch;
+    align-items: start;
     max-height: none;
     overflow: visible;
   }
   /* Members spans full width on the first row */
   .right-col > .panel:nth-child(1) { grid-column: 1 / -1; }
-  /* Filters (assumed second panel) */
+
+  /* Filters panel (second child) */
   .right-col > .panel:nth-child(2) {
     grid-column: 1 / 2;
-    height: calc(100vh - var(--topbar-height) - 96px);
+    height: var(--panels-height);
     overflow: auto;
     min-height: 0;
   }
-  /* Results panel */
+
+  /* Results panel (third child) */
   .right-col > .results-panel {
     grid-column: 2 / 3;
-    height: calc(100vh - var(--topbar-height) - 96px);
+    height: var(--panels-height);
     display: flex;
     flex-direction: column;
     overflow: hidden;
