@@ -223,6 +223,7 @@
       applyFilterDimming();
       updateLegend();
       syncResultsHeight();
+      findCandidates(); // keep results synced when list is empty
       return;
     }
     const { baseEpoch, baseYMD } = getWeekStartEpochAndYMD();
@@ -270,6 +271,7 @@
     applyFilterDimming();
     updateLegend();
     syncResultsHeight();
+    findCandidates(); // auto-refresh results after fetching availability
   }
 
   // --- Paint counts into cells (0..7+) and build week arrays ---
@@ -700,7 +702,7 @@
       btn.addEventListener('click', async () => {
         members = members.filter(u => u !== name);
         renderMembers();
-        await fetchMembersAvail();
+        await fetchMembersAvail(); // auto updates results via findCandidates()
       });
       li.appendChild(txt);
       li.appendChild(btn);
@@ -762,12 +764,12 @@ please confirm`;
     document.getElementById('prev-week').addEventListener('click', async () => {
       weekOffset -= 1;
       buildTable();
-      await fetchMembersAvail();
+      await fetchMembersAvail(); // results auto-refresh inside
     });
     document.getElementById('next-week').addEventListener('click', async () => {
       weekOffset += 1;
       buildTable();
-      await fetchMembersAvail();
+      await fetchMembersAvail(); // results auto-refresh inside
     });
 
     // members add/remove
@@ -787,7 +789,7 @@ please confirm`;
       members.push(name);
       input.value = '';
       renderMembers();
-      await fetchMembersAvail();
+      await fetchMembersAvail(); // results auto-refresh inside
     });
 
     document.getElementById('add-me-btn').addEventListener('click', async () => {
@@ -795,13 +797,21 @@ please confirm`;
       setMemberError('');
       if (!members.includes(currentUsername)) members.push(currentUsername);
       renderMembers();
-      await fetchMembersAvail();
+      await fetchMembersAvail(); // results auto-refresh inside
     });
 
     // filters
-    document.getElementById('max-missing').addEventListener('input', () => { applyFilterDimming(); syncResultsHeight(); });
+    document.getElementById('max-missing').addEventListener('input', () => {
+      applyFilterDimming();
+      syncResultsHeight();
+      findCandidates(); // auto update results
+    });
     const minHoursEl = document.getElementById('min-hours');
-    minHoursEl.addEventListener('input', () => { applyFilterDimming(); syncResultsHeight(); });
+    minHoursEl.addEventListener('input', () => {
+      applyFilterDimming();
+      syncResultsHeight();
+      findCandidates(); // auto update results
+    });
     minHoursEl.addEventListener('wheel', (e) => {
       e.preventDefault();
       const dir = -Math.sign(e.deltaY);
@@ -812,10 +822,13 @@ please confirm`;
       minHoursEl.value = String(next);
       applyFilterDimming();
       syncResultsHeight();
+      findCandidates(); // auto update results
     }, { passive: false });
 
-    // candidates
-    document.getElementById('find-btn').addEventListener('click', findCandidates);
+    // sort changes should re-render immediately
+    document.getElementById('sort-method').addEventListener('change', () => {
+      findCandidates();
+    });
 
     // settings
     await loadSettings();
@@ -828,7 +841,7 @@ please confirm`;
 
     buildTable();
     renderMembers();
-    await fetchMembersAvail();
+    await fetchMembersAvail(); // will trigger initial findCandidates()
 
     window.addEventListener('beforeunload', () => {
       sessionStorage.setItem('nat20_members', JSON.stringify(members));
