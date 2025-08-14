@@ -395,12 +395,12 @@ input[type="number"] { appearance: auto; -moz-appearance: auto; }
 .field .row input { width: 100%; position: relative; z-index: 1; }
 .field .row span {
   position: absolute;
-  right: -14px;            /* hang fully outside; spinner area remains clear */
+  right: -2px;              /* hang slightly outside the box */
   top: 50%;
   transform: translateY(-50%);
   pointer-events: none;
   white-space: nowrap;
-  z-index: 0;              /* keep beneath the input/spinner */
+  z-index: 2;               /* above the input so it stays visible */
 }
 
 /* Members input row */
