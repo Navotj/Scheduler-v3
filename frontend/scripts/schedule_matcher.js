@@ -586,44 +586,45 @@
     return { available, unavailable };
   }
 
-  // --- Legend (dynamic with grouping, 5-per-row; alternating rows per group) ---
-  function updateLegend() {
-    const blocks = document.getElementById('legend-blocks');
-    if (!blocks) return;
-    blocks.innerHTML = '';
+function updateLegend() {
+  // Prefer the alternating rows container if present
+  const blocks = document.getElementById('legend-blocks');
+  const steps = document.getElementById('legend-steps');
+  const labels = document.getElementById('legend-labels');
 
-    const n = members.length;
-    const chips = [];
+  const n = members.length;
+  const chips = [];
 
-    document.documentElement.classList.toggle('compress-low', n >= 11);
+  // Toggle compress-low styling when there are many members
+  document.documentElement.classList.toggle('compress-low', n >= 11);
 
-    if (n >= 11) {
-      const threshold = Math.max(0, n - 10); // participants ≤ threshold => merged to black
-      chips.push({ c: 0, label: `≤${threshold}` });
-      for (let i = threshold + 1; i <= n; i++) {
-        chips.push({ c: Math.min(i, 7), label: String(i) });
-      }
-    } else {
-      for (let i = 0; i <= n; i++) {
-        chips.push({ c: Math.min(i, 7), label: String(i) });
-      }
+  if (n >= 11) {
+    const threshold = Math.max(0, n - 10); // participants ≤ threshold => merged to black
+    chips.push({ c: 0, label: `≤${threshold}` });
+    for (let i = threshold + 1; i <= n; i++) {
+      chips.push({ c: Math.min(i, 7), label: String(i) });
     }
+  } else {
+    for (let i = 0; i <= n; i++) {
+      chips.push({ c: Math.min(i, 7), label: String(i) });
+    }
+  }
 
+  // New alternating layout: fixed 5 columns per row; use spacers to keep widths identical
+  if (blocks) {
+    blocks.innerHTML = '';
     const COLS = 5;
+
     for (let i = 0; i < chips.length; i += COLS) {
-      const size = Math.min(COLS, chips.length - i);
+      const group = chips.slice(i, i + COLS);
 
       const stepsRow = document.createElement('div');
       stepsRow.className = 'steps-row';
-      stepsRow.style.setProperty('--legend-cols', String(size));
 
       const labelsRow = document.createElement('div');
       labelsRow.className = 'labels-row';
-      labelsRow.style.setProperty('--legend-cols', String(size));
 
-      for (let j = 0; j < size; j++) {
-        const item = chips[i + j];
-
+      for (const item of group) {
         const chip = document.createElement('div');
         chip.className = 'chip slot-cell';
         chip.dataset.c = String(item.c);
@@ -634,12 +635,47 @@
         labelsRow.appendChild(lab);
       }
 
+      // Fill to 5 columns so the last line items are NOT wider
+      for (let f = group.length; f < COLS; f++) {
+        const spacerChip = document.createElement('div');
+        spacerChip.className = 'chip spacer';
+        stepsRow.appendChild(spacerChip);
+
+        const spacerLab = document.createElement('span');
+        spacerLab.className = 'spacer';
+        spacerLab.textContent = '';
+        labelsRow.appendChild(spacerLab);
+      }
+
       blocks.appendChild(stepsRow);
       blocks.appendChild(labelsRow);
     }
 
     syncResultsHeight();
+    return;
   }
+
+  // Fallback: old single-rows layout
+  if (steps && labels) {
+    steps.innerHTML = '';
+    labels.innerHTML = '';
+    steps.style.gridTemplateColumns = 'repeat(5, 1fr)';
+    labels.style.gridTemplateColumns = 'repeat(5, 1fr)';
+
+    for (const item of chips) {
+      const chip = document.createElement('div');
+      chip.className = 'chip slot-cell';
+      chip.dataset.c = String(item.c);
+      steps.appendChild(chip);
+
+      const lab = document.createElement('span');
+      lab.textContent = item.label;
+      labels.appendChild(lab);
+    }
+
+    syncResultsHeight();
+  }
+}
 
   // --- Results panel sizing to grid bottom ---
   function syncResultsHeight() {
