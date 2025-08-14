@@ -1,9 +1,12 @@
-/* Home page layout & cards */
+/* Home page layout & cards — fluid for any aspect ratio */
 
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(
+    auto-fit,
+    minmax(clamp(240px, 20vw, 360px), 1fr)
+  );
+  gap: clamp(12px, 1.2vw, 24px);
   margin-top: 20px;
 }
 
@@ -11,24 +14,26 @@
   background: #171717;
   border: 1px solid #2a2a2a;
   border-radius: 12px;
-  padding: 16px;
+  padding: clamp(14px, 1.2vw, 18px);
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  min-height: 160px;
+  min-height: clamp(160px, 24vh, 280px);
   box-shadow: 0 2px 12px rgba(0,0,0,0.25);
 }
 
 .card h2 {
   margin: 0 0 8px 0;
-  font-size: 18px;
+  font-size: clamp(18px, 1.2vw, 22px);
   color: #fff;
+  line-height: 1.2;
 }
 
 .card p {
   margin: 0 0 12px 0;
   color: #bbb;
-  line-height: 1.4;
+  line-height: 1.5;
+  font-size: clamp(13px, 0.95vw, 15px);
 }
 
 .card a,
@@ -60,9 +65,10 @@
   color: #888;
   text-align: center;
   padding: 24px 0 40px;
+  font-size: clamp(12px, 0.9vw, 14px);
 }
 
-/* Modal blur effect for main content while auth modal is open */
+/* Modal blur effect for main content while auth modal is open (kept here and in common.css) */
 
 body.modal-active main {
   filter: blur(3px);
@@ -73,5 +79,5 @@ body.modal-active main {
 
 .top-bar h1 {
   margin: 0;
-  font-size: 20px;
+  font-size: clamp(18px, 1.2vw, 20px);
 }

@@ -6,8 +6,15 @@
   <link rel="icon" href="/assets/favicon.ico" type="image/x-icon">
   <link rel="stylesheet" href="/styles/styles.css" />
   <link rel="stylesheet" href="/styles/common.css" />
+  <link rel="stylesheet" href="/styles/settings.css" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
 </head>
 <body>
+  <!-- Auth modal support (for login/register popups) -->
+  <div id="modal-overlay" style="display:none;">
+    <div id="modal-container"></div>
+  </div>
+
   <div class="top-bar">
     <div class="top-left">
       <a href="/index.html">← Home</a>
@@ -20,41 +27,47 @@
   </div>
 
   <main class="container">
-    <form id="settings-form">
-      <fieldset>
-        <legend>Timezone</legend>
-        <label><input type="radio" name="tzMode" id="tz-auto" value="auto" checked> Automatic (system)</label>
-        <label style="margin-left:16px;"><input type="radio" name="tzMode" id="tz-manual" value="manual"> Manual</label>
-        <div style="margin-top:8px;">
-          <select id="timezone" disabled></select>
+    <form id="settings-form" class="settings-form">
+      <div class="field">
+        <label><strong>Timezone</strong></label>
+        <div class="row">
+          <label><input type="radio" name="tzMode" id="tz-auto" value="auto" checked> Automatic (system)</label>
+          <label><input type="radio" name="tzMode" id="tz-manual" value="manual"> Manual</label>
         </div>
-      </fieldset>
+        <select id="timezone" disabled></select>
+        <span class="hint">Choose a manual timezone only if automatic detection is incorrect.</span>
+      </div>
 
-      <fieldset style="margin-top:14px;">
-        <legend>Clock</legend>
-        <label><input type="radio" name="clock" value="24" checked> 24-hour</label>
-        <label style="margin-left:16px;"><input type="radio" name="clock" value="12"> 12-hour (AM/PM)</label>
-      </fieldset>
-
-      <fieldset style="margin-top:14px;">
-        <legend>Week starts on</legend>
-        <label><input type="radio" name="weekStart" value="sun" checked> Sunday</label>
-        <label style="margin-left:16px;"><input type="radio" name="weekStart" value="mon"> Monday</label>
-      </fieldset>
-
-      <fieldset style="margin-top:14px;">
-        <legend>Display</legend>
-        <label for="defaultZoom">Default vertical zoom</label>
-        <input type="range" id="defaultZoom" min="0.6" max="2.0" step="0.1" value="1.0">
-        <span id="zoomValue">1.0</span>
-        <div style="margin-top:8px;">
-          <label><input type="checkbox" id="highlightWeekends"> Highlight weekends</label>
+      <div class="field">
+        <label><strong>Clock</strong></label>
+        <div class="row">
+          <label><input type="radio" name="clock" value="24" checked> 24-hour</label>
+          <label><input type="radio" name="clock" value="12"> 12-hour (AM/PM)</label>
         </div>
-      </fieldset>
+      </div>
 
-      <div style="margin-top:16px;">
+      <div class="field">
+        <label><strong>Week starts on</strong></label>
+        <div class="row">
+          <label><input type="radio" name="weekStart" value="sun" checked> Sunday</label>
+          <label><input type="radio" name="weekStart" value="mon"> Monday</label>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="defaultZoom"><strong>Display</strong></label>
+        <div class="row">
+          <span>Default vertical zoom</span>
+          <input type="range" id="defaultZoom" min="0.6" max="2.0" step="0.1" value="1.0">
+          <span id="zoomValue" class="range-readout">1.0</span>
+        </div>
+        <label><input type="checkbox" id="highlightWeekends"> Highlight weekends</label>
+        <span class="hint">Weekend shading is visual only and won’t affect availability.</span>
+      </div>
+
+      <div class="actions">
         <button type="submit">Save</button>
-        <span id="saveStatus" style="margin-left:10px; color:#9acd32;"></span>
+        <span id="saveStatus" class="save-status" aria-live="polite"></span>
       </div>
     </form>
   </main>
@@ -129,17 +142,29 @@
     function openModal(path) {
       const overlay = document.getElementById('modal-overlay');
       const container = document.getElementById('modal-container');
-      fetch(path)
+      fetch(path, { cache: 'no-cache' })
         .then(res => res.text())
         .then(html => {
           container.innerHTML = html;
           overlay.style.display = 'flex';
           document.body.classList.add('modal-active');
           runModalInit(path);
+        })
+        .catch(() => {
+          container.innerHTML = '<div class="panel"><p>Failed to load.</p></div>';
+          overlay.style.display = 'flex';
+          document.body.classList.add('modal-active');
         });
+
+      overlay.onclick = (e) => {
+        if (e.target === overlay) {
+          overlay.style.display = 'none';
+          document.body.classList.remove('modal-active');
+          container.innerHTML = '';
+        }
+      };
     }
 
-    window.openModal = openModal;
     checkAuth();
   </script>
 </body>

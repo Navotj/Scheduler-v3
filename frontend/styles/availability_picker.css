@@ -1,8 +1,11 @@
 :root {
-  --row-height: 18px;   /* base half-hour slot height */
-  --font-size: 12px;    /* base font size inside cells */
+  --row-height: 18px;      /* base half-hour slot height; JS may scale via zoom */
+  --font-size: 12px;       /* base font size inside cells; header fixed */
+  --timecol-width: 76px;   /* sticky time column width */
+  --day-col-min: clamp(110px, 12vw, 180px); /* fluid day column width for wide screens */
 }
 
+/* Controls row */
 .controls {
   display: flex;
   gap: 8px;
@@ -23,28 +26,30 @@
 .controls button.active { outline: 2px solid #2d6cdf; }
 .controls button:disabled { opacity: 0.5; cursor: not-allowed; }
 
+/* Grid shell */
 .grid {
   position: relative;
   border: 1px solid #2a2a2a;
   border-radius: 12px;
   overflow: auto;
-  height: calc(100vh - 160px);
+  height: calc(100vh - 160px); /* fills viewport below top bar & controls */
   background: #101010;
 }
 
 /* content layer that scrolls with the table; now-marker is positioned inside this */
 .grid-content {
   position: relative;
-  min-width: 820px;
+  min-width: calc(var(--timecol-width) + 7 * var(--day-col-min));
 }
 
 /* Table and grid */
 .table {
   border-collapse: collapse;
   width: 100%;
-  min-width: 820px;
+  min-width: calc(var(--timecol-width) + 7 * var(--day-col-min));
   user-select: none;
   font-size: var(--font-size);
+  table-layout: fixed; /* make columns distribute evenly while honoring min-widths */
 }
 .table th,
 .table td { border: 1px solid #2b2b2b; text-align: center; }
@@ -66,8 +71,8 @@
   left: 0;
   background: #151515;
   z-index: 4;
-  width: 76px;
-  min-width: 76px;
+  width: var(--timecol-width);
+  min-width: var(--timecol-width);
   border-right: 1px solid #2b2b2b;
 }
 
@@ -80,11 +85,12 @@
 /* Slot cells */
 .slot-cell {
   position: relative;
-  min-width: 110px;
-  width: 110px;
+  width: var(--day-col-min);
+  min-width: var(--day-col-min);
   height: var(--row-height);
   cursor: crosshair;
   background-color: #121212;
+  background-clip: padding-box;
 }
 .slot-cell.selected { background-color: #234b1f; }
 .slot-cell.preview-add { background-color: #1f3e7a; }
@@ -190,4 +196,9 @@ tr.row-hour > th {
   border-left: 7px solid #0f0f0f;
   border-top: 5px solid transparent;
   border-bottom: 5px solid transparent;
+}
+
+/* Small screens: allow columns to compress a bit */
+@media (max-width: 920px) {
+  :root { --day-col-min: clamp(96px, 16vw, 140px); }
 }
