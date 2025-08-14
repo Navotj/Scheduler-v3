@@ -4,8 +4,7 @@
   --line: #2b2b2b;
   --control-height: 38px;
   --timecol-width: 76px;
-  --day-col-min: clamp(110px, 11.5vw, 180px); /* fluid day width, capped for ultra-wide */
-  --grid-pad: 8px; /* padding inside the scroll box; used to offset sticky elements */
+  --grid-pad: 8px; /* visual padding around the scrollable grid */
 }
 
 /* Layout */
@@ -16,7 +15,7 @@
   align-items: start;
 }
 
-/* Let the right column follow the viewport on tall/wide displays */
+/* Right column sticks on tall/wide displays */
 .right-col {
   display: flex;
   flex-direction: column;
@@ -51,75 +50,84 @@
 .left-col .controls .helper { margin-left: auto; color: #9aa0a6; font-size: 12px; }
 .left-col .controls button { height: 32px; padding: 6px 12px; }
 
-/* Grid shell */
+/* Grid shell (visual box with padding) */
 .grid {
   position: relative;
   background: #101010;
   border: 1px solid var(--line);
   border-radius: 12px;
-  padding: var(--grid-pad);
-  overflow: auto;
-  height: calc(100vh - var(--topbar-height) - 120px); /* fill viewport under topbar/controls */
+  padding: var(--grid-pad); /* nice inner padding that should not reveal content behind */
+  height: calc(100vh - var(--topbar-height) - 120px);
+  box-sizing: border-box;
+  /* create a new stacking context so sticky children render cleanly */
+  isolation: isolate;
 }
 
-/* Fix the white square where horizontal & vertical scrollbars meet (WebKit) */
-.grid::-webkit-scrollbar-corner { background: #101010; }
+/* The actual scroller sits inside the padded box */
+.grid-content {
+  position: relative;
+  overflow-y: auto;
+  overflow-x: hidden;            /* never allow horizontal scrolling */
+  height: 100%;
+  width: 100%;
+  background: #101010;
+  border-radius: 8px;            /* subtle rounding inside */
+}
+
+/* Fix the white square where scrollbars meet (WebKit) */
+.grid-content::-webkit-scrollbar-corner { background: #101010; }
 
 /* Scrollbar styling (subtle) */
-.grid { scrollbar-width: thin; scrollbar-color: #444 #101010; }
-.grid::-webkit-scrollbar { width: 10px; height: 10px; }
-.grid::-webkit-scrollbar-track { background: transparent; }
-.grid::-webkit-scrollbar-thumb { background: #3a3a3a; border-radius: 8px; }
-.grid::-webkit-scrollbar-thumb:hover { background: #4a4a4a; }
-
-/* content layer that scrolls with the table; now-marker is positioned inside this */
-.grid-content { 
-  position: relative; 
-  min-width: calc(var(--timecol-width) + 7 * var(--day-col-min));
-}
+.grid-content { scrollbar-width: thin; scrollbar-color: #444 #101010; }
+.grid-content::-webkit-scrollbar { width: 10px; height: 10px; }
+.grid-content::-webkit-scrollbar-track { background: transparent; }
+.grid-content::-webkit-scrollbar-thumb { background: #3a3a3a; border-radius: 8px; }
+.grid-content::-webkit-scrollbar-thumb:hover { background: #4a4a4a; }
 
 /* Table */
 .table {
-  width: 100%;
-  min-width: calc(var(--timecol-width) + 7 * var(--day-col-min));
+  width: 100%;                  /* always fit the 7 days within the visible area */
+  table-layout: fixed;          /* enforce column widths */
+  border-collapse: collapse;
   user-select: none;
   font-size: var(--font-size);
-  border-collapse: collapse; /* join borders like availability_picker */
-  table-layout: fixed;
+  min-width: 0;                 /* allow shrinking */
 }
+
+/* Headers & cells */
 .table th,
 .table td { border: 1px solid var(--line); text-align: center; }
 
-/* Thicker separators at hour rows (match availability_picker) */
-tr.row-hour > td,
-tr.row-hour > th {
-  border-top-width: 2px;
-  border-top-color: #3a3a3a;
-}
-
-/* Sticky header: offset by the same padding as the grid to remove the "gap" */
+/* Sticky header: sits flush against the scroller's top (no gap/see-through) */
 .table thead th {
   position: sticky;
-  top: var(--grid-pad);
-  background: #151515;
+  top: 0;                       /* no offset -> no padding gap behind */
   z-index: 5;
+  background: #151515;
   font-weight: 600;
-  font-size: 12px;
   padding: 8px 6px;
   background-clip: padding-box;
 }
 
-/* Sticky time column — offset by grid padding so it hugs the inner edge cleanly */
+/* Header font adapts to fit all 7 days without horizontal scroll */
+.table thead th.day {
+  font-size: clamp(10px, 1.05vw, 13px);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Sticky time column: hugs the inner edge (no left padding gap) */
 .table thead tr > th:first-child,
 .table tbody tr > th.time-col {
   position: sticky;
-  left: var(--grid-pad);
+  left: 0;
   z-index: 4;
   background: #151515;
   border-right: 1px solid var(--line);
 }
 
-/* Body cells sizing */
+/* Size rows */
 .table tbody td,
 .table tbody th {
   height: var(--row-height);
@@ -127,10 +135,11 @@ tr.row-hour > th {
   padding: 0;
 }
 
-/* Time column dimensions */
+/* Time column fixed width; rest splits evenly across 7 days */
 .time-col {
   width: var(--timecol-width);
   min-width: var(--timecol-width);
+  max-width: var(--timecol-width);
   text-align: right;
   padding-right: 6px;
   color: #cfcfcf;
@@ -141,19 +150,31 @@ tr.row-hour > th {
   line-height: normal;
 }
 
-/* Slot cells */
-.slot-cell {
-  position: relative; /* needed for past overlay */
-  background-clip: padding-box;
-  box-sizing: border-box;
-  width: var(--day-col-min);
-  min-width: var(--day-col-min);
+/* Evenly distribute 7 day columns by percentage (prevents horizontal scroll) */
+.table thead th.day,
+.table tbody td.slot-cell {
+  width: calc((100% - var(--timecol-width)) / 7);
+  min-width: 0;
 }
 
-/* Grey-out for "dim" filters (unchanged) */
+/* Slot cells */
+.slot-cell {
+  position: relative;           /* needed for overlays */
+  background-clip: padding-box;
+  box-sizing: border-box;
+}
+
+/* Thicker separators at hour rows */
+tr.row-hour > td,
+tr.row-hour > th {
+  border-top-width: 2px;
+  border-top-color: #3a3a3a;
+}
+
+/* Grey-out for "dim" filters */
 .slot-cell.dim { filter: grayscale(40%) brightness(0.85); opacity: 0.45; }
 
-/* Past slots — grey overlay like availability_picker */
+/* Past slots — grey overlay */
 .slot-cell.past { pointer-events: none; }
 .slot-cell.past::after {
   content: "";
@@ -208,7 +229,7 @@ tr.row-hour > th {
   box-sizing: border-box;
 }
 
-/* Members input row (fit buttons; prevent overflow) */
+/* Members input row */
 .add-user {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
@@ -288,7 +309,7 @@ tr.row-hour > th {
 /* Yellow outline visible on ALL sides (border change, not shadow) */
 .results .result.hovered { border-color: #ffd54a; }
 
-/* NOW marker — confined to current day column; centered bubble */
+/* NOW marker — positioned within .grid-content so it scrolls with content */
 .now-marker {
   position: absolute;
   height: 0;
@@ -320,9 +341,4 @@ tr.row-hour > th {
   .two-col { grid-template-columns: 1fr; }
   .right-col { position: static; max-height: none; overflow: visible; }
   .grid { height: auto; min-height: 60vh; }
-}
-
-/* Extra-wide screens — allow slightly larger right rail if space permits */
-@media (min-width: 1920px) {
-  .two-col { grid-template-columns: minmax(0, 1fr) clamp(360px, 26vw, 560px); }
 }
