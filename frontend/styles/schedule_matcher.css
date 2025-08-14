@@ -367,47 +367,40 @@ tr.row-hour > th {
   font-size: 14px;
 }
 
-/* Number inputs: keep spinners, dark UA styling, text centered.
-   Extra right padding keeps text clear of the spinner */
+/* Number inputs: keep native spinners, DARK scheme, spinners pinned hard-right (no right padding) */
 .right-col input[type="number"] {
   color-scheme: dark;
-  padding-right: 0.9rem;
+  padding-right: 0;        /* ensure spinner sits flush to the right edge */
+  text-align: center;
 }
 
 /* Min/Max are one digit: sane middle-ground width */
 .right-col > .panel:nth-of-type(2) input[type="number"] {
   width: 6.2ch;
   min-width: 52px;
-  text-align: center;
 }
 
 /* Restore native spinners (no custom geometry) */
 input[type="number"] { appearance: auto; -moz-appearance: auto; }
 /* Optional subtle hover brightening of the native spinner (WebKit only) */
 .right-col input[type="number"]::-webkit-inner-spin-button,
-.right-col input[type="number"]::-webkit-outer-spin-button { opacity: 0.85; }
+.right-col input[type="number"]::-webkit-outer-spin-button { opacity: 0.85; margin: 0; }
 .right-col input[type="number"]:hover::-webkit-inner-spin-button,
 .right-col input[type="number"]:hover::-webkit-outer-spin-button,
 .right-col input[type="number"]:focus::-webkit-inner-spin-button,
 .right-col input[type="number"]:focus::-webkit-outer-spin-button { opacity: 1; }
 
-/* Extra right padding so 'h' suffix and spinner never collide */
-#min-hours { padding-right: 1.8rem; }
-
-/* "h" unit after min-length — pinned to input, allowed to hang out so it never blocks spinner */
-.field .row {
-  position: relative;
-  display: block;
-  overflow: hidden; /* if there's not enough space, the "h" will be clipped */
-}
-.field .row input { width: 100%; }
+/* Ensure the 'h' suffix never pushes or covers the spinner: push it farther outside & below input z-order */
+.field .row { position: relative; display: block; overflow: hidden; }
+.field .row input { width: 100%; position: relative; z-index: 1; }
 .field .row span {
   position: absolute;
-  right: -8px;                /* hang slightly outside the box */
+  right: -14px;            /* hang fully outside; spinner area remains clear */
   top: 50%;
   transform: translateY(-50%);
   pointer-events: none;
   white-space: nowrap;
+  z-index: 0;              /* keep beneath the input/spinner */
 }
 
 /* Members input row */
@@ -490,7 +483,7 @@ input[type="number"] { appearance: auto; -moz-appearance: auto; }
 .legend-blocks { display: grid; gap: 6px; }
 .legend-blocks .steps-row,
 .legend-blocks .labels-row { display: grid; gap: 3px; grid-template-columns: repeat(5, 1fr); }
-.legend-blocks .chip { width: 100%; height: 10px; border-radius: 6px; border: 1px solid --line; }
+.legend-blocks .chip { width: 100%; height: 10px; border-radius: 6px; border: 1px solid var(--line); }
 .legend-blocks .labels-row span { text-align: center; font-size: 12px; }
 /* Fillers so last row items don't stretch */
 .legend-blocks .spacer { visibility: hidden; pointer-events: none; }
