@@ -1,38 +1,8 @@
 const express = require('express');
 const router = express.Router();
-const userModel = require('../models/user');
-const { generateToken, verifyToken } = require('../utils/jwt');
-const { body, validationResult } = require('express-validator');
-
-// register new user
-router.post(
-  '/register',
-  body('email').isEmail(),
-  body('username').isLength({ min: 3 }),
-  body('password').isLength({ min: 6 }),
-  async (req, res) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
-
-    const { email, username, password } = req.body;
-
-    const existingEmail = await userModel.findOne({ email });
-    if (existingEmail) return res.status(400).json({ error: 'email already registered' });
-
-    const existingUsername = await userModel.findOne({ username });
-    if (existingUsername) return res.status(400).json({ error: 'username already taken' });
-
-    const user = new userModel({
-      email: email.trim().toLowerCase(),
-      username: username.trim()
-    });
-
-    await user.setPassword(password);
-    await user.save();
-
-    res.status(201).json({ success: true });
-  }
-);
+const { body } = require('express-validator');
+const userModel = require('./user');
+const { generateToken, verifyToken } = require('./jwt');
 
 // login and set jwt cookie
 router.post(
@@ -40,48 +10,67 @@ router.post(
   body('username').isString().notEmpty(),
   body('password').notEmpty(),
   async (req, res) => {
-    const { username, password } = req.body;
-    const user = await userModel.findOne({ username });
-    if (!user || !(await user.validatePassword(password)))
-      return res.status(401).json({ error: 'invalid credentials' });
+    try {
+      const { username, password } = req.body;
+      const user = await userModel.findOne({ username });
+      if (!user || !(await user.validatePassword(password))) {
+        return res.status(401).json({ error: 'invalid credentials' });
+      }
 
-    const token = generateToken(user);
+      const token = generateToken(user);
 
-    // Ensure app.js has: app.set('trust proxy', true);
-    // COOKIE_SECURE must be "true" in .env so cookie is marked Secure.
-    const secure = String(process.env.COOKIE_SECURE).toLowerCase() === 'true';
+      const secure = String(process.env.COOKIE_SECURE).toLowerCase() === 'true';
 
-    res.cookie('token', token, {
-      httpOnly: true,
-      sameSite: 'Lax',
-      secure: secure,
-      path: '/',
-      // Explicit domain ensures cookie is scoped correctly
-      domain: '.nat20scheduling.com'
-    });
+      res.cookie('token', token, {
+        httpOnly: true,
+        sameSite: 'Lax',
+        secure: secure,
+        path: '/',
+        domain: '.nat20scheduling.com',
+        maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+      });
 
-    res.json({ success: true });
+      return res.json({ success: true });
+    } catch (err) {
+      console.error('Login error:', err);
+      return res.status(500).json({ error: 'internal server error' });
+    }
   }
 );
 
-
-// check jwt validity (returns username to populate UI)
-router.get('/auth/check', async (req, res) => {
-  const token = req.cookies.token;
+// check session
+router.get('/check', async (req, res) => {
   try {
-    const payload = verifyToken(token);
-    const user = await userModel.findById(payload.id).select('username email').lean();
-    if (!user) return res.sendStatus(401);
-    res.status(200).json({ username: user.username, email: user.email });
-  } catch {
-    res.sendStatus(401);
+    const token = req.cookies.token;
+    if (!token) {
+      return res.status(401).json({ error: 'no session' });
+    }
+    const decoded = verifyToken(token);
+    if (!decoded) {
+      return res.status(401).json({ error: 'invalid token' });
+    }
+    return res.json({ success: true, user: decoded });
+  } catch (err) {
+    console.error('Auth check error:', err);
+    return res.status(500).json({ error: 'internal server error' });
   }
 });
 
-// logout
+// logout and clear cookie
 router.post('/logout', (req, res) => {
-  res.clearCookie('token', { path: '/' });
-  res.json({ success: true });
+  try {
+    res.clearCookie('token', {
+      httpOnly: true,
+      sameSite: 'Lax',
+      secure: String(process.env.COOKIE_SECURE).toLowerCase() === 'true',
+      path: '/',
+      domain: '.nat20scheduling.com'
+    });
+    return res.json({ success: true });
+  } catch (err) {
+    console.error('Logout error:', err);
+    return res.status(500).json({ error: 'internal server error' });
+  }
 });
 
 module.exports = router;

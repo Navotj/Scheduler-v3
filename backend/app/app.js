@@ -14,19 +14,15 @@ const Availability = require('./models/availability');
 
 const app = express();
 
-/**
- * Behind CloudFront/ALB we may see proxy addresses.
- * trust proxy ensures correct protocol/secure detection if used later.
- */
+// add (or ensure) once near app creation:
 app.set('trust proxy', true);
 
+// replace your current CORS middleware with:
 app.use(cors({
-  origin: 'https://nat20scheduling.com',
+  origin: ['https://www.nat20scheduling.com', 'https://nat20scheduling.com'],
   credentials: true
 }));
 
-app.use(express.json());
-app.use(cookieParser());
 
 /**
  * Enforce explicit MONGO_URI to avoid accidental use of deprecated/public hosts.
