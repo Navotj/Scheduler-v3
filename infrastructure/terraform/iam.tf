@@ -135,7 +135,7 @@ resource "aws_iam_policy" "nat20_backend_ssm_read" {
 
 # If your backend instance role name differs, set this var accordingly (see variables.tf below)
 resource "aws_iam_role_policy_attachment" "nat20_attach_backend_ssm_read" {
-  role       = var.backend_instance_role_name
+  role       = aws_iam_role.ssm_ec2_role.name
   policy_arn = aws_iam_policy.nat20_backend_ssm_read.arn
 }
 
