@@ -117,10 +117,10 @@ jobs:
       - name: Terraform Plan
         env:
           TF_IN_AUTOMATION: "true"
-        run: terraform plan -input=false
+        run: terraform plan -input=false -var "backend_alb_name=${{ vars.BACKEND_ALB_NAME }}" -var "frontend_waf_name=${{ vars.FRONTEND_WAF_NAME }}"
 
       - name: Terraform Apply
         if: github.ref == 'refs/heads/main'
         env:
           TF_IN_AUTOMATION: "true"
-        run: terraform apply -auto-approve -input=false
+        run: terraform apply -auto-approve -input=false -var "backend_alb_name=${{ vars.BACKEND_ALB_NAME }}" -var "frontend_waf_name=${{ vars.FRONTEND_WAF_NAME }}"

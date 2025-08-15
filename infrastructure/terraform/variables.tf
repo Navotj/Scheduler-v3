@@ -35,3 +35,13 @@ variable "create_api_alias" {
   type        = bool
   default     = false
 }
+
+variable "backend_alb_name" {
+  description = "Name of the backend ALB to route API traffic to (exact ALB name, not ARN)"
+  type        = string
+}
+
+variable "frontend_waf_name" {
+  description = "Name of the WAFv2 Web ACL (scope=CLOUDFRONT) to attach to the CloudFront distribution"
+  type        = string
+}

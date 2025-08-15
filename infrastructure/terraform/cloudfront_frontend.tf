@@ -13,6 +13,17 @@ resource "aws_cloudfront_origin_access_control" "s3_oac" {
   signing_protocol                  = "sigv4"
 }
 
+# Resolve external resources by name to avoid cross-file references
+data "aws_lb" "backend" {
+  name = var.backend_alb_name
+}
+
+data "aws_wafv2_web_acl" "frontend" {
+  name  = var.frontend_waf_name
+  scope = "CLOUDFRONT"
+}
+
+
 # ====================
 # Policies
 # ====================
@@ -74,7 +85,7 @@ resource "aws_cloudfront_distribution" "frontend" {
 
   # Backend API (ALB)
   origin {
-    domain_name = aws_lb.backend_alb.dns_name
+    domain_name = data.aws_lb.backend.dns_name
     origin_id   = "alb-backend-origin"
     custom_origin_config {
       http_port                = 80
@@ -177,7 +188,7 @@ resource "aws_cloudfront_distribution" "frontend" {
     }
   }
 
-  web_acl_id = aws_wafv2_web_acl.frontend.arn
+  web_acl_id = data.aws_wafv2_web_acl.frontend.arn
 
   # -------- SSL --------
 
