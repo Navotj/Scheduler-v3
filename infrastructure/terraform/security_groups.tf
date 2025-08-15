@@ -22,30 +22,8 @@ resource "aws_security_group" "backend_access" {
   tags = { Name = "backend-access" }
 }
 
-# ALB security group
-resource "aws_security_group" "alb" {
-  name        = "backend-alb"
-  description = "ALB HTTPS"
-  vpc_id      = data.aws_vpc.default.id
-
-  ingress {
-    description = "HTTPS from the world"
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  egress {
-    description = "Allow all egress"
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  tags = { Name = "backend-alb" }
-}
+# NOTE: Do NOT define the ALB SG here to avoid duplicate with alb_backend.tf.
+# Use the existing aws_security_group.alb from alb_backend.tf.
 
 # Allow only ALB SG to reach Backend instance on backend_port
 resource "aws_security_group_rule" "backend_ingress_from_alb" {

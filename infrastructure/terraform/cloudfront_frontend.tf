@@ -28,7 +28,8 @@ resource "aws_cloudfront_cache_policy" "api_no_cache" {
 
 # Forward everything the API needs at the origin request stage
 resource "aws_cloudfront_origin_request_policy" "api_forward_all" {
-  name = "nat20-api-forward-all"
+  name    = "nat20-api-forward-all"
+  comment = "Forward all headers, cookies, and query strings to API origin"
 
   headers_config { header_behavior = "allViewer" }
   cookies_config { cookie_behavior = "all" }
@@ -38,10 +39,6 @@ resource "aws_cloudfront_origin_request_policy" "api_forward_all" {
 # ====================
 # Distribution
 # ====================
-
-locals {
-  cloudfront_backend_edge_key_value = data.aws_secretsmanager_secret_version.cloudfront_backend_edge_key.secret_string
-}
 
 resource "aws_cloudfront_distribution" "frontend" {
   enabled             = true
@@ -57,7 +54,7 @@ resource "aws_cloudfront_distribution" "frontend" {
     origin_access_control_id = aws_cloudfront_origin_access_control.s3_oac.id
   }
 
-  # Backend API (ALB) — must match your ALB resource name in alb_backend.tf
+  # Backend API (ALB)
   origin {
     domain_name = aws_lb.backend_alb.dns_name
     origin_id   = "alb-backend-origin"
@@ -154,7 +151,7 @@ resource "aws_cloudfront_distribution" "frontend" {
 
   # -------- GEO/PRICE CLASS/WAF --------
 
-  price_class = "PriceClass_100" # adjust as needed
+  price_class = "PriceClass_100"
 
   restrictions {
     geo_restriction {
@@ -189,21 +186,5 @@ resource "aws_cloudfront_distribution" "frontend" {
     error_caching_min_ttl = 0
   }
 
-  # Logging (optional; add bucket if needed)
-  # logging_config {
-  #   include_cookies = false
-  #   bucket          = aws_s3_bucket.logs.bucket_domain_name
-  #   prefix          = "cloudfront/"
-  # }
-
   depends_on = [aws_acm_certificate_validation.frontend]
-}
-
-# Secret for X-EDGE-KEY header used by ALB/WAF validation
-data "aws_secretsmanager_secret" "cloudfront_backend_edge_key" {
-  name = aws_secretsmanager_secret.cloudfront_backend_edge_key.name
-}
-
-data "aws_secretsmanager_secret_version" "cloudfront_backend_edge_key" {
-  secret_id = data.aws_secretsmanager_secret.cloudfront_backend_edge_key.id
 }
