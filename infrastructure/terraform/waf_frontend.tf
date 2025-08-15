@@ -3,8 +3,6 @@
 ############################################################
 
 resource "aws_wafv2_web_acl" "frontend" {
-  provider = aws.us_east_1
-
   name        = "nat20-frontend-cf-waf"
   description = "WAF for nat20 frontend CloudFront distribution"
   scope       = "CLOUDFRONT"
@@ -62,4 +60,13 @@ resource "aws_wafv2_web_acl" "frontend" {
       sampled_requests_enabled   = true
     }
   }
+}
+
+############################################################
+# Associate Frontend WAF with CloudFront
+############################################################
+
+resource "aws_wafv2_web_acl_association" "frontend" {
+  resource_arn = aws_cloudfront_distribution.frontend.arn
+  web_acl_arn  = aws_wafv2_web_acl.frontend.arn
 }

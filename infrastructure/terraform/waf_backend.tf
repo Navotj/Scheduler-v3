@@ -1,65 +1,72 @@
-###############################################
-# WAFv2 (REGIONAL) for the backend ALB
-# - Block all by default
-# - Allow only requests with header X-EDGE-KEY == var.cloudfront_backend_edge_key
-# - Associate to aws_lb.api
-###############################################
+############################################################
+# WAFv2 Web ACL for Backend ALB
+############################################################
 
-resource "aws_wafv2_web_acl" "backend_alb" {
+resource "aws_wafv2_web_acl" "backend" {
   name        = "nat20-backend-alb-waf"
-  description = "Allow only CloudFront with secret header"
+  description = "WAF for nat20 backend Application Load Balancer"
   scope       = "REGIONAL"
 
-  # Block everything by default
   default_action {
-    block {}
+    allow {}
   }
 
-  # Allow when X-EDGE-KEY header matches the secret
+  visibility_config {
+    cloudwatch_metrics_enabled = true
+    metric_name                = "nat20-backend-waf"
+    sampled_requests_enabled   = true
+  }
+
   rule {
-    name     = "AllowWithSecretHeader"
+    name     = "AWSManagedRulesCommonRuleSet"
     priority = 1
 
-    action {
-      allow {}
+    override_action {
+      none {}
     }
 
     statement {
-      byte_match_statement {
-        search_string = local.cloudfront_backend_edge_key_value
-
-        field_to_match {
-          single_header {
-            # header names must be lowercase in WAF
-            name = "x-edge-key"
-          }
-        }
-
-        positional_constraint = "EXACTLY"
-
-        text_transformation {
-          priority = 0
-          type     = "NONE"
-        }
+      managed_rule_group_statement {
+        name        = "AWSManagedRulesCommonRuleSet"
+        vendor_name = "AWS"
       }
     }
 
     visibility_config {
       cloudwatch_metrics_enabled = true
-      metric_name                = "AllowWithSecretHeader"
+      metric_name                = "AWSManagedRulesCommonRuleSet"
       sampled_requests_enabled   = true
     }
   }
 
-  visibility_config {
-    cloudwatch_metrics_enabled = true
-    metric_name                = "backendAlbWaf"
-    sampled_requests_enabled   = true
+  rule {
+    name     = "AWSManagedRulesAmazonIpReputationList"
+    priority = 2
+
+    override_action {
+      none {}
+    }
+
+    statement {
+      managed_rule_group_statement {
+        name        = "AWSManagedRulesAmazonIpReputationList"
+        vendor_name = "AWS"
+      }
+    }
+
+    visibility_config {
+      cloudwatch_metrics_enabled = true
+      metric_name                = "AWSManagedRulesAmazonIpReputationList"
+      sampled_requests_enabled   = true
+    }
   }
 }
 
-# Attach to the correct ALB resource (aws_lb.api defined in alb_backend.tf)
-resource "aws_wafv2_web_acl_association" "backend_alb_assoc" {
-  resource_arn = aws_lb.api.arn
-  web_acl_arn  = aws_wafv2_web_acl.backend_alb.arn
+############################################################
+# Associate Backend WAF with ALB
+############################################################
+
+resource "aws_wafv2_web_acl_association" "backend" {
+  resource_arn = data.aws_lb.backend.arn
+  web_acl_arn  = aws_wafv2_web_acl.backend.arn
 }

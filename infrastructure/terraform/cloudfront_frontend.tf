@@ -1,32 +1,31 @@
 ############################################################
-# CloudFront Frontend Distribution
+# CloudFront Distribution for Frontend
 ############################################################
 
+resource "aws_cloudfront_origin_access_control" "frontend_oac" {
+  name                              = "nat20-frontend-oac"
+  description                       = "OAC for nat20 frontend CloudFront"
+  origin_access_control_origin_type = "s3"
+  signing_behavior                  = "always"
+  signing_protocol                  = "sigv4"
+}
+
 resource "aws_cloudfront_distribution" "frontend" {
-  provider = aws.us_east_1
-
-  origin {
-    domain_name = aws_s3_bucket.frontend.bucket_regional_domain_name
-    origin_id   = "frontend-s3-origin"
-
-    s3_origin_config {
-      origin_access_identity = aws_cloudfront_origin_access_identity.frontend.cloudfront_access_identity_path
-    }
-  }
-
   enabled             = true
   is_ipv6_enabled     = true
+  comment             = "CloudFront distribution for nat20 frontend"
   default_root_object = "index.html"
 
-  aliases = [
-    "nat20scheduling.com",
-    "www.nat20scheduling.com"
-  ]
+  origin {
+    domain_name              = aws_s3_bucket.deploy_artifacts.bucket_regional_domain_name
+    origin_id                = "nat20-frontend-s3"
+    origin_access_control_id = aws_cloudfront_origin_access_control.frontend_oac.id
+  }
 
   default_cache_behavior {
-    allowed_methods  = ["GET", "HEAD", "OPTIONS"]
+    allowed_methods  = ["GET", "HEAD"]
     cached_methods   = ["GET", "HEAD"]
-    target_origin_id = "frontend-s3-origin"
+    target_origin_id = "nat20-frontend-s3"
 
     forwarded_values {
       query_string = false
@@ -41,8 +40,6 @@ resource "aws_cloudfront_distribution" "frontend" {
     max_ttl                = 86400
   }
 
-  price_class = "PriceClass_100"
-
   restrictions {
     geo_restriction {
       restriction_type = "none"
@@ -50,24 +47,22 @@ resource "aws_cloudfront_distribution" "frontend" {
   }
 
   viewer_certificate {
-    acm_certificate_arn      = aws_acm_certificate.frontend.arn
+    acm_certificate_arn      = aws_acm_certificate_validation.frontend.certificate_arn
     ssl_support_method       = "sni-only"
     minimum_protocol_version = "TLSv1.2_2021"
   }
 
-  web_acl_id = aws_wafv2_web_acl.frontend.arn
-
   tags = {
-    Name = "nat20-frontend-cf"
+    Name = "nat20-frontend-cloudfront"
   }
 }
 
-resource "aws_cloudfront_origin_access_identity" "frontend" {
-  comment = "OAI for nat20 frontend CloudFront"
-}
+############################################################
+# ACM Certificate for CloudFront
+############################################################
 
 resource "aws_acm_certificate" "frontend" {
-  provider = aws.us_east_1
+  provider          = aws.us_east_1
   domain_name       = "nat20scheduling.com"
   validation_method = "DNS"
 
@@ -77,10 +72,6 @@ resource "aws_acm_certificate" "frontend" {
 
   lifecycle {
     create_before_destroy = true
-  }
-
-  tags = {
-    Name = "nat20-frontend-cert"
   }
 }
 
@@ -105,6 +96,10 @@ resource "aws_acm_certificate_validation" "frontend" {
   certificate_arn         = aws_acm_certificate.frontend.arn
   validation_record_fqdns = [for record in aws_route53_record.frontend_cert_validation : record.fqdn]
 }
+
+############################################################
+# DNS Record for CloudFront
+############################################################
 
 resource "aws_route53_record" "frontend_alias" {
   zone_id = data.aws_route53_zone.main.zone_id
