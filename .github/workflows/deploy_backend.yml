@@ -27,11 +27,44 @@ jobs:
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws-region: eu-central-1
 
-    - name: Install Session Manager Plugin
+    - name: Get account ID and artifact bucket name
+      id: acct
       run: |
-        curl -fsSL https://s3.amazonaws.com/session-manager-downloads/plugin/latest/ubuntu_64bit/session-manager-plugin.deb -o /tmp/session-manager-plugin.deb
-        sudo dpkg -i /tmp/session-manager-plugin.deb
-        session-manager-plugin --version
+        ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+        echo "ACCOUNT_ID=$ACCOUNT_ID" >> $GITHUB_ENV
+        ARTIFACT_BUCKET="nat20scheduling-com-deploy-artifacts-$ACCOUNT_ID"
+        echo "ARTIFACT_BUCKET=$ARTIFACT_BUCKET" >> $GITHUB_ENV
+
+    - name: Ensure artifact bucket exists (private, encrypted)
+      run: |
+        set -euo pipefail
+        if ! aws s3api head-bucket --bucket "$ARTIFACT_BUCKET" 2>/dev/null; then
+          aws s3api create-bucket \
+            --bucket "$ARTIFACT_BUCKET" \
+            --region eu-central-1 \
+            --create-bucket-configuration LocationConstraint=eu-central-1
+          aws s3api put-bucket-encryption --bucket "$ARTIFACT_BUCKET" --server-side-encryption-configuration \
+            '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}'
+          aws s3api put-public-access-block --bucket "$ARTIFACT_BUCKET" --public-access-block-configuration '{
+            "BlockPublicAcls": true,
+            "IgnorePublicAcls": true,
+            "BlockPublicPolicy": true,
+            "RestrictPublicBuckets": true
+          }'
+          # 1-day lifecycle for quick cleanup
+          aws s3api put-bucket-lifecycle-configuration --bucket "$ARTIFACT_BUCKET" --lifecycle-configuration '{
+            "Rules": [
+              {
+                "ID": "ExpireArtifactsAfter1Day",
+                "Status": "Enabled",
+                "Prefix": "backend/",
+                "Expiration": {"Days": 1},
+                "NoncurrentVersionExpiration": {"NoncurrentDays": 1},
+                "AbortIncompleteMultipartUpload": {"DaysAfterInitiation": 1}
+              }
+            ]
+          }'
+        fi
 
     - name: Get Backend Instance ID from tag
       id: backend_instance
@@ -43,47 +76,24 @@ jobs:
         echo "INSTANCE_ID=$INSTANCE_ID" >> $GITHUB_ENV
         echo "instance_id=$INSTANCE_ID" >> $GITHUB_OUTPUT
 
-    - name: Zip backend files (code only, no .env)
+    - name: Zip backend files (code only, no secrets)
       run: |
         cd backend
         zip -r ../backend.zip .
         cd ..
 
-    - name: Copy artifact to instance over SSM (no S3)
-      env:
-        INSTANCE_ID: ${{ env.INSTANCE_ID }}
+    - name: Upload artifact to private S3 (encrypted)
       run: |
-        # Try ec2-user first; if SSH server is not present/runs as ubuntu, toggle USER
-        USERNAME="ec2-user"
-        # Create target directory
-        aws ssm send-command \
-          --document-name "AWS-RunShellScript" \
-          --instance-ids "$INSTANCE_ID" \
-          --region eu-central-1 \
-          --comment "Prepare deploy directories" \
-          --parameters commands='[
-            "sudo mkdir -p /opt/app /tmp/installation",
-            "sudo chown -R $(whoami):$(whoami) /tmp/installation"
-          ]' \
-          --output text > /dev/null
+        set -euo pipefail
+        KEY="backend/${GITHUB_SHA}.zip"
+        echo "ARTIFACT_KEY=$KEY" >> $GITHUB_ENV
+        aws s3 cp backend.zip "s3://$ARTIFACT_BUCKET/$KEY" --sse AES256
 
-        # Use scp over SSM (port forwarding via AWS-StartSSHSession). Requires sshd on the instance.
-        scp -o StrictHostKeyChecking=no \
-            -o UserKnownHostsFile=/dev/null \
-            -o ProxyCommand="aws ssm start-session --target ${INSTANCE_ID} --document-name AWS-StartSSHSession --parameters portNumber=22 2>/dev/null" \
-            backend.zip ${USERNAME}@${INSTANCE_ID}:/tmp/installation/backend.zip || (
-              # Fallback to ubuntu user
-              USERNAME="ubuntu"
-              scp -o StrictHostKeyChecking=no \
-                  -o UserKnownHostsFile=/dev/null \
-                  -o ProxyCommand="aws ssm start-session --target ${INSTANCE_ID} --document-name AWS-StartSSHSession --parameters portNumber=22 2>/dev/null" \
-                  backend.zip ${USERNAME}@${INSTANCE_ID}:/tmp/installation/backend.zip
-            )
-
-    - name: Render env from SSM and deploy
+    - name: Deploy on instance via SSM (download from S3, render .env from SSM)
       env:
         INSTANCE_ID: ${{ env.INSTANCE_ID }}
-        # Parameter names to read on the instance (SecureString in SSM Parameter Store)
+        ARTIFACT_BUCKET: ${{ env.ARTIFACT_BUCKET }}
+        ARTIFACT_KEY: ${{ env.ARTIFACT_KEY }}
         SSM_JWT_SECRET_PARAM: /nat20/backend/JWT_SECRET
         SSM_MONGO_USER_PARAM: /nat20/mongo/USER
         SSM_MONGO_PASS_PARAM: /nat20/mongo/PASSWORD
@@ -94,28 +104,31 @@ jobs:
           --document-name "AWS-RunShellScript" \
           --instance-ids "$INSTANCE_ID" \
           --region eu-central-1 \
-          --comment "Deploy backend app without S3; secrets pulled from SSM" \
-          --parameters commands="[
-            \"set -e\",
-            \"sudo mkdir -p /opt/app /tmp/installation\",
-            \"sudo chown -R $(whoami):$(whoami) /tmp/installation\",
-            \"unzip -o /tmp/installation/backend.zip -d /tmp/installation/\",
-            \"sudo bash -lc 'rm -rf /opt/app/* /opt/app/.* 2>/dev/null || true'\",
-            \"sudo mv /tmp/installation/app/* /opt/app || sudo mv /tmp/installation/* /opt/app || true\",
-            \"sudo mkdir -p /opt/app\",
-            \"# Render .env from SSM (avoid shipping secrets in artifact)\",
-            \"JWT_SECRET=$(aws ssm get-parameter --name ${SSM_JWT_SECRET_PARAM} --with-decryption --query Parameter.Value --output text)\",
-            \"MONGO_USER=$(aws ssm get-parameter --name ${SSM_MONGO_USER_PARAM} --with-decryption --query Parameter.Value --output text)\",
-            \"MONGO_PASS=$(aws ssm get-parameter --name ${SSM_MONGO_PASS_PARAM} --with-decryption --query Parameter.Value --output text)\",
-            \"echo \\\"JWT_SECRET=$JWT_SECRET\\\" | sudo tee /opt/app/.env >/dev/null\",
-            \"echo \\\"MONGO_URI=mongodb://$MONGO_USER:$MONGO_PASS@${MONGO_HOST}:${MONGO_PORT}\\\" | sudo tee -a /opt/app/.env >/dev/null\",
-            \"# Install deps and restart service\",
-            \"cd /opt/app && npm install --omit=dev || npm install\",
-            \"if [ -f /opt/app/scheduler.service ]; then sudo mv /opt/app/scheduler.service /etc/systemd/system/scheduler.service; fi\",
-            \"sudo systemctl daemon-reexec\",
-            \"sudo systemctl daemon-reload\",
-            \"sudo systemctl enable scheduler || true\",
-            \"sudo systemctl restart scheduler\"
+          --comment "Deploy backend app from private S3 artifact; secrets from SSM" \
+          --parameters commands="[ \
+            \"set -e\", \
+            \"sudo mkdir -p /opt/app /tmp/installation\", \
+            \"sudo chown -R $(whoami):$(whoami) /tmp/installation\", \
+            \"aws s3 cp s3://${ARTIFACT_BUCKET}/${ARTIFACT_KEY} /tmp/installation/backend.zip\", \
+            \"unzip -o /tmp/installation/backend.zip -d /tmp/installation/\", \
+            \"sudo bash -lc 'rm -rf /opt/app/* /opt/app/.* 2>/dev/null || true'\", \
+            \"sudo mv /tmp/installation/app/* /opt/app || sudo mv /tmp/installation/* /opt/app || true\", \
+            \"# Render .env from SSM (avoid shipping secrets in artifact)\", \
+            \"JWT_SECRET=$(aws ssm get-parameter --name ${SSM_JWT_SECRET_PARAM} --with-decryption --query Parameter.Value --output text)\", \
+            \"MONGO_USER=$(aws ssm get-parameter --name ${SSM_MONGO_USER_PARAM} --with-decryption --query Parameter.Value --output text)\", \
+            \"MONGO_PASS=$(aws ssm get-parameter --name ${SSM_MONGO_PASS_PARAM} --with-decryption --query Parameter.Value --output text)\", \
+            \"echo \\\"JWT_SECRET=$JWT_SECRET\\\" | sudo tee /opt/app/.env >/dev/null\", \
+            \"echo \\\"MONGO_URI=mongodb://$MONGO_USER:$MONGO_PASS@${MONGO_HOST}:${MONGO_PORT}?authSource=admin\\\" | sudo tee -a /opt/app/.env >/dev/null\", \
+            \"cd /opt/app && npm install --omit=dev || npm install\", \
+            \"if [ -f /opt/app/scheduler.service ]; then sudo mv /opt/app/scheduler.service /etc/systemd/system/scheduler.service; fi\", \
+            \"sudo systemctl daemon-reexec\", \
+            \"sudo systemctl daemon-reload\", \
+            \"sudo systemctl enable scheduler || true\", \
+            \"sudo systemctl restart scheduler\", \
+            \"# Clean up artifact from instance\", \
+            \"rm -f /tmp/installation/backend.zip\", \
+            \"# Clean up artifact from S3 (best-effort)\", \
+            \"aws s3 rm s3://${ARTIFACT_BUCKET}/${ARTIFACT_KEY} || true\" \
           ]" \
           --output text
 
