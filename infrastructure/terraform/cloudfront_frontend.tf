@@ -182,9 +182,9 @@ resource "aws_cloudfront_distribution" "frontend" {
   restrictions {
     geo_restriction {
       restriction_type = "none"
-    l  ocations        = []
-    }
+      locations        = []
   }
+}
 
   web_acl_id = aws_wafv2_web_acl.cf_frontend.arn
 
