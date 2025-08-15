@@ -14,11 +14,11 @@ dnf install -y nodejs
 # Utilities
 dnf install -y python3 python3-pip awscli jq
 
-# ---------- Discover region from IMDS (no hardcoding needed) ----------
+# ---------- Discover region from IMDS ----------
 AWS_REGION="$(curl -s http://169.254.169.254/latest/dynamic/instance-identity/document | jq -r .region)"
 
 # ---------- Read secrets from SSM Parameter Store (SecureString) ----------
-# Required SSM parameters (create & populate them beforehand):
+# Required SSM parameters (create & populate them in Terraform or manually):
 #   /nat20/mongo/HOST         -> private IP or private DNS of Mongo (inside VPC)
 #   /nat20/mongo/USER         -> Mongo username
 #   /nat20/mongo/PASSWORD     -> Mongo password

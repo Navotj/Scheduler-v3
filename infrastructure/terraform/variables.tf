@@ -37,4 +37,7 @@ variable "mongo_db_name" {
 variable "backend_instance_role_name" {
   description = "IAM role name attached to the backend EC2 instance profile"
   type        = string
+  # Set this to your actual backend EC2 role name (preferred),
+  # or leave it and pass via TF_VAR in the workflow as shown below.
+  default     = "REPLACE_WITH_YOUR_BACKEND_EC2_ROLE_NAME"
 }

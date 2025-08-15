@@ -138,3 +138,35 @@ resource "aws_iam_role_policy_attachment" "nat20_attach_backend_ssm_read" {
   role       = var.backend_instance_role_name
   policy_arn = aws_iam_policy.nat20_backend_ssm_read.arn
 }
+
+# Minimal SSM Parameter Store read for backend EC2 (add HOST and DB if not already present)
+resource "aws_iam_policy" "nat20_backend_ssm_read_hostdb" {
+  name        = "nat20-backend-ssm-read-hostdb"
+  description = "Allow backend EC2 to read SecureString params for Mongo HOST/DB and JWT"
+  policy      = jsonencode({
+    Version = "2012-10-17",
+    Statement = [
+      {
+        Sid    = "ReadMongoAndBackendParams",
+        Effect = "Allow",
+        Action = [
+          "ssm:GetParameter",
+          "ssm:GetParameters",
+          "ssm:GetParametersByPath"
+        ],
+        Resource = [
+          "arn:aws:ssm:eu-central-1:${data.aws_caller_identity.current.account_id}:parameter/nat20/mongo/HOST",
+          "arn:aws:ssm:eu-central-1:${data.aws_caller_identity.current.account_id}:parameter/nat20/mongo/DB",
+          "arn:aws:ssm:eu-central-1:${data.aws_caller_identity.current.account_id}:parameter/nat20/mongo/USER",
+          "arn:aws:ssm:eu-central-1:${data.aws_caller_identity.current.account_id}:parameter/nat20/mongo/PASSWORD",
+          "arn:aws:ssm:eu-central-1:${data.aws_caller_identity.current.account_id}:parameter/nat20/backend/JWT_SECRET"
+        ]
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "attach_backend_ssm_read_hostdb" {
+  role       = aws_iam_role.ssm_ec2_role.name
+  policy_arn = aws_iam_policy.nat20_backend_ssm_read_hostdb.arn
+}
