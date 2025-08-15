@@ -35,7 +35,6 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: eu-central-1
 
-      # Ensure remote state backend exists (S3 + DynamoDB)
       - name: Bootstrap remote state (S3+DDB)
         env:
           AWS_REGION: eu-central-1
@@ -60,7 +59,7 @@ jobs:
             }'
           fi
 
-          if ! aws dynamodb describe-table --table-name "$DDB_TABLE" >/dev/null 2>&1; then
+          if ! aws dynamodb describe-table --table-name "$DDB_TABLE" >/dev/null 2&> /dev/null; then
             aws dynamodb create-table \
               --table-name "$DDB_TABLE" \
               --attribute-definitions AttributeName=LockID,AttributeType=S \
@@ -74,19 +73,6 @@ jobs:
           TF_IN_AUTOMATION: "true"
         run: terraform init -reconfigure
 
-      # Optionally write a transient tfvars pointing to the *name* of the secret (NOT the secret value).
-      # This avoids injecting raw secret material; only the identifier is provided here.
-      - name: Write secret identifier tfvars
-        env:
-          CF_EDGE_KEY_SECRET_ID: ${{ secrets.CF_EDGE_KEY_SECRET_ID }}
-        run: |
-          set -euo pipefail
-          : "${CF_EDGE_KEY_SECRET_ID:?Set GitHub Secret CF_EDGE_KEY_SECRET_ID to the name or ARN of your Secrets Manager secret}"
-          cat > terraform.auto.tfvars <<EOF
-          cloudfront_backend_edge_key_secret_id = "${CF_EDGE_KEY_SECRET_ID}"
-          EOF
-
-      # Import pre-existing deploy artifacts bucket so TF can own it
       - name: Import deploy artifacts bucket (if exists)
         id: import_artifacts_bucket
         env:
@@ -122,8 +108,3 @@ jobs:
         env:
           TF_IN_AUTOMATION: "true"
         run: terraform apply -auto-approve -input=false
-
-      # Clean up the transient tfvars file so it doesn't persist in artifacts
-      - name: Cleanup tfvars
-        if: always()
-        run: rm -f terraform.auto.tfvars

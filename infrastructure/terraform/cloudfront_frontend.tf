@@ -66,7 +66,7 @@ resource "aws_cloudfront_distribution" "frontend" {
     # Secret header enforced by WAF on the ALB
     custom_header {
       name  = "X-EDGE-KEY"
-      value = var.cloudfront_backend_edge_key
+      value = local.cloudfront_backend_edge_key_value
     }
   }
 
@@ -185,7 +185,7 @@ resource "aws_cloudfront_distribution" "frontend" {
       locations        = []
     }
   }
-  
+
   web_acl_id = aws_wafv2_web_acl.cf_frontend.arn
 
   depends_on = [aws_acm_certificate_validation.frontend]
