@@ -1,6 +1,12 @@
+############################################################
+# WAFv2 Web ACL for CloudFront Frontend
+############################################################
+
 resource "aws_wafv2_web_acl" "frontend" {
+  provider = aws.us_east_1
+
   name        = "nat20-frontend-cf-waf"
-  description = "WAF for CloudFront frontend distribution"
+  description = "WAF for nat20 frontend CloudFront distribution"
   scope       = "CLOUDFRONT"
 
   default_action {
@@ -9,12 +15,12 @@ resource "aws_wafv2_web_acl" "frontend" {
 
   visibility_config {
     cloudwatch_metrics_enabled = true
-    metric_name                = "nat20FrontendWebACL"
+    metric_name                = "nat20-frontend-waf"
     sampled_requests_enabled   = true
   }
 
   rule {
-    name     = "AWS-AWSManagedRulesCommonRuleSet"
+    name     = "AWSManagedRulesCommonRuleSet"
     priority = 1
 
     override_action {
@@ -36,7 +42,7 @@ resource "aws_wafv2_web_acl" "frontend" {
   }
 
   rule {
-    name     = "AWS-AWSManagedRulesAmazonIpReputationList"
+    name     = "AWSManagedRulesAmazonIpReputationList"
     priority = 2
 
     override_action {
