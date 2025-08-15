@@ -2,7 +2,7 @@
 # CloudFront Distribution (Frontend + API via ALB)
 # - S3 (OAC) for static site
 # - Routes /auth/*, /availability/*, /users/*, /settings, /__debug/* to ALB
-# - No caching on API; forward cookies/headers/query
+# - No caching on API; forward cookies/headers/query via Origin Request Policy
 ###############################################
 
 resource "aws_cloudfront_origin_access_control" "s3_oac" {
@@ -17,13 +17,31 @@ resource "aws_cloudfront_origin_access_control" "s3_oac" {
 # Policies
 # ====================
 
-# No-cache policy for API (no parameters in cache key when caching is disabled)
+# No-cache policy for API
 resource "aws_cloudfront_cache_policy" "api_no_cache" {
   name        = "nat20-api-no-cache"
   comment     = "No caching for API responses"
   min_ttl     = 0
   default_ttl = 0
   max_ttl     = 0
+
+  # Required block in provider schema; set all to "none" to keep cache key empty.
+  parameters_in_cache_key_and_forwarded_to_origin {
+    enable_accept_encoding_brotli = false
+    enable_accept_encoding_gzip   = true
+
+    headers_config {
+      header_behavior = "none"
+    }
+
+    cookies_config {
+      cookie_behavior = "none"
+    }
+
+    query_strings_config {
+      query_string_behavior = "none"
+    }
+  }
 }
 
 # Forward everything the API needs at the origin request stage
@@ -187,4 +205,13 @@ resource "aws_cloudfront_distribution" "frontend" {
   }
 
   depends_on = [aws_acm_certificate_validation.frontend]
+}
+
+# Secret for X-EDGE-KEY header used by ALB/WAF validation
+data "aws_secretsmanager_secret" "cloudfront_backend_edge_key" {
+  name = aws_secretsmanager_secret.cloudfront_backend_edge_key.name
+}
+
+data "aws_secretsmanager_secret_version" "cloudfront_backend_edge_key" {
+  secret_id = data.aws_secretsmanager_secret.cloudfront_backend_edge_key.id
 }
