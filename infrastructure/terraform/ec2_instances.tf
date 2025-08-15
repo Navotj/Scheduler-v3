@@ -28,7 +28,15 @@ resource "aws_instance" "backend" {
   key_name               = "terraform-ec2"
   iam_instance_profile   = aws_iam_instance_profile.ssm_ec2_profile.name
 
-  user_data = templatefile("${path.module}/backend_install.sh.tmpl", {})
+  # REPLACE the existing user_data assignment with:
+  user_data = templatefile("${path.module}/backend_install.sh.tmpl", {
+    MONGO_USER = var.mongo_user
+    MONGO_PASS = var.mongo_password
+    MONGO_HOST = var.mongo_host
+    MONGO_DB   = var.mongo_db
+    JWT_SECRET = var.jwt_secret
+    MONGO_URI  = "mongodb://${var.mongo_user}:${var.mongo_password}@${var.mongo_host}:27017/${var.mongo_db}?authSource=admin&replicaSet=rs0"
+  })
 
   tags = { Name = "terraform-backend" }
 
