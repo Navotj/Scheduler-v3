@@ -1,92 +1,104 @@
+// Core server setup for Nat20 Scheduling backend (HTTPS behind CloudFront/ALB)
 const express = require('express');
 const cors = require('cors');
 const mongoose = require('mongoose');
 const cookieParser = require('cookie-parser');
 require('dotenv').config();
 
-const authRoutes = require('./routes/auth');
-const availabilityRoutes = require('./routes/availability');
-const settingsRoutes = require('./routes/settings');
-const usersRoutes = require('./routes/users');
-
-// Load models that need indexes created
-const Availability = require('./models/availability');
+const authRoutes = require('./auth');                 // exposes /login, /check, /logout
+const availabilityRoutes = require('./availability'); // exposes /availability/*
+const settingsRoutes = require('./settings');         // exposes /settings GET/POST
+const usersRoutes = require('./users');               // exposes /users/*
 
 const app = express();
 
-// add (or ensure) once near app creation:
+/* IMPORTANT: we are behind ALB/CloudFront; trust proxy so Express respects X-Forwarded-Proto */
 app.set('trust proxy', true);
 
-// replace your current CORS middleware with:
+/* CORS: lock to your public site only */
 app.use(cors({
   origin: ['https://www.nat20scheduling.com', 'https://nat20scheduling.com'],
   credentials: true
 }));
 
+app.use(express.json());
+app.use(cookieParser());
 
-/**
- * Enforce explicit MONGO_URI to avoid accidental use of deprecated/public hosts.
- * The value is provisioned by Terraform/user_data via SSM into .env on the instance.
- */
+/* ===== MongoDB connection =====
+   MONGO_URI is generated on the instance by user_data from SSM and written to /opt/nat20/backend/.env
+   Fail fast if it's missing to avoid accidental public defaults.
+*/
 const MONGO_URI = process.env.MONGO_URI;
 if (!MONGO_URI) {
   console.error('FATAL: MONGO_URI is required but not set. Refusing to start.');
   process.exit(1);
 }
-
 const DB_NAME = process.env.MONGO_DB_NAME || 'nat20';
-const COLLECTION_NAME = process.env.MONGO_COLLECTION || 'people';
 
 mongoose.connect(MONGO_URI, {
   dbName: DB_NAME,
   useNewUrlParser: true,
   useUnifiedTopology: true
-}).then(async () => {
-  console.log(`Connected to MongoDB`);
-  // Ensure indexes exist in production too
-  try {
-    await Availability.syncIndexes();
-    console.log('Availability indexes synced');
-  } catch (e) {
-    console.error('Failed to sync Availability indexes:', e);
-  }
+}).then(() => {
+  console.log('Connected to MongoDB');
 }).catch((err) => {
   console.error('Failed to connect to MongoDB:', err);
   process.exit(1);
 });
 
-// Health check for ALB
-app.get('/health', (_req, res) => {
-  res.status(200).json({ ok: true });
+/* ===== Temporary request logger (remove after debugging) ===== */
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    const ms = Date.now() - start;
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl} -> ${res.statusCode} (${ms}ms)`);
+  });
+  next();
 });
 
+/* Health check for ALB */
+app.get('/health', (_req, res) => res.status(200).json({ ok: true }));
+
+/* Routes
+   NOTE: We mount authRoutes both at root and /auth to support existing callers of /login and /auth/check.
+*/
 app.use(authRoutes);
-// Mount availability router under /availability so endpoints are /availability/get, /availability/save, /availability/get_many
+app.use('/auth', authRoutes);
 app.use('/availability', availabilityRoutes);
-app.use(settingsRoutes);
-// users routes (username existence check)
-app.use('/users', usersRoutes);
+app.use(settingsRoutes);           // provides /settings
+app.use('/users', usersRoutes);    // provides /users/*
 
-// legacy test endpoint
-const personSchema = new mongoose.Schema({
-  name: String
-}, { collection: COLLECTION_NAME });
+/* ===== Temporary debug endpoints (remove once stable) ===== */
+app.all('/__debug/echo', (req, res) => {
+  res.json({
+    ok: true,
+    method: req.method,
+    url: req.originalUrl,
+    headers: req.headers,
+    cookies: req.cookies || {},
+    time: new Date().toISOString()
+  });
+});
 
-const Person = mongoose.model('Person', personSchema);
-
-app.post('/query', async (req, res) => {
+app.get('/__debug/dbping', async (_req, res) => {
   try {
-    const { name } = req.body;
-    if (!name) return res.status(400).json({ error: 'Name required' });
-
-    const result = await Person.findOne({ name }).lean();
-    res.json(result || {});
-  } catch (err) {
-    console.error('Query error:', err);
-    res.status(500).json({ error: 'Query failed', detail: err.message });
+    const admin = mongoose.connection.getClient().db().admin();
+    const out = await admin.ping();
+    res.json({ ok: true, mongo: out });
+  } catch (e) {
+    console.error('[dbping] error', e);
+    res.status(500).json({ ok: false, error: e.message });
   }
 });
 
-app.listen(3000, () => {
-  console.log('Backend listening on port 3000');
+/* Final error handler (server logs only; generic message to clients) */
+app.use((err, _req, res, _next) => {
+  console.error('[express:error]', err && err.stack ? err.stack : err);
+  res.status(500).json({ error: 'internal server error' });
+});
+
+/* Start server */
+const PORT = Number(process.env.PORT || 3000);
+app.listen(PORT, () => {
+  console.log(`Backend listening on port ${PORT}`);
 });

@@ -11,7 +11,6 @@ window.initLoginForm = function () {
     errorDisplay.style.color = '#f55';
 
     try {
-      // 1) attempt login
       const res = await fetch('/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -25,26 +24,20 @@ window.initLoginForm = function () {
         return;
       }
 
-      // 2) confirm session cookie actually present
-      const check = await fetch('/auth/check', {
-        credentials: 'include',
-        cache: 'no-cache'
-      });
-
+      const check = await fetch('/auth/check', { credentials: 'include', cache: 'no-cache' });
       if (!check.ok) {
         errorDisplay.textContent = 'Login failed (no session)';
         return;
       }
 
-      // 3) only now show success / update UI
       errorDisplay.style.color = '#0f0';
       errorDisplay.textContent = '✅ Sign-in successful. Loading...';
       setTimeout(() => {
         if (window.closeModal) window.closeModal();
         if (window.setAuthState) window.setAuthState(true, username);
-        // location.reload(); // uncomment if you prefer a full refresh
       }, 600);
-    } catch {
+    } catch (err) {
+      console.error('[login] exception', err);
       errorDisplay.textContent = 'Connection error';
     }
   });
