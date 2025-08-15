@@ -1,8 +1,7 @@
 ###############################################
 # IAM for EC2 (SSM + SSM Parameter access + S3 artifact read)
+# NOTE: data.aws_caller_identity.current is defined in data_sources.tf
 ###############################################
-
-data "aws_caller_identity" "current" {}
 
 resource "aws_iam_role" "ssm_ec2_role" {
   name = "nat20-ec2-ssm-role"
@@ -22,6 +21,7 @@ resource "aws_iam_instance_profile" "ssm_ec2_profile" {
   role = aws_iam_role.ssm_ec2_role.name
 }
 
+# Base SSM access for Session Manager, inventory, etc.
 resource "aws_iam_role_policy_attachment" "attach_ssm_core" {
   role       = aws_iam_role.ssm_ec2_role.name
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
