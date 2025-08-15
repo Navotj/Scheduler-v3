@@ -172,8 +172,7 @@ resource "aws_cloudfront_distribution" "frontend" {
     geo_restriction { restriction_type = "none" }
   }
 
-  # Attach WAF only if a name was provided
-  web_acl_id = length(var.frontend_waf_name) > 0 ? data.aws_wafv2_web_acl.frontend[0].arn : null
+  web_acl_id = aws_wafv2_web_acl.frontend.arn
 
   aliases = [var.domain_name]
 

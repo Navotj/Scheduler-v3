@@ -4,10 +4,17 @@
 
 resource "aws_wafv2_web_acl" "frontend" {
   name        = "nat20-frontend-cf-waf"
-  description = "WAF for CloudFront frontend distribution"
+  description = "WAF for CloudFront distribution"
   scope       = "CLOUDFRONT"
+
   default_action {
     allow {}
+  }
+
+  visibility_config {
+    cloudwatch_metrics_enabled = true
+    metric_name                = "nat20-frontend-cf-waf"
+    sampled_requests_enabled   = true
   }
 
   rule {
@@ -24,20 +31,8 @@ resource "aws_wafv2_web_acl" "frontend" {
     }
     visibility_config {
       cloudwatch_metrics_enabled = true
-      metric_name                = "frontend-commonrules"
+      metric_name                = "AWSManagedRulesCommonRuleSet"
       sampled_requests_enabled   = true
     }
   }
-
-  visibility_config {
-    cloudwatch_metrics_enabled = true
-    metric_name                = "frontend"
-    sampled_requests_enabled   = true
-  }
-}
-
-# Associate the WAF with your CloudFront distribution
-resource "aws_wafv2_web_acl_association" "frontend_cf" {
-  resource_arn = aws_cloudfront_distribution.frontend.arn
-  web_acl_arn  = aws_wafv2_web_acl.frontend.arn
 }
