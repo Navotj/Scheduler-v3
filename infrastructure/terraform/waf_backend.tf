@@ -1,31 +1,53 @@
 ###############################################
-# WAFv2 for ALB: Require secret header from CloudFront
+# WAFv2 (REGIONAL) for the backend ALB
+# - Blocks all requests by default
+# - Allows only requests that carry the exact X-EDGE-KEY header value
+# - Attach to the ALB
+#
+# NOTE:
+# - Do NOT redeclare variables here. "cloudfront_backend_edge_key"
+#   must already exist in variables.tf
+# - Make sure the ALB resource name below matches your ALB (aws_lb.backend)
 ###############################################
-
-# Secret passed from CloudFront to ALB via custom header
-variable "cloudfront_backend_edge_key" {
-  description = "Shared secret header value that CloudFront sends to ALB"
-  type        = string
-}
 
 resource "aws_wafv2_web_acl" "backend_alb" {
   name        = "nat20-backend-alb-waf"
-  description = "Only allow requests with X-EDGE-KEY header; block all others"
+  description = "Allow only CloudFront with secret header"
   scope       = "REGIONAL"
 
-  default_action { block {} }
+  # Block everything by default
+  default_action {
+    block {
+    }
+  }
 
+  # Allow when X-EDGE-KEY header matches var.cloudfront_backend_edge_key
   rule {
     name     = "AllowWithSecretHeader"
     priority = 1
-    action { allow {} }
+
+    action {
+      allow {
+      }
+    }
 
     statement {
       byte_match_statement {
         search_string = var.cloudfront_backend_edge_key
-        field_to_match { single_header { name = "x-edge-key" } }
+
+        field_to_match {
+          single_header {
+            # Header names must be lowercase per AWS docs
+            name = "x-edge-key"
+          }
+        }
+
         positional_constraint = "EXACTLY"
-        text_transformation { priority = 0, type = "NONE" }
+
+        text_transformation {
+          priority = 0
+          type     = "NONE"
+        }
       }
     }
 
@@ -43,8 +65,9 @@ resource "aws_wafv2_web_acl" "backend_alb" {
   }
 }
 
-# Associate WAF with the ALB
+# Associate the WAF ACL with the backend ALB
+# Make sure this references the correct ALB resource in your codebase.
 resource "aws_wafv2_web_acl_association" "backend_alb_assoc" {
-  resource_arn = aws_lb.api.arn
+  resource_arn = aws_lb.backend.arn
   web_acl_arn  = aws_wafv2_web_acl.backend_alb.arn
 }
