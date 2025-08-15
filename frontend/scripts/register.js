@@ -7,6 +7,7 @@ window.initRegisterForm = function () {
   const lengthWarning = document.getElementById('length-warning');
   const complexityWarning = document.getElementById('complexity-warning');
   const usernameWarning = document.getElementById('username-warning');
+  const errorDisplay = document.getElementById('error');
 
   let passwordStarted = false;
   let usernameStarted = false;
@@ -73,9 +74,8 @@ window.initRegisterForm = function () {
   document.getElementById('register-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const email = document.getElementById('email').value;
-    const username = usernameInput.value;
+    const username = usernameInput.value.trim();
     const password = passwordInput.value;
-    const errorDisplay = document.getElementById('error');
 
     const valid =
       checkPasswordsMatch() &
@@ -89,21 +89,24 @@ window.initRegisterForm = function () {
     }
 
     try {
-      const res = await fetch('/register', {
+      // Use /auth/register so it hits the same router
+      const res = await fetch('/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({ email, username, password })
       });
 
-      if (res.ok) {
-        window.swapModal('/pages/login.html');
-      } else {
-        const data = await res.json();
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
         errorDisplay.textContent = data.error || 'Registration failed';
+        return;
       }
+
+      // After register, either auto-open login or auto-login. Here we open login.
+      window.swapModal('/pages/login.html');
     } catch (err) {
       errorDisplay.textContent = 'Connection error';
     }
   });
-}
+};

@@ -3,8 +3,34 @@ const router = express.Router();
 const { body } = require('express-validator');
 const userModel = require('./user');
 const { generateToken, verifyToken } = require('./jwt');
+const cookieDomain = '.nat20scheduling.com';
 
-// login and set jwt cookie
+// REGISTER
+router.post(
+  '/register',
+  body('email').isEmail(),
+  body('username').isString().notEmpty(),
+  body('password').isString().isLength({ min: 6 }),
+  async (req, res) => {
+    try {
+      const { email, username, password } = req.body;
+
+      const existing = await userModel.findOne({ username }).lean();
+      if (existing) return res.status(409).json({ error: 'username already exists' });
+
+      const user = new userModel({ email, username });
+      await user.setPassword(password);
+      await user.save();
+
+      return res.json({ success: true });
+    } catch (err) {
+      console.error('Register error:', err);
+      return res.status(500).json({ error: 'internal server error' });
+    }
+  }
+);
+
+// LOGIN
 router.post(
   '/login',
   body('username').isString().notEmpty(),
@@ -18,7 +44,6 @@ router.post(
       }
 
       const token = generateToken(user);
-
       const secure = String(process.env.COOKIE_SECURE).toLowerCase() === 'true';
 
       res.cookie('token', token, {
@@ -26,11 +51,14 @@ router.post(
         sameSite: 'Lax',
         secure: secure,
         path: '/',
-        domain: '.nat20scheduling.com',
-        maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+        domain: cookieDomain,
+        maxAge: 7 * 24 * 60 * 60 * 1000
       });
 
-      return res.json({ success: true });
+      return res.json({
+        success: true,
+        user: { username: user.username, id: String(user._id || '') }
+      });
     } catch (err) {
       console.error('Login error:', err);
       return res.status(500).json({ error: 'internal server error' });
@@ -38,25 +66,23 @@ router.post(
   }
 );
 
-// check session
+// CHECK
 router.get('/check', async (req, res) => {
   try {
     const token = req.cookies.token;
-    if (!token) {
-      return res.status(401).json({ error: 'no session' });
-    }
+    if (!token) return res.status(401).json({ error: 'no session' });
+
     const decoded = verifyToken(token);
-    if (!decoded) {
-      return res.status(401).json({ error: 'invalid token' });
-    }
-    return res.json({ success: true, user: decoded });
+    if (!decoded) return res.status(401).json({ error: 'invalid token' });
+
+    return res.json({ success: true, user: { username: decoded.username, id: decoded.id } });
   } catch (err) {
     console.error('Auth check error:', err);
     return res.status(500).json({ error: 'internal server error' });
   }
 });
 
-// logout and clear cookie
+// LOGOUT
 router.post('/logout', (req, res) => {
   try {
     res.clearCookie('token', {
@@ -64,7 +90,7 @@ router.post('/logout', (req, res) => {
       sameSite: 'Lax',
       secure: String(process.env.COOKIE_SECURE).toLowerCase() === 'true',
       path: '/',
-      domain: '.nat20scheduling.com'
+      domain: cookieDomain
     });
     return res.json({ success: true });
   } catch (err) {

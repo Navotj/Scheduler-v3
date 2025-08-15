@@ -13,7 +13,7 @@ window.initLoginForm = function () {
     errorDisplay.style.color = '#f55';
 
     try {
-      // Always hit API origin path so CloudFront routes to the backend
+      // 1) attempt login (same-origin; CloudFront routes to backend)
       const res = await fetch('/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -27,7 +27,7 @@ window.initLoginForm = function () {
         return;
       }
 
-      // Verify a real session cookie exists (prevents false positives)
+      // 2) confirm the session cookie exists
       const check = await fetch('/auth/check', { credentials: 'include', cache: 'no-cache' });
       if (!check.ok) {
         errorDisplay.textContent = 'Login failed (no session)';
