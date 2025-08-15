@@ -1,5 +1,13 @@
 #!/bin/bash
 set -euxo pipefail
+#
+# NOTE:
+# - This template intentionally uses **no** Terraform variables (no ${...} tokens),
+#   so ec2_instances.tf can call: templatefile("${path.module}/mongo_install.sh.tmpl", {})
+# - MongoDB credentials are fetched at runtime from AWS SSM Parameter Store.
+# - Any explanation about “user not being passed”:
+#     Previously the template referenced ${user} but ec2_instances.tf called templatefile with {} (empty vars map).
+#     This version removes that dependency entirely, so nothing needs to be passed.
 
 # Log all output for debug
 exec > >(tee /var/log/user_data.log | logger -t user-data -s 2>/dev/console) 2>&1
@@ -68,16 +76,20 @@ if ! command -v aws >/dev/null 2>&1; then
   dnf install -y awscli
 fi
 
+AWS_REGION="eu-central-1"
+SSM_USER_PARAM="/nat20/mongo/USER"
+SSM_PASS_PARAM="/nat20/mongo/PASSWORD"
+
 # Read credentials from SSM (SecureString)
-S3_MONGO_USER="$(aws ssm get-parameter --name "/nat20/mongo/USER" --with-decryption --query 'Parameter.Value' --output text --region eu-central-1)"
-S3_MONGO_PASS="$(aws ssm get-parameter --name "/nat20/mongo/PASSWORD" --with-decryption --query 'Parameter.Value' --output text --region eu-central-1)"
+S3_MONGO_USER="$(aws ssm get-parameter --name "$SSM_USER_PARAM" --with-decryption --query 'Parameter.Value' --output text --region "$AWS_REGION")"
+S3_MONGO_PASS="$(aws ssm get-parameter --name "$SSM_PASS_PARAM" --with-decryption --query 'Parameter.Value' --output text --region "$AWS_REGION")"
 
 if [ -z "$S3_MONGO_USER" ] || [ -z "$S3_MONGO_PASS" ]; then
-  echo "ERROR: Missing SSM parameters /nat20/mongo/USER or /nat20/mongo/PASSWORD" >&2
+  echo "ERROR: Missing SSM parameters $SSM_USER_PARAM or $SSM_PASS_PARAM" >&2
   exit 1
 fi
 
-# Create user idempotently using a JS file (avoid ${...} so Terraform doesn't try to template)
+# Create user idempotently using a JS file (no Terraform interpolation inside)
 cat >/tmp/create_app_user.js <<'JS'
 var user = (_getEnv("S3_MONGO_USER") || "").trim();
 var pass = (_getEnv("S3_MONGO_PASS") || "").trim();
