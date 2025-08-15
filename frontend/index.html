@@ -70,24 +70,30 @@
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 3000);
       try {
-        const res = await fetch('/check', {
+        const res = await fetch('/auth/check', {
           credentials: 'include',
           cache: 'no-cache',
           signal: controller.signal
         });
-        console.log('[DEBUG] /check status:', res.status);
+        console.log('[DEBUG] /auth/check status:', res.status);
+
+        // Only mark authenticated if payload is { success: true, user: {...} }
+        let data = null;
         if (res.status === 200) {
-          const data = await res.json().catch(() => ({}));
-          console.log('[DEBUG] /check data:', data);
+          data = await res.json().catch(() => null);
+          console.log('[DEBUG] /auth/check data:', data);
+        }
+
+        const ok = !!(data && data.success === true && data.user && (data.user.username || data.user.name));
+        if (ok) {
           isAuthenticated = true;
-          currentUsername = data.username || 'user';
+          currentUsername = data.user.username || data.user.name || '';
         } else {
-          console.warn('[DEBUG] /check non-200');
           isAuthenticated = false;
           currentUsername = null;
         }
       } catch (err) {
-        console.error('[DEBUG] /check error:', err);
+        console.error('[DEBUG] /auth/check error:', err);
         isAuthenticated = false;
         currentUsername = null;
       } finally {
