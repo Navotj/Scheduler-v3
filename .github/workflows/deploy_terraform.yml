@@ -18,6 +18,10 @@ jobs:
       run:
         shell: bash
         working-directory: infrastructure/terraform
+    env:
+      TF_IN_AUTOMATION: "true"
+      TF_VAR_backend_alb_name: ${{ vars.BACKEND_ALB_NAME }}
+      TF_VAR_frontend_waf_name: ${{ vars.FRONTEND_WAF_NAME }}
 
     steps:
       - name: Checkout
