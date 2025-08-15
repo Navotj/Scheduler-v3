@@ -54,57 +54,43 @@
   <script src="/scripts/login.js"></script>
   <script src="/scripts/register.js"></script>
   <script>
-    // ===== Global debug hooks =====
-    window.addEventListener('error', (e) => {
-      console.error('[DEBUG][window:error]', e.message, e.filename, e.lineno, e.colno);
-    });
-    window.addEventListener('unhandledrejection', (e) => {
-      console.error('[DEBUG][promise:unhandled]', e.reason);
-    });
-
     let isAuthenticated = false;
     let currentUsername = null;
 
     async function checkAuth() {
-      console.log('[DEBUG] checkAuth() start');
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 3000);
+      const t = setTimeout(() => controller.abort(), 3000);
       try {
+        // Always use /auth/* so CloudFront sends to backend
         const res = await fetch('/auth/check', {
           credentials: 'include',
           cache: 'no-cache',
           signal: controller.signal
         });
-        console.log('[DEBUG] /auth/check status:', res.status);
 
-        // Only mark authenticated if payload is { success: true, user: {...} }
         let data = null;
-        if (res.status === 200) {
+        if (res.ok) {
           data = await res.json().catch(() => null);
-          console.log('[DEBUG] /auth/check data:', data);
         }
 
-        const ok = !!(data && data.success === true && data.user && (data.user.username || data.user.name));
+        const ok = !!(data && (data.success === true || data.username || (data.user && data.user.username)));
         if (ok) {
           isAuthenticated = true;
-          currentUsername = data.user.username || data.user.name || '';
+          currentUsername = (data.user && data.user.username) || data.username || '';
         } else {
           isAuthenticated = false;
           currentUsername = null;
         }
-      } catch (err) {
-        console.error('[DEBUG] /auth/check error:', err);
+      } catch {
         isAuthenticated = false;
         currentUsername = null;
       } finally {
-        clearTimeout(timeout);
+        clearTimeout(t);
       }
       updateAuthUI();
-      console.log('[DEBUG] checkAuth() end');
     }
 
     function updateAuthUI() {
-      console.log('[DEBUG] updateAuthUI()', { isAuthenticated, currentUsername });
       const userLabel = document.getElementById('user-label');
       const authButton = document.getElementById('auth-button');
 
@@ -121,73 +107,50 @@
     }
 
     async function logout() {
-      console.log('[DEBUG] logout() start');
       try {
-        const res = await fetch('/logout', {
+        await fetch('/auth/logout', {
           method: 'POST',
           credentials: 'include'
         });
-        console.log('[DEBUG] /logout status:', res.status);
-      } catch (err) {
-        console.error('[DEBUG] /logout error:', err);
-      }
+      } catch {}
       isAuthenticated = false;
       currentUsername = null;
       updateAuthUI();
-      console.log('[DEBUG] logout() end');
     }
 
     function runModalInit(path) {
-      console.log('[DEBUG] runModalInit()', path);
       if (path.includes('register.html') && window.initRegisterForm) {
-        console.log('[DEBUG] initRegisterForm()');
         window.initRegisterForm();
       } else if (path.includes('login.html') && window.initLoginForm) {
-        console.log('[DEBUG] initLoginForm()');
         window.initLoginForm();
-      } else {
-        console.log('[DEBUG] No init function for', path);
       }
     }
 
     function openModal(path) {
-      console.log('[DEBUG] openModal()', path);
       const overlay = document.getElementById('modal-overlay');
       const container = document.getElementById('modal-container');
-      fetch(path)
-        .then(res => {
-          console.log('[DEBUG] openModal fetch status:', res.status, 'for', path);
-          return res.text();
-        })
+      fetch(path, { cache: 'no-cache' })
+        .then(res => res.text())
         .then(html => {
-          console.log('[DEBUG] openModal injecting HTML from', path);
           container.innerHTML = html;
           overlay.style.display = 'flex';
           document.body.classList.add('modal-active');
           runModalInit(path);
-        })
-        .catch(err => console.error('[DEBUG] openModal error:', err));
+        });
     }
 
     function swapModal(path) {
-      console.log('[DEBUG] swapModal()', path);
       const container = document.getElementById('modal-container');
-      fetch(path)
-        .then(res => {
-          console.log('[DEBUG] swapModal fetch status:', res.status, 'for', path);
-          return res.text();
-        })
+      fetch(path, { cache: 'no-cache' })
+        .then(res => res.text())
         .then(html => {
-          console.log('[DEBUG] swapModal injecting HTML from', path);
           container.innerHTML = html;
           document.body.classList.add('modal-active');
           runModalInit(path);
-        })
-        .catch(err => console.error('[DEBUG] swapModal error:', err));
+        });
     }
 
     function closeModal() {
-      console.log('[DEBUG] closeModal()');
       const overlay = document.getElementById('modal-overlay');
       const container = document.getElementById('modal-container');
       overlay.style.display = 'none';
@@ -202,23 +165,18 @@
 
     // let login.js update this page after successful sign-in
     window.setAuthState = function(authenticated, username) {
-      console.log('[DEBUG] setAuthState()', authenticated, username);
       isAuthenticated = !!authenticated;
       currentUsername = authenticated ? username : null;
       updateAuthUI();
     };
 
     document.getElementById('open-auth').addEventListener('click', () => {
-      console.log('[DEBUG] open-auth click; isAuthenticated=', isAuthenticated);
       if (isAuthenticated) return;
       openModal('/pages/login.html');
     });
 
     document.getElementById('year').textContent = new Date().getFullYear();
-    document.addEventListener('DOMContentLoaded', () => {
-      console.log('[DEBUG] DOMContentLoaded -> checkAuth()');
-      checkAuth();
-    });
+    document.addEventListener('DOMContentLoaded', checkAuth);
   </script>
 </body>
 </html>

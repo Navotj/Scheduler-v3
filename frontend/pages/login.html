@@ -4,67 +4,25 @@
   <meta charset="UTF-8" />
   <title>Login</title>
   <link rel="stylesheet" href="../styles/styles.css" />
-  <script>
-    document.addEventListener("DOMContentLoaded", () => {
-      console.log("[DEBUG] login.html DOM loaded");
-
-      const form = document.getElementById("login-form");
-      if (!form) {
-        console.error("[DEBUG] login.html could not find #login-form");
-        return;
-      }
-
-      form.addEventListener("submit", async (e) => {
-        e.preventDefault();
-        console.log("[DEBUG] Login form submitted");
-
-        const username = document.getElementById("username").value;
-        const password = document.getElementById("password").value;
-        console.log("[DEBUG] Username entered:", username);
-        console.log("[DEBUG] Password length:", password.length);
-
-        try {
-          console.log("[DEBUG] Sending login fetch request…");
-          const res = await fetch("/auth/login", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ username, password }),
-            credentials: "include"
-          });
-
-          console.log("[DEBUG] Fetch response status:", res.status);
-          const data = await res.json().catch(() => {
-            console.error("[DEBUG] Failed to parse JSON response");
-            return {};
-          });
-          console.log("[DEBUG] Response JSON:", data);
-
-          if (data.success) {
-            console.log("[DEBUG] Login successful, redirecting…");
-            window.location.href = "/pages/settings.html";
-          } else {
-            console.warn("[DEBUG] Login failed:", data.error);
-            document.getElementById("error").textContent = data.error || "Login failed";
-          }
-        } catch (err) {
-          console.error("[DEBUG] Error in fetch:", err);
-          document.getElementById("error").textContent = "Network error";
-        }
-      });
-    });
-  </script>
 </head>
 <body>
   <h1>Login</h1>
+
   <form id="login-form">
     <label for="username">Username:</label><br />
-    <input type="text" id="username" required /><br />
+    <input type="text" id="username" autocomplete="username" required /><br />
+
     <label for="password">Password:</label><br />
-    <input type="password" id="password" required /><br />
+    <input type="password" id="password" autocomplete="current-password" required /><br />
+
     <button type="submit">Login</button>
   </form>
+
   <p id="error" style="color:red; min-height: 1.2em;"></p>
-  <p>Don't have an account? <a href="#" onclick="window.swapModal('/pages/register.html'); return false;">Register here</a></p>
-  <p><a href="#" onclick="window.closeModal(); return false;">Cancel</a></p>
+
+  <p>Don't have an account?
+    <a href="#" onclick="window.swapModal && window.swapModal('/pages/register.html'); return false;">Register here</a>
+  </p>
+  <p><a href="#" onclick="window.closeModal && window.closeModal(); return false;">Cancel</a></p>
 </body>
 </html>
