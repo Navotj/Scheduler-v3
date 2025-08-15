@@ -1,13 +1,5 @@
 #!/bin/bash
 set -euxo pipefail
-#
-# NOTE:
-# - This template intentionally uses **no** Terraform variables (no ${...} tokens),
-#   so ec2_instances.tf can call: templatefile("${path.module}/mongo_install.sh.tmpl", {})
-# - MongoDB credentials are fetched at runtime from AWS SSM Parameter Store.
-# - Any explanation about “user not being passed”:
-#     Previously the template referenced ${user} but ec2_instances.tf called templatefile with {} (empty vars map).
-#     This version removes that dependency entirely, so nothing needs to be passed.
 
 # Log all output for debug
 exec > >(tee /var/log/user_data.log | logger -t user-data -s 2>/dev/console) 2>&1
@@ -89,7 +81,7 @@ if [ -z "$S3_MONGO_USER" ] || [ -z "$S3_MONGO_PASS" ]; then
   exit 1
 fi
 
-# Create user idempotently using a JS file (no Terraform interpolation inside)
+# Create user idempotently using a JS file
 cat >/tmp/create_app_user.js <<'JS'
 var user = (_getEnv("S3_MONGO_USER") || "").trim();
 var pass = (_getEnv("S3_MONGO_PASS") || "").trim();
