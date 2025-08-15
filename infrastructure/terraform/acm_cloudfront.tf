@@ -4,11 +4,7 @@
 # "for_each keys unknown until apply" planner errors.
 ############################################################
 
-# Use the us-east-1 provider for CloudFront certs
-provider "aws" {
-  alias  = "us_east_1"
-  region = "us-east-1"
-}
+# NOTE: Provider alias aws.us_east_1 is defined in main.tf
 
 # Primary domain for the SPA served by CloudFront
 # Expects data.aws_route53_zone.main to be defined elsewhere
