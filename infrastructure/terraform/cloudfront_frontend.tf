@@ -54,7 +54,7 @@ resource "aws_cloudfront_distribution" "frontend" {
     origin_access_control_id = aws_cloudfront_origin_access_control.s3_oac.id
   }
 
-  # Backend ALB origin (note: matches aws_lb.api resource)
+  # Backend ALB origin (matches aws_lb.api)
   origin {
     domain_name = aws_lb.api.dns_name
     origin_id   = "alb-backend-origin"
