@@ -1,3 +1,9 @@
+###############################################
+# IAM for EC2 (SSM + SSM Parameter access)
+###############################################
+
+# NOTE: data.aws_caller_identity.current is defined in data_sources.tf
+
 resource "aws_iam_role" "ssm_ec2_role" {
   name = "nat20-ec2-ssm-role"
 
@@ -16,36 +22,53 @@ resource "aws_iam_instance_profile" "ssm_ec2_profile" {
   role = aws_iam_role.ssm_ec2_role.name
 }
 
-resource "aws_iam_role_policy" "ssm_ec2_policy" {
-  name = "nat20-ssm-ec2-policy"
-  role = aws_iam_role.ssm_ec2_role.id
+# Base SSM access for Session Manager, inventory, etc.
+resource "aws_iam_role_policy_attachment" "attach_ssm_core" {
+  role       = aws_iam_role.ssm_ec2_role.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+}
 
-  policy = jsonencode({
+# Allow EC2 to read SecureString SSM parameters used by app + mongo
+resource "aws_iam_policy" "ssm_params_read" {
+  name        = "ec2-read-ssm-params-nat20"
+  description = "Allow EC2 to read SecureString params for nat20 app"
+  policy      = jsonencode({
     Version = "2012-10-17",
     Statement = [
       {
-        Effect   = "Allow",
-        Action   = [
-          "ssm:DescribeParameters",
+        Sid     = "SSMRead",
+        Effect  = "Allow",
+        Action  = [
           "ssm:GetParameter",
           "ssm:GetParameters",
-          "ssm:GetParametersByPath"
+          "ssm:GetParameterHistory"
         ],
         Resource = [
-          "arn:aws:ssm:eu-central-1:${data.aws_caller_identity.current.account_id}:parameter/nat20/*"
+          "arn:aws:ssm:eu-central-1:${data.aws_caller_identity.current.account_id}:parameter/nat20/backend/JWT_SECRET",
+          "arn:aws:ssm:eu-central-1:${data.aws_caller_identity.current.account_id}:parameter/nat20/mongo/USER",
+          "arn:aws:ssm:eu-central-1:${data.aws_caller_identity.current.account_id}:parameter/nat20/mongo/PASSWORD"
         ]
       },
       {
-        Effect   = "Allow",
-        Action   = [
-          "kms:Decrypt"
-        ],
-        Resource = [
-          "arn:aws:kms:eu-central-1:${data.aws_caller_identity.current.account_id}:key/*"
-        ]
+        Sid     = "KMSDecryptForSSMDefaultKey",
+        Effect  = "Allow",
+        Action  = ["kms:Decrypt"],
+        Resource = "*",
+        Condition = {
+          "ForAnyValue:StringEquals" : {
+            "kms:EncryptionContext:aws:ssm:parameter-name" : [
+              "/nat20/backend/JWT_SECRET",
+              "/nat20/mongo/USER",
+              "/nat20/mongo/PASSWORD"
+            ]
+          }
+        }
       }
     ]
   })
 }
 
-data "aws_caller_identity" "current" {}
+resource "aws_iam_role_policy_attachment" "attach_ssm_params_read" {
+  role       = aws_iam_role.ssm_ec2_role.name
+  policy_arn = aws_iam_policy.ssm_params_read.arn
+}
