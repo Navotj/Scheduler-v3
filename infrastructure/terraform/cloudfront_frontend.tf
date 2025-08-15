@@ -1,5 +1,7 @@
 ###############################################
 # CloudFront Distribution (Frontend + API via ALB)
+# - S3 (OAC) for static site
+# - API via ALB
 ###############################################
 
 # -------- External lookups (by name) --------
@@ -7,10 +9,10 @@ data "aws_lb" "backend" {
   name = var.backend_alb_name
 }
 
-# Optional WAF for CloudFront: only query if explicitly enabled
+# Optional WAF for CloudFront: only query if a name is provided
 data "aws_wafv2_web_acl" "frontend" {
   provider = aws.us_east_1
-  count    = var.attach_frontend_waf ? 1 : 0
+  count    = length(var.frontend_waf_name) > 0 ? 1 : 0
   name     = var.frontend_waf_name
   scope    = "CLOUDFRONT"
 }
@@ -24,6 +26,7 @@ data "aws_secretsmanager_secret_version" "cloudfront_backend_edge_key" {
   secret_id = data.aws_secretsmanager_secret.cloudfront_backend_edge_key.id
 }
 
+# -------- OAC for S3 --------
 resource "aws_cloudfront_origin_access_control" "s3_oac" {
   name                              = "oac-${replace(var.domain_name, ".", "-")}"
   description                       = "OAC for ${var.domain_name} static site"
@@ -32,6 +35,7 @@ resource "aws_cloudfront_origin_access_control" "s3_oac" {
   signing_protocol                  = "sigv4"
 }
 
+# -------- Policies --------
 resource "aws_cloudfront_cache_policy" "api_no_cache" {
   name        = "nat20-api-no-cache"
   comment     = "No caching for API responses"
@@ -58,17 +62,20 @@ resource "aws_cloudfront_origin_request_policy" "api_forward_all" {
   query_strings_config { query_string_behavior = "all" }
 }
 
+# -------- Distribution --------
 resource "aws_cloudfront_distribution" "frontend" {
   enabled             = true
   comment             = "nat20scheduling frontend + API"
   default_root_object = "index.html"
 
+  # Static frontend (S3, private via OAC)
   origin {
     domain_name              = aws_s3_bucket.frontend.bucket_regional_domain_name
     origin_id                = "s3-frontend-origin"
     origin_access_control_id = aws_cloudfront_origin_access_control.s3_oac.id
   }
 
+  # Backend API (ALB)
   origin {
     domain_name = data.aws_lb.backend.dns_name
     origin_id   = "alb-backend-origin"
@@ -80,12 +87,14 @@ resource "aws_cloudfront_distribution" "frontend" {
       origin_read_timeout      = 60
       origin_ssl_protocols     = ["TLSv1.2"]
     }
+
     custom_header {
       name  = "X-EDGE-KEY"
       value = data.aws_secretsmanager_secret_version.cloudfront_backend_edge_key.secret_string
     }
   }
 
+  # Default behavior: static site
   default_cache_behavior {
     target_origin_id       = "s3-frontend-origin"
     viewer_protocol_policy = "redirect-to-https"
@@ -101,6 +110,7 @@ resource "aws_cloudfront_distribution" "frontend" {
     max_ttl     = 86400
   }
 
+  # API paths -> ALB (no cache; forward cookies/headers/query)
   ordered_cache_behavior {
     path_pattern             = "/auth/*"
     target_origin_id         = "alb-backend-origin"
@@ -162,7 +172,8 @@ resource "aws_cloudfront_distribution" "frontend" {
     geo_restriction { restriction_type = "none" }
   }
 
-  web_acl_id = var.attach_frontend_waf ? data.aws_wafv2_web_acl.frontend[0].arn : null
+  # Attach WAF only if a name was provided
+  web_acl_id = length(var.frontend_waf_name) > 0 ? data.aws_wafv2_web_acl.frontend[0].arn : null
 
   aliases = [var.domain_name]
 
@@ -173,6 +184,7 @@ resource "aws_cloudfront_distribution" "frontend" {
     ssl_support_method             = "sni-only"
   }
 
+  # SPA error mapping
   custom_error_response {
     error_code            = 403
     response_code         = 200

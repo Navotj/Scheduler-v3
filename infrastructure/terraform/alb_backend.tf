@@ -74,12 +74,16 @@ resource "aws_acm_certificate" "api" {
   lifecycle { create_before_destroy = true }
 }
 
-# DNS validation records for ACM
-# Use static keys (the requested domains) so keys are known at plan time.
-# This avoids "for_each keys unknown until apply" errors.
+# --- Use static keys so keys are known at plan time ---
+# Keys: the requested DNS names (derived from input vars, not computed attrs)
+locals {
+  api_cert_domains = ["${var.api_subdomain}.${var.domain_name}"]
+}
+
+# DNS validation records for ACM (avoids "for_each keys unknown until apply")
 resource "aws_route53_record" "api_cert_validation" {
   for_each = {
-    for d in [aws_acm_certificate.api.domain_name] : d => d
+    for d in local.api_cert_domains : d => d
   }
 
   zone_id = data.aws_route53_zone.main.zone_id
