@@ -26,7 +26,7 @@ resource "aws_wafv2_web_acl" "backend_alb" {
 
     statement {
       byte_match_statement {
-        search_string = var.cloudfront_backend_edge_key
+        search_string = local.cloudfront_backend_edge_key
 
         field_to_match {
           single_header {
