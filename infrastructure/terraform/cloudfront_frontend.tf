@@ -14,6 +14,7 @@ data "aws_lb" "backend" {
 # For CLOUDFRONT scope, WAFv2 must be read via us-east-1 provider alias
 data "aws_wafv2_web_acl" "frontend" {
   provider = aws.us_east_1
+  count    = var.frontend_waf_name != "" ? 1 : 0
   name     = var.frontend_waf_name
   scope    = "CLOUDFRONT"
 }
@@ -193,8 +194,8 @@ resource "aws_cloudfront_distribution" "frontend" {
     }
   }
 
-  # Attach CloudFront-scoped WAF
-  web_acl_id = data.aws_wafv2_web_acl.frontend.arn
+  # Attach CloudFront-scoped WAF only if provided
+  web_acl_id = var.frontend_waf_name != "" ? data.aws_wafv2_web_acl.frontend[0].arn : null
 
   # -------- SSL --------
   aliases = [var.domain_name]

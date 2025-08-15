@@ -26,8 +26,8 @@ provider "aws" {
 }
 
 # ---------------------------------------------------------
-# Provider alias for CloudFront-scoped WAFv2 lookups
-# (CloudFront/WAFv2 control-plane is in us-east-1)
+# Provider alias for CloudFront-scoped WAF/ACM lookups
+# (CloudFront/WAFv2/ACM cert for CF is in us-east-1)
 # ---------------------------------------------------------
 provider "aws" {
   alias  = "us_east_1"

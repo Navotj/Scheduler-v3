@@ -22,10 +22,8 @@ resource "aws_security_group" "backend_access" {
   tags = { Name = "backend-access" }
 }
 
-# NOTE: Do NOT redefine the ALB SG here if it exists in alb_backend.tf.
-# Use the existing aws_security_group.alb from alb_backend.tf.
-
 # Allow only ALB SG to reach Backend instance on backend_port
+# (aws_security_group.alb is defined in your ALB file)
 resource "aws_security_group_rule" "backend_ingress_from_alb" {
   type                     = "ingress"
   description              = "ALB to Backend"
