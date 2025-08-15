@@ -75,21 +75,20 @@ resource "aws_acm_certificate" "api" {
 }
 
 # DNS validation records for ACM
+# Use static keys (the requested domains) so keys are known at plan time.
+# This avoids "for_each keys unknown until apply" errors.
 resource "aws_route53_record" "api_cert_validation" {
   for_each = {
-    for dvo in aws_acm_certificate.api.domain_validation_options :
-    dvo.domain_name => {
-      name   = dvo.resource_record_name
-      type   = dvo.resource_record_type
-      record = dvo.resource_record_value
-    }
+    for d in [aws_acm_certificate.api.domain_name] : d => d
   }
 
   zone_id = data.aws_route53_zone.main.zone_id
-  name    = each.value.name
-  type    = each.value.type
+  name    = one([for o in aws_acm_certificate.api.domain_validation_options : o.resource_record_name if o.domain_name == each.key])
+  type    = one([for o in aws_acm_certificate.api.domain_validation_options : o.resource_record_type if o.domain_name == each.key])
   ttl     = 60
-  records = [each.value.record]
+  records = [
+    one([for o in aws_acm_certificate.api.domain_validation_options : o.resource_record_value if o.domain_name == each.key])
+  ]
 }
 
 # Validate certificate

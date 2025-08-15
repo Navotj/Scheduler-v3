@@ -22,6 +22,8 @@ jobs:
       TF_IN_AUTOMATION: "true"
       TF_VAR_backend_alb_name: ${{ vars.BACKEND_ALB_NAME }}
       TF_VAR_frontend_waf_name: ${{ vars.FRONTEND_WAF_NAME }}
+      # Set to "false" unless you actually have a CloudFront-scoped WAF created.
+      TF_VAR_attach_frontend_waf: "false"
 
     steps:
       - name: Checkout
@@ -87,7 +89,6 @@ jobs:
             echo "DynamoDB lock table exists; continuing."
           fi
 
-
       - name: Terraform Init
         env:
           TF_IN_AUTOMATION: "true"
@@ -121,10 +122,10 @@ jobs:
       - name: Terraform Plan
         env:
           TF_IN_AUTOMATION: "true"
-        run: terraform plan -input=false -var "backend_alb_name=${{ vars.BACKEND_ALB_NAME }}" -var "frontend_waf_name=${{ vars.FRONTEND_WAF_NAME }}"
+        run: terraform plan -input=false -var "backend_alb_name=${{ vars.BACKEND_ALB_NAME }}" -var "frontend_waf_name=${{ vars.FRONTEND_WAF_NAME }}" -var "attach_frontend_waf=${{ env.TF_VAR_attach_frontend_waf }}"
 
       - name: Terraform Apply
         if: github.ref == 'refs/heads/main'
         env:
           TF_IN_AUTOMATION: "true"
-        run: terraform apply -auto-approve -input=false -var "backend_alb_name=${{ vars.BACKEND_ALB_NAME }}" -var "frontend_waf_name=${{ vars.FRONTEND_WAF_NAME }}"
+        run: terraform apply -auto-approve -input=false -var "backend_alb_name=${{ vars.BACKEND_ALB_NAME }}" -var "frontend_waf_name=${{ vars.FRONTEND_WAF_NAME }}" -var "attach_frontend_waf=${{ env.TF_VAR_attach_frontend_waf }}"

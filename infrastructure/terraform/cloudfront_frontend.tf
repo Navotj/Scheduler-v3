@@ -1,20 +1,16 @@
 ###############################################
 # CloudFront Distribution (Frontend + API via ALB)
-# - S3 (OAC) for static site
-# - Routes /auth/*, /availability/*, /users/*, /settings, /__debug/* to ALB
-# - No caching on API; forward cookies/headers/query via Origin Request Policy
 ###############################################
 
 # -------- External lookups (by name) --------
-# Resolve the backend ALB and the CloudFront-scoped WAF by name
 data "aws_lb" "backend" {
   name = var.backend_alb_name
 }
 
-# For CLOUDFRONT scope, WAFv2 must be read via us-east-1 provider alias
+# Optional WAF for CloudFront: only query if explicitly enabled
 data "aws_wafv2_web_acl" "frontend" {
   provider = aws.us_east_1
-  count    = var.frontend_waf_name != "" ? 1 : 0
+  count    = var.attach_frontend_waf ? 1 : 0
   name     = var.frontend_waf_name
   scope    = "CLOUDFRONT"
 }
@@ -28,7 +24,6 @@ data "aws_secretsmanager_secret_version" "cloudfront_backend_edge_key" {
   secret_id = data.aws_secretsmanager_secret.cloudfront_backend_edge_key.id
 }
 
-# -------- OAC for S3 --------
 resource "aws_cloudfront_origin_access_control" "s3_oac" {
   name                              = "oac-${replace(var.domain_name, ".", "-")}"
   description                       = "OAC for ${var.domain_name} static site"
@@ -37,9 +32,6 @@ resource "aws_cloudfront_origin_access_control" "s3_oac" {
   signing_protocol                  = "sigv4"
 }
 
-# -------- Policies --------
-
-# No-cache policy for API (empty cache key)
 resource "aws_cloudfront_cache_policy" "api_no_cache" {
   name        = "nat20-api-no-cache"
   comment     = "No caching for API responses"
@@ -47,50 +39,36 @@ resource "aws_cloudfront_cache_policy" "api_no_cache" {
   default_ttl = 0
   max_ttl     = 0
 
-  # Required by provider schema; keep cache key empty
   parameters_in_cache_key_and_forwarded_to_origin {
     enable_accept_encoding_brotli = false
     enable_accept_encoding_gzip   = true
 
-    headers_config {
-      header_behavior = "none"
-    }
-
-    cookies_config {
-      cookie_behavior = "none"
-    }
-
-    query_strings_config {
-      query_string_behavior = "none"
-    }
+    headers_config  { header_behavior = "none" }
+    cookies_config  { cookie_behavior = "none" }
+    query_strings_config { query_string_behavior = "none" }
   }
 }
 
-# Forward everything the API needs at the origin request stage
 resource "aws_cloudfront_origin_request_policy" "api_forward_all" {
   name    = "nat20-api-forward-all"
   comment = "Forward all headers, cookies, and query strings to API origin"
 
-  headers_config { header_behavior = "allViewer" }
-  cookies_config { cookie_behavior = "all" }
+  headers_config       { header_behavior = "allViewer" }
+  cookies_config       { cookie_behavior = "all" }
   query_strings_config { query_string_behavior = "all" }
 }
 
-# -------- Distribution --------
 resource "aws_cloudfront_distribution" "frontend" {
   enabled             = true
   comment             = "nat20scheduling frontend + API"
   default_root_object = "index.html"
 
-  # -------- ORIGINS --------
-  # Static frontend (S3, private via OAC)
   origin {
     domain_name              = aws_s3_bucket.frontend.bucket_regional_domain_name
     origin_id                = "s3-frontend-origin"
     origin_access_control_id = aws_cloudfront_origin_access_control.s3_oac.id
   }
 
-  # Backend API (ALB)
   origin {
     domain_name = data.aws_lb.backend.dns_name
     origin_id   = "alb-backend-origin"
@@ -102,34 +80,27 @@ resource "aws_cloudfront_distribution" "frontend" {
       origin_read_timeout      = 60
       origin_ssl_protocols     = ["TLSv1.2"]
     }
-
-    # Secret header enforced by WAF on the ALB
     custom_header {
       name  = "X-EDGE-KEY"
       value = data.aws_secretsmanager_secret_version.cloudfront_backend_edge_key.secret_string
     }
   }
 
-  # -------- DEFAULT: STATIC --------
   default_cache_behavior {
     target_origin_id       = "s3-frontend-origin"
     viewer_protocol_policy = "redirect-to-https"
-
-    allowed_methods = ["GET", "HEAD", "OPTIONS"]
-    cached_methods  = ["GET", "HEAD"]
-    compress        = true
-
+    allowed_methods        = ["GET", "HEAD", "OPTIONS"]
+    cached_methods         = ["GET", "HEAD"]
+    compress               = true
     forwarded_values {
       query_string = true
       cookies { forward = "none" }
     }
-
     min_ttl     = 0
     default_ttl = 3600
     max_ttl     = 86400
   }
 
-  # -------- API PATHS -> ALB (no cache; forward cookies/headers/query) --------
   ordered_cache_behavior {
     path_pattern             = "/auth/*"
     target_origin_id         = "alb-backend-origin"
@@ -185,19 +156,14 @@ resource "aws_cloudfront_distribution" "frontend" {
     compress                 = true
   }
 
-  # -------- GEO/PRICE CLASS/WAF --------
   price_class = "PriceClass_100"
 
   restrictions {
-    geo_restriction {
-      restriction_type = "none"
-    }
+    geo_restriction { restriction_type = "none" }
   }
 
-  # Attach CloudFront-scoped WAF only if provided
-  web_acl_id = var.frontend_waf_name != "" ? data.aws_wafv2_web_acl.frontend[0].arn : null
+  web_acl_id = var.attach_frontend_waf ? data.aws_wafv2_web_acl.frontend[0].arn : null
 
-  # -------- SSL --------
   aliases = [var.domain_name]
 
   viewer_certificate {
@@ -207,7 +173,6 @@ resource "aws_cloudfront_distribution" "frontend" {
     ssl_support_method             = "sni-only"
   }
 
-  # SPA-friendly mapping
   custom_error_response {
     error_code            = 403
     response_code         = 200
