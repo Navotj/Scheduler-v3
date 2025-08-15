@@ -27,7 +27,7 @@ jobs:
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws-region: eu-central-1
 
-    - name: Get account ID and artifact bucket name
+    - name: Derive artifact bucket name
       id: acct
       run: |
         ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
@@ -35,35 +35,11 @@ jobs:
         ARTIFACT_BUCKET="nat20scheduling-com-deploy-artifacts-$ACCOUNT_ID"
         echo "ARTIFACT_BUCKET=$ARTIFACT_BUCKET" >> $GITHUB_ENV
 
-    - name: Ensure artifact bucket exists (private, encrypted)
+    - name: Verify artifact bucket exists (managed by Terraform)
       run: |
-        set -euo pipefail
         if ! aws s3api head-bucket --bucket "$ARTIFACT_BUCKET" 2>/dev/null; then
-          aws s3api create-bucket \
-            --bucket "$ARTIFACT_BUCKET" \
-            --region eu-central-1 \
-            --create-bucket-configuration LocationConstraint=eu-central-1
-          aws s3api put-bucket-encryption --bucket "$ARTIFACT_BUCKET" --server-side-encryption-configuration \
-            '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}'
-          aws s3api put-public-access-block --bucket "$ARTIFACT_BUCKET" --public-access-block-configuration '{
-            "BlockPublicAcls": true,
-            "IgnorePublicAcls": true,
-            "BlockPublicPolicy": true,
-            "RestrictPublicBuckets": true
-          }'
-          # 1-day lifecycle for quick cleanup
-          aws s3api put-bucket-lifecycle-configuration --bucket "$ARTIFACT_BUCKET" --lifecycle-configuration '{
-            "Rules": [
-              {
-                "ID": "ExpireArtifactsAfter1Day",
-                "Status": "Enabled",
-                "Prefix": "backend/",
-                "Expiration": {"Days": 1},
-                "NoncurrentVersionExpiration": {"NoncurrentDays": 1},
-                "AbortIncompleteMultipartUpload": {"DaysAfterInitiation": 1}
-              }
-            ]
-          }'
+          echo "Artifact bucket $ARTIFACT_BUCKET does not exist. Run the Terraform workflow first." >&2
+          exit 1
         fi
 
     - name: Get Backend Instance ID from tag
@@ -113,7 +89,6 @@ jobs:
             \"unzip -o /tmp/installation/backend.zip -d /tmp/installation/\", \
             \"sudo bash -lc 'rm -rf /opt/app/* /opt/app/.* 2>/dev/null || true'\", \
             \"sudo mv /tmp/installation/app/* /opt/app || sudo mv /tmp/installation/* /opt/app || true\", \
-            \"# Render .env from SSM (avoid shipping secrets in artifact)\", \
             \"JWT_SECRET=$(aws ssm get-parameter --name ${SSM_JWT_SECRET_PARAM} --with-decryption --query Parameter.Value --output text)\", \
             \"MONGO_USER=$(aws ssm get-parameter --name ${SSM_MONGO_USER_PARAM} --with-decryption --query Parameter.Value --output text)\", \
             \"MONGO_PASS=$(aws ssm get-parameter --name ${SSM_MONGO_PASS_PARAM} --with-decryption --query Parameter.Value --output text)\", \
@@ -125,9 +100,7 @@ jobs:
             \"sudo systemctl daemon-reload\", \
             \"sudo systemctl enable scheduler || true\", \
             \"sudo systemctl restart scheduler\", \
-            \"# Clean up artifact from instance\", \
             \"rm -f /tmp/installation/backend.zip\", \
-            \"# Clean up artifact from S3 (best-effort)\", \
             \"aws s3 rm s3://${ARTIFACT_BUCKET}/${ARTIFACT_KEY} || true\" \
           ]" \
           --output text
