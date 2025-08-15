@@ -89,7 +89,7 @@ window.initRegisterForm = function () {
     }
 
     try {
-      const res = await fetch('https://backend.nat20scheduling.com:3000/register', {
+      const res = await fetch('/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',

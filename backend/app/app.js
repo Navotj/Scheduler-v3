@@ -14,6 +14,12 @@ const Availability = require('./models/availability');
 
 const app = express();
 
+/**
+ * Behind CloudFront/ALB we may see proxy addresses.
+ * trust proxy ensures correct protocol/secure detection if used later.
+ */
+app.set('trust proxy', true);
+
 app.use(cors({
   origin: 'https://nat20scheduling.com',
   credentials: true
@@ -22,8 +28,17 @@ app.use(cors({
 app.use(express.json());
 app.use(cookieParser());
 
-const MONGO_URI = process.env.MONGO_URI || 'mongodb://mongo.nat20scheduling.com:27017/test';
-const DB_NAME = process.env.MONGO_DB_NAME || 'test';
+/**
+ * Enforce explicit MONGO_URI to avoid accidental use of deprecated/public hosts.
+ * The value is provisioned by Terraform/user_data via SSM into .env on the instance.
+ */
+const MONGO_URI = process.env.MONGO_URI;
+if (!MONGO_URI) {
+  console.error('FATAL: MONGO_URI is required but not set. Refusing to start.');
+  process.exit(1);
+}
+
+const DB_NAME = process.env.MONGO_DB_NAME || 'nat20';
 const COLLECTION_NAME = process.env.MONGO_COLLECTION || 'people';
 
 mongoose.connect(MONGO_URI, {
@@ -31,8 +46,7 @@ mongoose.connect(MONGO_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true
 }).then(async () => {
-  console.log(`Connected to MongoDB at ${MONGO_URI}`);
-
+  console.log(`Connected to MongoDB`);
   // Ensure indexes exist in production too
   try {
     await Availability.syncIndexes();
@@ -45,11 +59,16 @@ mongoose.connect(MONGO_URI, {
   process.exit(1);
 });
 
+// Health check for ALB
+app.get('/health', (_req, res) => {
+  res.status(200).json({ ok: true });
+});
+
 app.use(authRoutes);
 // Mount availability router under /availability so endpoints are /availability/get, /availability/save, /availability/get_many
 app.use('/availability', availabilityRoutes);
 app.use(settingsRoutes);
-// NEW: users routes (username existence check)
+// users routes (username existence check)
 app.use('/users', usersRoutes);
 
 // legacy test endpoint

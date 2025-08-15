@@ -83,7 +83,7 @@
       const controller = new AbortController();
       setTimeout(() => controller.abort(), 3000);
       try {
-        const res = await fetch('https://backend.nat20scheduling.com:3000/auth/check', {
+        const res = await fetch('/auth/check', {
           credentials: 'include',
           cache: 'no-cache',
           signal: controller.signal
@@ -120,7 +120,7 @@
 
     async function logout() {
       try {
-        await fetch('https://backend.nat20scheduling.com:3000/logout', {
+        await fetch('/logout', {
           method: 'POST',
           credentials: 'include'
         });

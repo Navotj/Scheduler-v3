@@ -1,21 +1,18 @@
 ###############################################
-# Security Groups (locked down, functional)
-# - Backend: ONLY ALB -> backend_port
-# - MongoDB: ONLY Backend -> 27017
+# Security Groups
+# - Backend instance: only ALB can reach backend_port
+# - MongoDB instance: only Backend can reach 27017
 # - No SSH ingress (use SSM)
 ###############################################
 
-# Uses data sources from data_sources.tf:
-# data "aws_vpc" "default" {}
-# data "aws_subnet" "eu_central_1b" {}
-
-# Backend SG: no public ingress; rule below allows only from ALB SG
+# Backend instance security group
 resource "aws_security_group" "backend_access" {
   name        = "backend-access"
   description = "Backend app traffic (only from ALB)"
   vpc_id      = data.aws_vpc.default.id
 
   egress {
+    description = "Allow all egress"
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
@@ -25,14 +22,25 @@ resource "aws_security_group" "backend_access" {
   tags = { Name = "backend-access" }
 }
 
-# MongoDB SG: no inline ingress; rule below allows only from Backend SG
+# Allow ALB SG to backend instance port
+resource "aws_security_group_rule" "alb_to_backend" {
+  type                     = "ingress"
+  description              = "ALB -> Backend app port"
+  security_group_id        = aws_security_group.backend_access.id
+  source_security_group_id = aws_security_group.alb.id
+  from_port                = var.backend_port
+  to_port                  = var.backend_port
+  protocol                 = "tcp"
+}
+
+# MongoDB instance security group
 resource "aws_security_group" "mongodb_access" {
   name        = "mongodb-access"
-  description = "MongoDB access restricted to backend only"
+  description = "MongoDB access (only from Backend)"
   vpc_id      = data.aws_vpc.default.id
 
-  # Egress for SSM/updates
   egress {
+    description = "Allow all egress"
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
@@ -42,23 +50,10 @@ resource "aws_security_group" "mongodb_access" {
   tags = { Name = "mongodb-access" }
 }
 
-# ALB SG is defined in alb_backend.tf as aws_security_group.alb
-
-# Allow ONLY the ALB SG to reach backend on app port
-resource "aws_security_group_rule" "backend_ingress_from_alb" {
-  type                     = "ingress"
-  description              = "ALB to Backend on app port"
-  security_group_id        = aws_security_group.backend_access.id
-  source_security_group_id = aws_security_group.alb.id
-  from_port                = var.backend_port
-  to_port                  = var.backend_port
-  protocol                 = "tcp"
-}
-
 # Allow ONLY the Backend SG to reach MongoDB on 27017
 resource "aws_security_group_rule" "mongodb_ingress_from_backend" {
   type                     = "ingress"
-  description              = "Backend to MongoDB 27017"
+  description              = "Backend -> MongoDB 27017"
   security_group_id        = aws_security_group.mongodb_access.id
   source_security_group_id = aws_security_group.backend_access.id
   from_port                = 27017

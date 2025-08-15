@@ -28,8 +28,16 @@ variable "alarm_email" {
   default     = ""
 }
 
-variable "mongo_db_name" {
-  description = "MongoDB database name used by the app"
+# Whether to create a public DNS A-record for the API origin (api.<domain>) pointing to the ALB.
+# Leave false to avoid publishing a public record; set true if CloudFront will use this hostname as origin.
+variable "create_api_alias" {
+  description = "Control creation of Route53 A record for api.<domain> -> ALB"
+  type        = bool
+  default     = false
+}
+
+# Shared secret header that CloudFront sends to ALB (matched by WAF).
+variable "cloudfront_backend_edge_key" {
+  description = "Secret value for X-EDGE-KEY header from CloudFront to ALB"
   type        = string
-  default     = "nat20"
 }
