@@ -5,6 +5,29 @@
 # - No caching on API; forward cookies/headers/query via Origin Request Policy
 ###############################################
 
+# -------- External lookups (by name) --------
+# Resolve the backend ALB and the CloudFront-scoped WAF by name
+data "aws_lb" "backend" {
+  name = var.backend_alb_name
+}
+
+# For CLOUDFRONT scope, WAFv2 must be read via us-east-1 provider alias
+data "aws_wafv2_web_acl" "frontend" {
+  provider = aws.us_east_1
+  name     = var.frontend_waf_name
+  scope    = "CLOUDFRONT"
+}
+
+# Secret for X-EDGE-KEY header used by ALB/WAF validation
+data "aws_secretsmanager_secret" "cloudfront_backend_edge_key" {
+  name = aws_secretsmanager_secret.cloudfront_backend_edge_key.name
+}
+
+data "aws_secretsmanager_secret_version" "cloudfront_backend_edge_key" {
+  secret_id = data.aws_secretsmanager_secret.cloudfront_backend_edge_key.id
+}
+
+# -------- OAC for S3 --------
 resource "aws_cloudfront_origin_access_control" "s3_oac" {
   name                              = "oac-${replace(var.domain_name, ".", "-")}"
   description                       = "OAC for ${var.domain_name} static site"
@@ -13,22 +36,9 @@ resource "aws_cloudfront_origin_access_control" "s3_oac" {
   signing_protocol                  = "sigv4"
 }
 
-# Resolve external resources by name to avoid cross-file references
-data "aws_lb" "backend" {
-  name = var.backend_alb_name
-}
+# -------- Policies --------
 
-data "aws_wafv2_web_acl" "frontend" {
-  name  = var.frontend_waf_name
-  scope = "CLOUDFRONT"
-}
-
-
-# ====================
-# Policies
-# ====================
-
-# No-cache policy for API
+# No-cache policy for API (empty cache key)
 resource "aws_cloudfront_cache_policy" "api_no_cache" {
   name        = "nat20-api-no-cache"
   comment     = "No caching for API responses"
@@ -36,7 +46,7 @@ resource "aws_cloudfront_cache_policy" "api_no_cache" {
   default_ttl = 0
   max_ttl     = 0
 
-  # Required block in provider schema; set all to "none" to keep cache key empty.
+  # Required by provider schema; keep cache key empty
   parameters_in_cache_key_and_forwarded_to_origin {
     enable_accept_encoding_brotli = false
     enable_accept_encoding_gzip   = true
@@ -65,17 +75,13 @@ resource "aws_cloudfront_origin_request_policy" "api_forward_all" {
   query_strings_config { query_string_behavior = "all" }
 }
 
-# ====================
-# Distribution
-# ====================
-
+# -------- Distribution --------
 resource "aws_cloudfront_distribution" "frontend" {
   enabled             = true
   comment             = "nat20scheduling frontend + API"
   default_root_object = "index.html"
 
   # -------- ORIGINS --------
-
   # Static frontend (S3, private via OAC)
   origin {
     domain_name              = aws_s3_bucket.frontend.bucket_regional_domain_name
@@ -99,7 +105,7 @@ resource "aws_cloudfront_distribution" "frontend" {
     # Secret header enforced by WAF on the ALB
     custom_header {
       name  = "X-EDGE-KEY"
-      value = local.cloudfront_backend_edge_key_value
+      value = data.aws_secretsmanager_secret_version.cloudfront_backend_edge_key.secret_string
     }
   }
 
@@ -179,7 +185,6 @@ resource "aws_cloudfront_distribution" "frontend" {
   }
 
   # -------- GEO/PRICE CLASS/WAF --------
-
   price_class = "PriceClass_100"
 
   restrictions {
@@ -188,10 +193,10 @@ resource "aws_cloudfront_distribution" "frontend" {
     }
   }
 
+  # Attach CloudFront-scoped WAF
   web_acl_id = data.aws_wafv2_web_acl.frontend.arn
 
   # -------- SSL --------
-
   aliases = [var.domain_name]
 
   viewer_certificate {
@@ -216,13 +221,4 @@ resource "aws_cloudfront_distribution" "frontend" {
   }
 
   depends_on = [aws_acm_certificate_validation.frontend]
-}
-
-# Secret for X-EDGE-KEY header used by ALB/WAF validation
-data "aws_secretsmanager_secret" "cloudfront_backend_edge_key" {
-  name = aws_secretsmanager_secret.cloudfront_backend_edge_key.name
-}
-
-data "aws_secretsmanager_secret_version" "cloudfront_backend_edge_key" {
-  secret_id = data.aws_secretsmanager_secret.cloudfront_backend_edge_key.id
 }

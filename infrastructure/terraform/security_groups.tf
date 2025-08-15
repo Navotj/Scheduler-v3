@@ -22,7 +22,7 @@ resource "aws_security_group" "backend_access" {
   tags = { Name = "backend-access" }
 }
 
-# NOTE: Do NOT define the ALB SG here to avoid duplicate with alb_backend.tf.
+# NOTE: Do NOT redefine the ALB SG here if it exists in alb_backend.tf.
 # Use the existing aws_security_group.alb from alb_backend.tf.
 
 # Allow only ALB SG to reach Backend instance on backend_port
