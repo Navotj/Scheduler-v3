@@ -2,7 +2,6 @@
 # CloudFront Distribution (Frontend + Private API via ALB)
 ###############################################
 
-# OAC for S3 static frontend
 resource "aws_cloudfront_origin_access_control" "s3_oac" {
   name                              = "oac-${replace(var.domain_name, ".", "-")}"
   description                       = "OAC for ${var.domain_name} front-end bucket"
@@ -11,7 +10,7 @@ resource "aws_cloudfront_origin_access_control" "s3_oac" {
   signing_protocol                  = "sigv4"
 }
 
-# Cache/Origin Request policies for API (no cache, forward cookies/headers/query)
+# No-cache policy for API (forward cookies/qs, don't cache)
 resource "aws_cloudfront_cache_policy" "api_no_cache" {
   name        = "nat20-api-no-cache"
   default_ttl = 0
@@ -25,31 +24,22 @@ resource "aws_cloudfront_cache_policy" "api_no_cache" {
     headers_config {
       header_behavior = "none"
     }
-
     cookies_config {
       cookie_behavior = "all"
     }
-
     query_strings_config {
       query_string_behavior = "all"
     }
   }
 }
 
+# Forward all headers/cookies/query to origin (backend)
 resource "aws_cloudfront_origin_request_policy" "api_forward_all" {
   name = "nat20-api-forward-all"
 
-  headers_config {
-    header_behavior = "allViewer"
-  }
-
-  cookies_config {
-    cookie_behavior = "all"
-  }
-
-  query_strings_config {
-    query_string_behavior = "all"
-  }
+  headers_config { header_behavior = "allViewer" }
+  cookies_config { cookie_behavior = "all" }
+  query_strings_config { query_string_behavior = "all" }
 }
 
 resource "aws_cloudfront_distribution" "frontend" {
@@ -57,20 +47,16 @@ resource "aws_cloudfront_distribution" "frontend" {
   comment             = "nat20scheduling frontend + API"
   default_root_object = "index.html"
 
-  ##########################################################
   # ORIGINS
-  ##########################################################
-
-  # Static frontend (S3)
   origin {
     domain_name              = aws_s3_bucket.frontend.bucket_regional_domain_name
     origin_id                = "s3-frontend-origin"
     origin_access_control_id = aws_cloudfront_origin_access_control.s3_oac.id
   }
 
-  # Backend API (ALB) — CloudFront -> ALB over HTTPS only
+  # Backend ALB origin (note: matches aws_lb.api resource)
   origin {
-    domain_name = aws_lb.backend.dns_name
+    domain_name = aws_lb.api.dns_name
     origin_id   = "alb-backend-origin"
 
     custom_origin_config {
@@ -80,18 +66,14 @@ resource "aws_cloudfront_distribution" "frontend" {
       origin_ssl_protocols   = ["TLSv1.2"]
     }
 
-    # Shared secret header (must match ALB/WAF rule)
+    # Secret header for WAF rule at ALB
     origin_custom_header {
       name  = "X-EDGE-KEY"
       value = var.cloudfront_backend_edge_key
     }
   }
 
-  ##########################################################
-  # BEHAVIORS
-  ##########################################################
-
-  # Default: serve static app from S3
+  # DEFAULT: static site from S3
   default_cache_behavior {
     target_origin_id       = "s3-frontend-origin"
     viewer_protocol_policy = "redirect-to-https"
@@ -110,7 +92,7 @@ resource "aws_cloudfront_distribution" "frontend" {
     max_ttl     = 86400
   }
 
-  # API paths -> backend ALB (no cache, forward cookies/headers/query)
+  # API PATHS -> backend ALB (no cache, forward cookies/headers/qs)
   ordered_cache_behavior {
     path_pattern             = "/auth/*"
     target_origin_id         = "alb-backend-origin"
@@ -155,7 +137,7 @@ resource "aws_cloudfront_distribution" "frontend" {
     compress                 = true
   }
 
-  # Optional: debug passthrough to backend
+  # Optional debug passthrough
   ordered_cache_behavior {
     path_pattern             = "/__debug/*"
     target_origin_id         = "alb-backend-origin"
@@ -180,7 +162,7 @@ resource "aws_cloudfront_distribution" "frontend" {
     ssl_support_method       = "sni-only"
   }
 
-  # SPA-friendly: map 403/404 to index.html
+  # SPA routing: return index.html for 403/404
   custom_error_response {
     error_code            = 403
     response_code         = 200

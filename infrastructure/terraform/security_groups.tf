@@ -1,7 +1,7 @@
 ###############################################
 # Security Groups
-# - Backend instance: only ALB can reach backend_port
-# - MongoDB instance: only Backend can reach 27017
+# - Backend instance: only ALB SG can reach backend_port
+# - MongoDB instance: only Backend SG can reach 27017
 # - No SSH ingress (use SSM)
 ###############################################
 
@@ -25,7 +25,7 @@ resource "aws_security_group" "backend_access" {
 # Allow ALB SG to backend instance port
 resource "aws_security_group_rule" "alb_to_backend" {
   type                     = "ingress"
-  description              = "ALB -> Backend app port"
+  description              = "ALB to backend app port"
   security_group_id        = aws_security_group.backend_access.id
   source_security_group_id = aws_security_group.alb.id
   from_port                = var.backend_port
@@ -53,7 +53,7 @@ resource "aws_security_group" "mongodb_access" {
 # Allow ONLY the Backend SG to reach MongoDB on 27017
 resource "aws_security_group_rule" "mongodb_ingress_from_backend" {
   type                     = "ingress"
-  description              = "Backend -> MongoDB 27017"
+  description              = "Backend to MongoDB 27017"
   security_group_id        = aws_security_group.mongodb_access.id
   source_security_group_id = aws_security_group.backend_access.id
   from_port                = 27017

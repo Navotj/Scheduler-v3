@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euxo pipefail
 
-# Log all output for debug
+# Log user-data for troubleshooting
 exec > >(tee /var/log/user_data.log | logger -t user-data -s 2>/dev/console) 2>&1
 
 # ---------- System prep ----------
@@ -14,16 +14,16 @@ dnf install -y nodejs
 # Utilities
 dnf install -y python3 python3-pip awscli jq
 
-# ---------- Discover region from IMDS ----------
+# ---------- Discover region ----------
 AWS_REGION="$(curl -s http://169.254.169.254/latest/dynamic/instance-identity/document | jq -r .region)"
 
-# ---------- Read secrets from SSM Parameter Store (SecureString) ----------
-# Required SSM parameters (create & populate them in Terraform or manually):
-#   /nat20/mongo/HOST         -> private IP or private DNS of Mongo (inside VPC)
-#   /nat20/mongo/USER         -> Mongo username
-#   /nat20/mongo/PASSWORD     -> Mongo password
-#   /nat20/mongo/DB           -> database name (e.g., nat20)
-#   /nat20/backend/JWT_SECRET -> JWT secret used by the app
+# ---------- Read secrets from SSM Parameter Store ----------
+# Required SSM parameters:
+#   /nat20/mongo/HOST
+#   /nat20/mongo/USER
+#   /nat20/mongo/PASSWORD
+#   /nat20/mongo/DB
+#   /nat20/backend/JWT_SECRET
 
 get_param () { aws ssm get-parameter --with-decryption --name "$1" --region "$AWS_REGION" --query 'Parameter.Value' --output text; }
 
@@ -33,13 +33,10 @@ MONGO_PASS="$(get_param "/nat20/mongo/PASSWORD")"
 MONGO_DB="$(get_param "/nat20/mongo/DB")"
 JWT_SECRET="$(get_param "/nat20/backend/JWT_SECRET")"
 
-# ---------- Write app .env for dotenv to load ----------
 APP_DIR="/opt/nat20/backend"
 mkdir -p "$APP_DIR"
 chmod 750 "$APP_DIR"
 
-# Build a private, auth-enabled connection string.
-# If your user is in a different auth DB, change authSource accordingly.
 MONGO_URI="mongodb://${MONGO_USER}:${MONGO_PASS}@${MONGO_HOST}:27017/${MONGO_DB}?authSource=admin"
 
 cat > "$APP_DIR/.env" <<EOF
@@ -49,10 +46,9 @@ MONGO_DB_NAME=${MONGO_DB}
 MONGO_COLLECTION=people
 COOKIE_SECURE=true
 JWT_SECRET=${JWT_SECRET}
-# CORS domain is enforced in app.js
+PORT=3000
 EOF
 
 chmod 640 "$APP_DIR/.env"
-
 echo "Wrote $APP_DIR/.env with private Mongo host ${MONGO_HOST}"
 exit 0
