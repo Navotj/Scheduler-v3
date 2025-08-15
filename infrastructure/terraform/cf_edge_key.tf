@@ -5,13 +5,6 @@
 # - Exposed via local for internal use
 ##############################
 
-terraform {
-  required_providers {
-    aws    = { source = "hashicorp/aws", version = ">= 5.0" }
-    random = { source = "hashicorp/random", version = ">= 3.5" }
-  }
-}
-
 # Strong random key (64 bytes base64 => ~86 chars). Adjust length if your consumer needs hex.
 resource "random_password" "cloudfront_backend_edge_key" {
   length  = 64
@@ -40,9 +33,7 @@ locals {
   cloudfront_backend_edge_key_value = random_password.cloudfront_backend_edge_key.result
 }
 
-# Optional outputs:
-# - value is sensitive (redacted in CLI output); use only if another module consumes it via output
-# - arn/name help external systems discover/read the secret without exposing the value
+# Optional outputs
 output "cloudfront_backend_edge_key_value" {
   value     = local.cloudfront_backend_edge_key_value
   sensitive = true

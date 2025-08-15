@@ -10,15 +10,18 @@ terraform {
       source  = "hashicorp/aws"
       version = ">= 5.0"
     }
+    random = {
+      source  = "hashicorp/random"
+      version = ">= 3.5"
+    }
   }
 
   backend "s3" {
-    bucket         = "navot-terraform-state-1"
-    key            = "mongodb/terraform.tfstate"
-    region         = "eu-central-1"
-    # Use native lockfile instead of deprecated DynamoDB param
-    use_lockfile   = true
-    encrypt        = true
+    bucket       = "navot-terraform-state-1"
+    key          = "mongodb/terraform.tfstate"
+    region       = "eu-central-1"
+    use_lockfile = true
+    encrypt      = true
   }
 }
 
