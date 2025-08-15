@@ -18,7 +18,7 @@ resource "aws_guardduty_detector" "primary" {
 
     malware_protection {
       scan_ec2_instance_with_findings {
-        ebs_volumes = true
+        ebs_volumes {}
       }
     }
   }
@@ -41,7 +41,7 @@ resource "aws_guardduty_detector" "use1" {
 
     malware_protection {
       scan_ec2_instance_with_findings {
-        ebs_volumes = true
+        ebs_volumes {}
       }
     }
   }

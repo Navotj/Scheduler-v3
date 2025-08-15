@@ -1,28 +1,26 @@
-# Origin Access Control for private S3 origin
-resource "aws_cloudfront_origin_access_control" "frontend" {
-  name                              = "oac-frontend-${replace(var.domain_name, ".", "-")}"
-  description                       = "OAC for ${var.domain_name} frontend"
+###############################################
+# CloudFront Distribution (Frontend, HTTPS)
+###############################################
+
+# Origin Access Control for S3 (recommended over OAI)
+resource "aws_cloudfront_origin_access_control" "s3_oac" {
+  name                              = "oac-${replace(var.domain_name, ".", "-")}"
+  description                       = "OAC for ${var.domain_name} front-end bucket"
   origin_access_control_origin_type = "s3"
   signing_behavior                  = "always"
   signing_protocol                  = "sigv4"
 }
 
-# CloudFront distribution serving the SPA from S3 with WAF + logging
 resource "aws_cloudfront_distribution" "frontend" {
   enabled             = true
-  is_ipv6_enabled     = true
-  comment             = "${var.domain_name} SPA"
+  comment             = "nat20scheduling frontend"
   default_root_object = "index.html"
 
-  aliases = [
-    var.domain_name,
-    "www.${var.domain_name}",
-  ]
+  origin {
+    domain_name = aws_s3_bucket.frontend.bucket_regional_domain_name
+    origin_id   = "s3-frontend-origin"
 
-  origins {
-    origin_id                = "s3-frontend-origin"
-    domain_name              = aws_s3_bucket.frontend.bucket_regional_domain_name
-    origin_access_control_id = aws_cloudfront_origin_access_control.frontend.id
+    origin_access_control_id = aws_cloudfront_origin_access_control.s3_oac.id
   }
 
   default_cache_behavior {
@@ -36,7 +34,9 @@ resource "aws_cloudfront_distribution" "frontend" {
 
     forwarded_values {
       query_string = true
-      cookies { forward = "none" }
+      cookies {
+        forward = "none"
+      }
     }
 
     min_ttl     = 0
@@ -44,64 +44,35 @@ resource "aws_cloudfront_distribution" "frontend" {
     max_ttl     = 86400
   }
 
-  # SPA-friendly routing: serve index.html for 403/404
-  custom_error_response {
-    error_code            = 403
-    response_code         = 200
-    response_page_path    = "/index.html"
-    error_caching_min_ttl = 0
+  price_class = "PriceClass_100"
+
+  aliases = [
+    var.domain_name,
+    "www.${var.domain_name}",
+  ]
+
+  viewer_certificate {
+    acm_certificate_arn            = aws_acm_certificate_validation.frontend.certificate_arn
+    minimum_protocol_version       = "TLSv1.2_2021"
+    ssl_support_method             = "sni-only"
   }
 
-  custom_error_response {
-    error_code            = 404
-    response_code         = 200
-    response_page_path    = "/index.html"
-    error_caching_min_ttl = 0
+  logging_config {
+    include_cookies = false
+    bucket          = "${aws_s3_bucket.logs.bucket_domain_name}"
+    prefix          = "cloudfront/"
   }
 
   restrictions {
-    geo_restriction { restriction_type = "none" }
+    geo_restriction {
+      restriction_type = "none"
+    }
   }
 
-  viewer_certificate {
-    acm_certificate_arn      = aws_acm_certificate_validation.frontend.certificate_arn
-    ssl_support_method       = "sni-only"
-    minimum_protocol_version = "TLSv1.2_2021"
-  }
-
-  price_class = "PriceClass_100"
-
-  # Access logging to dedicated logs bucket
-  logging_config {
-    bucket = aws_s3_bucket.logs.bucket_domain_name
-    prefix = "cloudfront/${replace(var.domain_name, ".", "-")}/"
-    include_cookies = false
-  }
-
-  # Attach WAF
+  # Attach WAF (in us-east-1 scope=CLOUDFRONT)
   web_acl_id = aws_wafv2_web_acl.cf_frontend.arn
 
-  depends_on = [aws_wafv2_web_acl.cf_frontend]
-}
-
-# Policy granting CloudFront access to read the private bucket
-resource "aws_s3_bucket_policy" "frontend_oac_read" {
-  bucket = aws_s3_bucket.frontend.id
-  policy = jsonencode({
-    Version = "2012-10-17",
-    Statement = [
-      {
-        Sid       = "AllowCloudFrontServicePrincipalReadOnly",
-        Effect    = "Allow",
-        Principal = { Service = "cloudfront.amazonaws.com" },
-        Action    = ["s3:GetObject"],
-        Resource  = ["${aws_s3_bucket.frontend.arn}/*"],
-        Condition = {
-          StringEquals = {
-            "AWS:SourceArn" = aws_cloudfront_distribution.frontend.arn
-          }
-        }
-      }
-    ]
-  })
+  depends_on = [
+    aws_acm_certificate_validation.frontend
+  ]
 }
