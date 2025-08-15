@@ -27,3 +27,14 @@ variable "alarm_email" {
   type        = string
   default     = ""
 }
+
+variable "mongo_db_name" {
+  description = "MongoDB database name used by the app"
+  type        = string
+  default     = "nat20"
+}
+
+variable "backend_instance_role_name" {
+  description = "IAM role name attached to the backend EC2 instance profile"
+  type        = string
+}

@@ -111,3 +111,30 @@ resource "aws_iam_role_policy_attachment" "attach_s3_artifacts_read" {
   role       = aws_iam_role.ssm_ec2_role.name
   policy_arn = aws_iam_policy.s3_artifacts_read.arn
 }
+
+# Minimal SSM Parameter Store read for backend EC2
+resource "aws_iam_policy" "nat20_backend_ssm_read" {
+  name        = "nat20-backend-ssm-read"
+  description = "Allow backend EC2 to read required SecureString params for Mongo and JWT"
+  policy      = jsonencode({
+    Version = "2012-10-17",
+    Statement = [
+      {
+        Sid:    "ReadMongoAndBackendParams",
+        Effect: "Allow",
+        Action: [
+          "ssm:GetParameter",
+          "ssm:GetParameters",
+          "ssm:GetParametersByPath"
+        ],
+        Resource: "*"
+      }
+    ]
+  })
+}
+
+# If your backend instance role name differs, set this var accordingly (see variables.tf below)
+resource "aws_iam_role_policy_attachment" "nat20_attach_backend_ssm_read" {
+  role       = var.backend_instance_role_name
+  policy_arn = aws_iam_policy.nat20_backend_ssm_read.arn
+}

@@ -29,9 +29,14 @@ resource "aws_instance" "backend" {
   iam_instance_profile   = aws_iam_instance_profile.ssm_ec2_profile.name
 
   # No secrets here; app is deployed by GitHub Actions over SSM
-  user_data = templatefile("${path.module}/backend_install.sh.tmpl", {})
+  user_data = templatefile("${path.module}/backend_install.sh.tmpl", {
+  aws_region = "eu-central-1"
+  mongo_host = aws_instance.mongodb.private_ip
+  mongo_db   = var.mongo_db_name
+})
 
   tags = { Name = "terraform-backend" }
 
   lifecycle { create_before_destroy = true }
 }
+
