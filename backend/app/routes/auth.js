@@ -1,9 +1,15 @@
+// Auth routes with verbose logging
 const express = require('express');
 const router = express.Router();
 const { body } = require('express-validator');
 const userModel = require('./user');
 const { generateToken, verifyToken } = require('./jwt');
-const cookieDomain = '.nat20scheduling.com';
+
+const COOKIE_DOMAIN = '.nat20scheduling.com';
+
+function isSecure() {
+  return String(process.env.COOKIE_SECURE).toLowerCase() === 'true';
+}
 
 // REGISTER
 router.post(
@@ -12,19 +18,25 @@ router.post(
   body('username').isString().notEmpty(),
   body('password').isString().isLength({ min: 6 }),
   async (req, res) => {
+    const reqId = req.__reqId || '-';
     try {
-      const { email, username, password } = req.body;
+      const { email, username } = req.body;
+      console.log(`[AUTH][${reqId}] register attempt`, { email, username });
 
       const existing = await userModel.findOne({ username }).lean();
-      if (existing) return res.status(409).json({ error: 'username already exists' });
+      if (existing) {
+        console.warn(`[AUTH][${reqId}] register conflict: username exists`, { username });
+        return res.status(409).json({ error: 'username already exists' });
+      }
 
       const user = new userModel({ email, username });
-      await user.setPassword(password);
+      await user.setPassword(req.body.password);
       await user.save();
 
-      return res.json({ success: true });
+      console.log(`[AUTH][${reqId}] register success`, { id: String(user._id), username });
+      return res.json({ success: true, user: { id: String(user._id), username } });
     } catch (err) {
-      console.error('Register error:', err);
+      console.error(`[AUTH][${reqId}] register error`, err);
       return res.status(500).json({ error: 'internal server error' });
     }
   }
@@ -36,31 +48,40 @@ router.post(
   body('username').isString().notEmpty(),
   body('password').notEmpty(),
   async (req, res) => {
+    const reqId = req.__reqId || '-';
     try {
-      const { username, password } = req.body;
+      const { username } = req.body;
+      console.log(`[AUTH][${reqId}] login attempt`, { username });
+
       const user = await userModel.findOne({ username });
-      if (!user || !(await user.validatePassword(password))) {
+      if (!user) {
+        console.warn(`[AUTH][${reqId}] login failed: user not found`, { username });
+        return res.status(401).json({ error: 'invalid credentials' });
+      }
+
+      const ok = await user.validatePassword(req.body.password);
+      if (!ok) {
+        console.warn(`[AUTH][${reqId}] login failed: bad password`, { username });
         return res.status(401).json({ error: 'invalid credentials' });
       }
 
       const token = generateToken(user);
-      const secure = String(process.env.COOKIE_SECURE).toLowerCase() === 'true';
-
       res.cookie('token', token, {
         httpOnly: true,
         sameSite: 'Lax',
-        secure: secure,
+        secure: isSecure(),
         path: '/',
-        domain: cookieDomain,
+        domain: COOKIE_DOMAIN,
         maxAge: 7 * 24 * 60 * 60 * 1000
       });
 
+      console.log(`[AUTH][${reqId}] login success`, { username, id: String(user._id) });
       return res.json({
         success: true,
         user: { username: user.username, id: String(user._id || '') }
       });
     } catch (err) {
-      console.error('Login error:', err);
+      console.error(`[AUTH][${reqId}] login error`, err);
       return res.status(500).json({ error: 'internal server error' });
     }
   }
@@ -68,33 +89,44 @@ router.post(
 
 // CHECK
 router.get('/check', async (req, res) => {
+  const reqId = req.__reqId || '-';
   try {
     const token = req.cookies.token;
-    if (!token) return res.status(401).json({ error: 'no session' });
+    if (!token) {
+      console.warn(`[AUTH][${reqId}] check: no cookie`);
+      return res.status(401).json({ error: 'no session' });
+    }
 
     const decoded = verifyToken(token);
-    if (!decoded) return res.status(401).json({ error: 'invalid token' });
+    if (!decoded) {
+      console.warn(`[AUTH][${reqId}] check: invalid token`);
+      return res.status(401).json({ error: 'invalid token' });
+    }
 
+    console.log(`[AUTH][${reqId}] check: ok`, { username: decoded.username, id: decoded.id });
     return res.json({ success: true, user: { username: decoded.username, id: decoded.id } });
   } catch (err) {
-    console.error('Auth check error:', err);
+    console.error(`[AUTH][${reqId}] check error`, err);
     return res.status(500).json({ error: 'internal server error' });
   }
 });
 
 // LOGOUT
 router.post('/logout', (req, res) => {
+  const reqId = req.__reqId || '-';
   try {
+    console.log(`[AUTH][${reqId}] logout attempt`);
     res.clearCookie('token', {
       httpOnly: true,
       sameSite: 'Lax',
-      secure: String(process.env.COOKIE_SECURE).toLowerCase() === 'true',
+      secure: isSecure(),
       path: '/',
-      domain: cookieDomain
+      domain: COOKIE_DOMAIN
     });
+    console.log(`[AUTH][${reqId}] logout success`);
     return res.json({ success: true });
   } catch (err) {
-    console.error('Logout error:', err);
+    console.error(`[AUTH][${reqId}] logout error`, err);
     return res.status(500).json({ error: 'internal server error' });
   }
 });
