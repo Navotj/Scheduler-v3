@@ -1,19 +1,10 @@
 ###############################################
-# ALB + HTTPS for backend (api.nat20scheduling.com)
-# - No manual instance IDs required
-# - Uses the existing aws_instance.backend and aws_security_group.backend_access
-# - Assumes backend listens on TCP 3000 (adjust in local if needed)
+# ALB + HTTPS for backend (api.<domain>)
 ###############################################
-
-locals {
-  backend_port            = 3000
-  api_fqdn                = "api.nat20scheduling.com"
-  health_check_path       = "/health"
-}
 
 # Security group for ALB (ingress 443 from the internet)
 resource "aws_security_group" "alb" {
-  name        = "alb-https-nat20scheduling"
+  name        = "alb-https-${replace(var.domain_name, ".", "-")}"
   description = "Allow HTTPS to ALB"
   vpc_id      = data.aws_vpc.default.id
 
@@ -37,34 +28,24 @@ resource "aws_security_group" "alb" {
   tags = { Name = "alb-https" }
 }
 
-# Allow ALB to reach backend on its port (grants ingress to the existing backend SG)
-resource "aws_security_group_rule" "backend_allow_from_alb" {
-  type                     = "ingress"
-  security_group_id        = aws_security_group.backend_access.id
-  source_security_group_id = aws_security_group.alb.id
-  from_port                = local.backend_port
-  to_port                  = local.backend_port
-  protocol                 = "tcp"
-  description              = "Allow ALB to backend port"
-}
+# Allow ALB -> Backend SG on backend_port (exact rule in security_groups.tf adds this)
+# (kept separate to avoid circular refs)
 
-# Application Load Balancer (public)
+# Application Load Balancer
 resource "aws_lb" "api" {
-  name               = "alb-nat20scheduling"
+  name               = "alb-${replace(var.domain_name, ".", "-")}"
   internal           = false
   load_balancer_type = "application"
   security_groups    = [aws_security_group.alb.id]
-
-  # Use your existing default subnet from main.tf; add more subnets if you want multi-AZ
-  subnets = [data.aws_subnet.eu_central_1b.id]
+  subnets            = [data.aws_subnet.eu_central_1b.id]
 
   enable_deletion_protection = false
 }
 
-# Target group for backend (instance-targets; no manual IDs—attach the Terraform-managed instance)
+# Target group for backend
 resource "aws_lb_target_group" "api" {
-  name                 = "tg-nat20scheduling"
-  port                 = local.backend_port
+  name                 = "tg-${replace(var.domain_name, ".", "-")}"
+  port                 = var.backend_port
   protocol             = "HTTP"
   target_type          = "instance"
   vpc_id               = data.aws_vpc.default.id
@@ -73,7 +54,7 @@ resource "aws_lb_target_group" "api" {
   health_check {
     enabled             = true
     interval            = 15
-    path                = local.health_check_path
+    path                = var.backend_health_check_path
     healthy_threshold   = 2
     unhealthy_threshold = 2
     timeout             = 5
@@ -81,28 +62,21 @@ resource "aws_lb_target_group" "api" {
   }
 }
 
-# Attach the Terraform-managed backend instance (no IDs needed)
+# Register Terraform-managed instance
 resource "aws_lb_target_group_attachment" "api_backend" {
   target_group_arn = aws_lb_target_group.api.arn
   target_id        = aws_instance.backend.id
-  port             = local.backend_port
+  port             = var.backend_port
 }
 
-########################################################
-# ACM certificate (eu-central-1) + DNS validation (R53)
-########################################################
-
-# Use existing hosted zone
-data "aws_route53_zone" "main" {
-  name         = "nat20scheduling.com"
-  private_zone = false
-}
-
+# ACM cert in main region for api.<domain>
 resource "aws_acm_certificate" "api" {
-  domain_name       = local.api_fqdn
+  domain_name       = "${var.api_subdomain}.${var.domain_name}"
   validation_method = "DNS"
 
-  lifecycle { create_before_destroy = true }
+  lifecycle {
+    create_before_destroy = true
+  }
 }
 
 resource "aws_route53_record" "api_cert_validation" {
@@ -127,10 +101,7 @@ resource "aws_acm_certificate_validation" "api" {
   validation_record_fqdns = [for r in aws_route53_record.api_cert_validation : r.fqdn]
 }
 
-#########################
-# HTTPS listener on ALB
-#########################
-
+# HTTPS listener
 resource "aws_lb_listener" "https" {
   load_balancer_arn = aws_lb.api.arn
   port              = 443
@@ -144,13 +115,10 @@ resource "aws_lb_listener" "https" {
   }
 }
 
-##########################################
-# DNS: api.nat20scheduling.com -> the ALB
-##########################################
-
+# api.<domain> -> ALB
 resource "aws_route53_record" "api_alias" {
   zone_id = data.aws_route53_zone.main.zone_id
-  name    = local.api_fqdn
+  name    = "${var.api_subdomain}.${data.aws_route53_zone.main.name}"
   type    = "A"
   alias {
     name                   = aws_lb.api.dns_name

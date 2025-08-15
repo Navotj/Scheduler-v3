@@ -1,11 +1,14 @@
-# Request/validate cert in us-east-1 for CloudFront
+############################################################
+# CloudFront ACM Certificate (must be in us-east-1)
+############################################################
+
 resource "aws_acm_certificate" "frontend" {
   provider          = aws.us_east_1
-  domain_name       = "nat20scheduling.com"
+  domain_name       = var.domain_name
   validation_method = "DNS"
 
   subject_alternative_names = [
-    "www.nat20scheduling.com"
+    "www.${var.domain_name}",
   ]
 
   lifecycle {
@@ -13,12 +16,7 @@ resource "aws_acm_certificate" "frontend" {
   }
 }
 
-data "aws_route53_zone" "main" {
-  name         = "nat20scheduling.com"
-  private_zone = false
-}
-
-# DNS validation records
+# DNS validation in the existing public hosted zone
 resource "aws_route53_record" "frontend_cert_validation" {
   for_each = {
     for dvo in aws_acm_certificate.frontend.domain_validation_options :

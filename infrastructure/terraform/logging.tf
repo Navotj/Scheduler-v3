@@ -1,11 +1,13 @@
-data "aws_caller_identity" "current" {}
+###############################################
+# Centralized logging buckets (no public access)
+###############################################
 
 locals {
   logs_bucket_name       = lower(replace("${var.domain_name}-logs-${data.aws_caller_identity.current.account_id}", ".", "-"))
   cloudtrail_bucket_name = lower(replace("${var.domain_name}-cloudtrail-${data.aws_caller_identity.current.account_id}", ".", "-"))
 }
 
-# Generic logs bucket (CloudFront access logs, app logs, etc.)
+# Generic logs bucket (CloudFront access logs, etc.)
 resource "aws_s3_bucket" "logs" {
   bucket        = local.logs_bucket_name
   force_destroy = false
@@ -13,13 +15,18 @@ resource "aws_s3_bucket" "logs" {
 
 resource "aws_s3_bucket_versioning" "logs" {
   bucket = aws_s3_bucket.logs.id
-  versioning_configuration { status = "Enabled" }
+  versioning_configuration {
+    status = "Enabled"
+  }
 }
 
 resource "aws_s3_bucket_server_side_encryption_configuration" "logs" {
   bucket = aws_s3_bucket.logs.id
+
   rule {
-    apply_server_side_encryption_by_default { sse_algorithm = "AES256" }
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
   }
 }
 
@@ -33,13 +40,9 @@ resource "aws_s3_bucket_public_access_block" "logs" {
 
 resource "aws_s3_bucket_ownership_controls" "logs" {
   bucket = aws_s3_bucket.logs.id
-  rule { object_ownership = "BucketOwnerPreferred" }
-}
-
-# Grant log delivery write (needed for access-style logs delivery)
-resource "aws_s3_bucket_acl" "logs" {
-  bucket = aws_s3_bucket.logs.id
-  acl    = "log-delivery-write"
+  rule {
+    object_ownership = "BucketOwnerPreferred"
+  }
 }
 
 # CloudTrail bucket (separate, with required policy)
@@ -50,12 +53,19 @@ resource "aws_s3_bucket" "cloudtrail" {
 
 resource "aws_s3_bucket_versioning" "cloudtrail" {
   bucket = aws_s3_bucket.cloudtrail.id
-  versioning_configuration { status = "Enabled" }
+  versioning_configuration {
+    status = "Enabled"
+  }
 }
 
 resource "aws_s3_bucket_server_side_encryption_configuration" "cloudtrail" {
   bucket = aws_s3_bucket.cloudtrail.id
-  rule { apply_server_side_encryption_by_default { sse_algorithm = "AES256" } }
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
 }
 
 resource "aws_s3_bucket_public_access_block" "cloudtrail" {

@@ -1,8 +1,6 @@
-# Use existing public hosted zone (do NOT create a new one)
-data "aws_route53_zone" "main" {
-  name         = var.domain_name
-  private_zone = false
-}
+###############################################
+# Public DNS records
+###############################################
 
 # Apex -> CloudFront
 resource "aws_route53_record" "apex_a" {
@@ -12,7 +10,7 @@ resource "aws_route53_record" "apex_a" {
 
   alias {
     name                   = aws_cloudfront_distribution.frontend.domain_name
-    zone_id                = "Z2FDTNDATAQYW2" # CloudFront hosted zone ID (global)
+    zone_id                = "Z2FDTNDATAQYW2"
     evaluate_target_health = false
   }
 }
