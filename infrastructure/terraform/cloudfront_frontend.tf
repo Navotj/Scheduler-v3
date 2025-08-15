@@ -7,34 +7,40 @@
 
 resource "aws_cloudfront_origin_access_control" "s3_oac" {
   name                              = "oac-${replace(var.domain_name, ".", "-")}"
-  description                       = "OAC for ${var.domain_name} front-end bucket"
+  description                       = "OAC for ${var.domain_name} static site"
   origin_access_control_origin_type = "s3"
   signing_behavior                  = "always"
   signing_protocol                  = "sigv4"
 }
 
+# ====================
+# Policies
+# ====================
+
+# No-cache policy for API (no parameters in cache key when caching is disabled)
 resource "aws_cloudfront_cache_policy" "api_no_cache" {
   name        = "nat20-api-no-cache"
+  comment     = "No caching for API responses"
+  min_ttl     = 0
   default_ttl = 0
   max_ttl     = 0
-  min_ttl     = 0
-
-  parameters_in_cache_key_and_forwarded_to_origin {
-    enable_accept_encoding_brotli = true
-    enable_accept_encoding_gzip   = true
-
-    headers_config { header_behavior = "none" }
-    cookies_config { cookie_behavior = "all" }
-    query_strings_config { query_string_behavior = "all" }
-  }
 }
 
+# Forward everything the API needs at the origin request stage
 resource "aws_cloudfront_origin_request_policy" "api_forward_all" {
   name = "nat20-api-forward-all"
 
   headers_config { header_behavior = "allViewer" }
   cookies_config { cookie_behavior = "all" }
   query_strings_config { query_string_behavior = "all" }
+}
+
+# ====================
+# Distribution
+# ====================
+
+locals {
+  cloudfront_backend_edge_key_value = data.aws_secretsmanager_secret_version.cloudfront_backend_edge_key.secret_string
 }
 
 resource "aws_cloudfront_distribution" "frontend" {
@@ -53,14 +59,15 @@ resource "aws_cloudfront_distribution" "frontend" {
 
   # Backend API (ALB) — must match your ALB resource name in alb_backend.tf
   origin {
-    domain_name = aws_lb.api.dns_name
+    domain_name = aws_lb.backend_alb.dns_name
     origin_id   = "alb-backend-origin"
-
     custom_origin_config {
-      http_port              = 80
-      https_port             = 443
-      origin_protocol_policy = "https-only"
-      origin_ssl_protocols   = ["TLSv1.2"]
+      http_port                = 80
+      https_port               = 443
+      origin_keepalive_timeout = 60
+      origin_protocol_policy   = "https-only"
+      origin_read_timeout      = 60
+      origin_ssl_protocols     = ["TLSv1.2"]
     }
 
     # Secret header enforced by WAF on the ALB
@@ -134,7 +141,6 @@ resource "aws_cloudfront_distribution" "frontend" {
     compress                 = true
   }
 
-  # Optional debug passthrough
   ordered_cache_behavior {
     path_pattern             = "/__debug/*"
     target_origin_id         = "alb-backend-origin"
@@ -146,17 +152,27 @@ resource "aws_cloudfront_distribution" "frontend" {
     compress                 = true
   }
 
-  price_class = "PriceClass_100"
+  # -------- GEO/PRICE CLASS/WAF --------
 
-  aliases = [
-    var.domain_name,
-    "www.${var.domain_name}",
-  ]
+  price_class = "PriceClass_100" # adjust as needed
+
+  restrictions {
+    geo_restriction {
+      restriction_type = "none"
+    }
+  }
+
+  web_acl_id = aws_wafv2_web_acl.frontend.arn
+
+  # -------- SSL --------
+
+  aliases = [var.domain_name]
 
   viewer_certificate {
-    acm_certificate_arn      = aws_acm_certificate_validation.frontend.certificate_arn
-    minimum_protocol_version = "TLSv1.2_2021"
-    ssl_support_method       = "sni-only"
+    acm_certificate_arn            = aws_acm_certificate.frontend.arn
+    cloudfront_default_certificate = false
+    minimum_protocol_version       = "TLSv1.2_2021"
+    ssl_support_method             = "sni-only"
   }
 
   # SPA-friendly mapping
@@ -173,20 +189,21 @@ resource "aws_cloudfront_distribution" "frontend" {
     error_caching_min_ttl = 0
   }
 
-  logging_config {
-    include_cookies = false
-    bucket          = aws_s3_bucket.logs.bucket_domain_name
-    prefix          = "cloudfront/"
-  }
-
-  restrictions {
-    geo_restriction {
-      restriction_type = "none"
-      locations        = []
-    }
-  }
-
-  web_acl_id = aws_wafv2_web_acl.cf_frontend.arn
+  # Logging (optional; add bucket if needed)
+  # logging_config {
+  #   include_cookies = false
+  #   bucket          = aws_s3_bucket.logs.bucket_domain_name
+  #   prefix          = "cloudfront/"
+  # }
 
   depends_on = [aws_acm_certificate_validation.frontend]
+}
+
+# Secret for X-EDGE-KEY header used by ALB/WAF validation
+data "aws_secretsmanager_secret" "cloudfront_backend_edge_key" {
+  name = aws_secretsmanager_secret.cloudfront_backend_edge_key.name
+}
+
+data "aws_secretsmanager_secret_version" "cloudfront_backend_edge_key" {
+  secret_id = data.aws_secretsmanager_secret.cloudfront_backend_edge_key.id
 }
