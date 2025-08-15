@@ -77,18 +77,18 @@ if [ -z "$S3_MONGO_USER" ] || [ -z "$S3_MONGO_PASS" ]; then
   exit 1
 fi
 
-# Create user idempotently using a JS file (credentials via env, not CLI args)
+# Create user idempotently using a JS file (avoid ${...} so Terraform doesn't try to template)
 cat >/tmp/create_app_user.js <<'JS'
-const user = (_getEnv("S3_MONGO_USER") || "").trim();
-const pass = (_getEnv("S3_MONGO_PASS") || "").trim();
+var user = (_getEnv("S3_MONGO_USER") || "").trim();
+var pass = (_getEnv("S3_MONGO_PASS") || "").trim();
 if (!user || !pass) { throw new Error("Missing S3_MONGO_USER or S3_MONGO_PASS"); }
 db = db.getSiblingDB("admin");
-const existing = db.system.users.findOne({ user: user, db: "admin" });
+var existing = db.system.users.findOne({ user: user, db: "admin" });
 if (existing) {
-  print(`User '${user}' already exists in admin; skipping create.`);
+  print("User '" + user + "' already exists in admin; skipping create.");
 } else {
   db.createUser({ user: user, pwd: pass, roles: [ { role: "root", db: "admin" } ] });
-  print(`Created admin user '${user}'.`);
+  print("Created admin user '" + user + "'.");
 }
 JS
 
