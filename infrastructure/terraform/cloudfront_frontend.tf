@@ -1,201 +1,79 @@
-###############################################
-# CloudFront Distribution (Frontend + API via ALB)
-# - S3 (OAC) for static site
-# - API via ALB
-###############################################
-
-# -------- External lookups (by name) --------
-data "aws_lb" "backend" {
-  name = var.backend_alb_name
+provider "aws" {
+  alias  = "us_east_1"
+  region = "us-east-1"
 }
 
-# Optional WAF for CloudFront: only query if a name is provided
-data "aws_wafv2_web_acl" "frontend" {
-  provider = aws.us_east_1
-  count    = length(var.frontend_waf_name) > 0 ? 1 : 0
-  name     = var.frontend_waf_name
-  scope    = "CLOUDFRONT"
+data "aws_route53_zone" "main" {
+  name = var.domain_name
 }
 
-# Secret for X-EDGE-KEY header used by ALB/WAF validation
-data "aws_secretsmanager_secret" "cloudfront_backend_edge_key" {
-  name = aws_secretsmanager_secret.cloudfront_backend_edge_key.name
-}
-
-data "aws_secretsmanager_secret_version" "cloudfront_backend_edge_key" {
-  secret_id = data.aws_secretsmanager_secret.cloudfront_backend_edge_key.id
-}
-
-# -------- OAC for S3 --------
-resource "aws_cloudfront_origin_access_control" "s3_oac" {
-  name                              = "oac-${replace(var.domain_name, ".", "-")}"
-  description                       = "OAC for ${var.domain_name} static site"
+resource "aws_cloudfront_origin_access_control" "frontend" {
+  name                              = "nat20-frontend-oac"
+  description                       = "Origin Access Control for Frontend"
   origin_access_control_origin_type = "s3"
   signing_behavior                  = "always"
   signing_protocol                  = "sigv4"
 }
 
-# -------- Policies --------
-resource "aws_cloudfront_cache_policy" "api_no_cache" {
-  name        = "nat20-api-no-cache"
-  comment     = "No caching for API responses"
-  min_ttl     = 0
-  default_ttl = 0
-  max_ttl     = 0
-
-  parameters_in_cache_key_and_forwarded_to_origin {
-    enable_accept_encoding_brotli = false
-    enable_accept_encoding_gzip   = true
-
-    headers_config  { header_behavior = "none" }
-    cookies_config  { cookie_behavior = "none" }
-    query_strings_config { query_string_behavior = "none" }
-  }
-}
-
-resource "aws_cloudfront_origin_request_policy" "api_forward_all" {
-  name    = "nat20-api-forward-all"
-  comment = "Forward all headers, cookies, and query strings to API origin"
-
-  headers_config       { header_behavior = "allViewer" }
-  cookies_config       { cookie_behavior = "all" }
-  query_strings_config { query_string_behavior = "all" }
-}
-
-# -------- Distribution --------
 resource "aws_cloudfront_distribution" "frontend" {
+  provider = aws.us_east_1
+
   enabled             = true
-  comment             = "nat20scheduling frontend + API"
+  is_ipv6_enabled     = true
+  comment             = "Frontend Distribution"
   default_root_object = "index.html"
-
-  # Static frontend (S3, private via OAC)
-  origin {
-    domain_name              = aws_s3_bucket.frontend.bucket_regional_domain_name
-    origin_id                = "s3-frontend-origin"
-    origin_access_control_id = aws_cloudfront_origin_access_control.s3_oac.id
-  }
-
-  # Backend API (ALB)
-  origin {
-    domain_name = data.aws_lb.backend.dns_name
-    origin_id   = "alb-backend-origin"
-    custom_origin_config {
-      http_port                = 80
-      https_port               = 443
-      origin_keepalive_timeout = 60
-      origin_protocol_policy   = "https-only"
-      origin_read_timeout      = 60
-      origin_ssl_protocols     = ["TLSv1.2"]
-    }
-
-    custom_header {
-      name  = "X-EDGE-KEY"
-      value = data.aws_secretsmanager_secret_version.cloudfront_backend_edge_key.secret_string
-    }
-  }
-
-  # Default behavior: static site
-  default_cache_behavior {
-    target_origin_id       = "s3-frontend-origin"
-    viewer_protocol_policy = "redirect-to-https"
-    allowed_methods        = ["GET", "HEAD", "OPTIONS"]
-    cached_methods         = ["GET", "HEAD"]
-    compress               = true
-    forwarded_values {
-      query_string = true
-      cookies { forward = "none" }
-    }
-    min_ttl     = 0
-    default_ttl = 3600
-    max_ttl     = 86400
-  }
-
-  # API paths -> ALB (no cache; forward cookies/headers/query)
-  ordered_cache_behavior {
-    path_pattern             = "/auth/*"
-    target_origin_id         = "alb-backend-origin"
-    viewer_protocol_policy   = "redirect-to-https"
-    allowed_methods          = ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"]
-    cached_methods           = ["GET", "HEAD", "OPTIONS"]
-    cache_policy_id          = aws_cloudfront_cache_policy.api_no_cache.id
-    origin_request_policy_id = aws_cloudfront_origin_request_policy.api_forward_all.id
-    compress                 = true
-  }
-
-  ordered_cache_behavior {
-    path_pattern             = "/availability/*"
-    target_origin_id         = "alb-backend-origin"
-    viewer_protocol_policy   = "redirect-to-https"
-    allowed_methods          = ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"]
-    cached_methods           = ["GET", "HEAD", "OPTIONS"]
-    cache_policy_id          = aws_cloudfront_cache_policy.api_no_cache.id
-    origin_request_policy_id = aws_cloudfront_origin_request_policy.api_forward_all.id
-    compress                 = true
-  }
-
-  ordered_cache_behavior {
-    path_pattern             = "/users/*"
-    target_origin_id         = "alb-backend-origin"
-    viewer_protocol_policy   = "redirect-to-https"
-    allowed_methods          = ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"]
-    cached_methods           = ["GET", "HEAD", "OPTIONS"]
-    cache_policy_id          = aws_cloudfront_cache_policy.api_no_cache.id
-    origin_request_policy_id = aws_cloudfront_origin_request_policy.api_forward_all.id
-    compress                 = true
-  }
-
-  ordered_cache_behavior {
-    path_pattern             = "/settings"
-    target_origin_id         = "alb-backend-origin"
-    viewer_protocol_policy   = "redirect-to-https"
-    allowed_methods          = ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"]
-    cached_methods           = ["GET", "HEAD", "OPTIONS"]
-    cache_policy_id          = aws_cloudfront_cache_policy.api_no_cache.id
-    origin_request_policy_id = aws_cloudfront_origin_request_policy.api_forward_all.id
-    compress                 = true
-  }
-
-  ordered_cache_behavior {
-    path_pattern             = "/__debug/*"
-    target_origin_id         = "alb-backend-origin"
-    viewer_protocol_policy   = "redirect-to-https"
-    allowed_methods          = ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"]
-    cached_methods           = ["GET", "HEAD", "OPTIONS"]
-    cache_policy_id          = aws_cloudfront_cache_policy.api_no_cache.id
-    origin_request_policy_id = aws_cloudfront_origin_request_policy.api_forward_all.id
-    compress                 = true
-  }
-
-  price_class = "PriceClass_100"
-
-  restrictions {
-    geo_restriction { restriction_type = "none" }
-  }
-
-  web_acl_id = aws_wafv2_web_acl.frontend.arn
 
   aliases = [var.domain_name]
 
+  origin {
+    domain_name = aws_s3_bucket.deploy_artifacts.bucket_regional_domain_name
+    origin_id   = "s3-frontend"
+
+    origin_access_control_id = aws_cloudfront_origin_access_control.frontend.id
+  }
+
+  default_cache_behavior {
+    allowed_methods  = ["GET", "HEAD", "OPTIONS"]
+    cached_methods   = ["GET", "HEAD"]
+    target_origin_id = "s3-frontend"
+
+    forwarded_values {
+      query_string = false
+
+      cookies {
+        forward = "none"
+      }
+    }
+
+    viewer_protocol_policy = "redirect-to-https"
+    min_ttl                = 0
+    default_ttl            = 3600
+    max_ttl                = 86400
+  }
+
+  restrictions {
+    geo_restriction {
+      restriction_type = "none"
+    }
+  }
+
   viewer_certificate {
-    acm_certificate_arn            = aws_acm_certificate.frontend.arn
-    cloudfront_default_certificate = false
-    minimum_protocol_version       = "TLSv1.2_2021"
-    ssl_support_method             = "sni-only"
+    acm_certificate_arn      = aws_acm_certificate.cloudfront.arn
+    ssl_support_method       = "sni-only"
+    minimum_protocol_version = "TLSv1.2_2021"
   }
 
-  # SPA error mapping
-  custom_error_response {
-    error_code            = 403
-    response_code         = 200
-    response_page_path    = "/index.html"
-    error_caching_min_ttl = 0
-  }
-  custom_error_response {
-    error_code            = 404
-    response_code         = 200
-    response_page_path    = "/index.html"
-    error_caching_min_ttl = 0
-  }
+  web_acl_id = var.attach_frontend_waf ? aws_wafv2_web_acl.frontend.arn : null
+}
 
-  depends_on = [aws_acm_certificate_validation.frontend]
+resource "aws_route53_record" "frontend" {
+  zone_id = data.aws_route53_zone.main.zone_id
+  name    = var.domain_name
+  type    = "A"
+
+  alias {
+    name                   = aws_cloudfront_distribution.frontend.domain_name
+    zone_id                = aws_cloudfront_distribution.frontend.hosted_zone_id
+    evaluate_target_health = false
+  }
 }
