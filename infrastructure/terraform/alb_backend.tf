@@ -28,16 +28,16 @@ resource "aws_security_group" "alb" {
   tags = { Name = "alb-https" }
 }
 
-# Allow ALB -> Backend SG on backend_port (exact rule in security_groups.tf adds this)
-# (kept separate to avoid circular refs)
-
-# Application Load Balancer
+# Application Load Balancer - requires at least two subnets in different AZs
 resource "aws_lb" "api" {
   name               = "alb-${replace(var.domain_name, ".", "-")}"
   internal           = false
   load_balancer_type = "application"
   security_groups    = [aws_security_group.alb.id]
-  subnets            = [data.aws_subnet.eu_central_1b.id]
+  subnets            = [
+    data.aws_subnet.eu_central_1a.id,
+    data.aws_subnet.eu_central_1b.id
+  ]
 
   enable_deletion_protection = false
 }
@@ -94,6 +94,7 @@ resource "aws_route53_record" "api_cert_validation" {
   type    = each.value.type
   ttl     = 60
   records = [each.value.record]
+  allow_overwrite = true
 }
 
 resource "aws_acm_certificate_validation" "api" {
@@ -125,4 +126,5 @@ resource "aws_route53_record" "api_alias" {
     zone_id                = aws_lb.api.zone_id
     evaluate_target_health = false
   }
+  allow_overwrite = true
 }

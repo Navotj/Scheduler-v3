@@ -2,12 +2,24 @@
 # Shared Data Sources (single definitions)
 ###############################################
 
-# Default VPC and a commonly used subnet (already referenced elsewhere)
+# Default VPC
 data "aws_vpc" "default" {
   default = true
 }
 
-# If you rely on a specific subnet/az, keep these matching your current setup
+# Subnet in eu-central-1a (default subnet for the AZ)
+data "aws_subnet" "eu_central_1a" {
+  filter {
+    name   = "availability-zone"
+    values = ["eu-central-1a"]
+  }
+  filter {
+    name   = "default-for-az"
+    values = ["true"]
+  }
+}
+
+# Subnet in eu-central-1b (default subnet for the AZ)
 data "aws_subnet" "eu_central_1b" {
   filter {
     name   = "availability-zone"
@@ -19,10 +31,10 @@ data "aws_subnet" "eu_central_1b" {
   }
 }
 
-# Caller identity (used by IAM/logging)
+# Caller identity (account id, etc.)
 data "aws_caller_identity" "current" {}
 
-# Public hosted zone for your domain (reused by CF + ALB DNS)
+# Public hosted zone for your domain
 data "aws_route53_zone" "main" {
   name         = var.domain_name
   private_zone = false
