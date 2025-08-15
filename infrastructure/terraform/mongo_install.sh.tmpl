@@ -87,7 +87,6 @@ const existing = db.system.users.findOne({ user: user, db: "admin" });
 if (existing) {
   print(`User '${user}' already exists in admin; skipping create.`);
 } else {
-  // Grant cluster-wide admin (adjust to a narrower role if desired)
   db.createUser({ user: user, pwd: pass, roles: [ { role: "root", db: "admin" } ] });
   print(`Created admin user '${user}'.`);
 }
