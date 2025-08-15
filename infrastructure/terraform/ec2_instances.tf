@@ -30,10 +30,11 @@ resource "aws_instance" "backend" {
 
   # No secrets here; app is deployed by GitHub Actions over SSM
   user_data = templatefile("${path.module}/backend_install.sh.tmpl", {
-  aws_region = "eu-central-1"
-  mongo_host = aws_instance.mongodb.private_ip
+  aws_region = "eu-central-1",
+  mongo_host = aws_instance.mongodb.private_ip,
   mongo_db   = var.mongo_db_name
 })
+
 
   tags = { Name = "terraform-backend" }
 
