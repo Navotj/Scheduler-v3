@@ -47,20 +47,23 @@ router.post(
 
     const token = generateToken(user);
 
-    // IMPORTANT: secure=false if you're serving backend over HTTP (no TLS) so browser will accept/send the cookie.
-    // Set COOKIE_SECURE=true in env when you migrate to HTTPS.
+    // Ensure app.js has: app.set('trust proxy', true);
+    // COOKIE_SECURE must be "true" in .env so cookie is marked Secure.
     const secure = String(process.env.COOKIE_SECURE).toLowerCase() === 'true';
 
     res.cookie('token', token, {
       httpOnly: true,
       sameSite: 'Lax',
-      secure,
-      path: '/'
+      secure: secure,
+      path: '/',
+      // Explicit domain ensures cookie is scoped correctly
+      domain: '.nat20scheduling.com'
     });
 
     res.json({ success: true });
   }
 );
+
 
 // check jwt validity (returns username to populate UI)
 router.get('/auth/check', async (req, res) => {
