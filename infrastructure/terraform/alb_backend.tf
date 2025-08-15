@@ -15,7 +15,7 @@ resource "aws_security_group" "alb" {
 
   # No wide-open rules; allowlist CloudFront only
   ingress {
-    description     = "CloudFront -> ALB HTTPS"
+    description     = "CloudFront to ALB HTTPS"
     from_port       = 443
     to_port         = 443
     protocol        = "tcp"
