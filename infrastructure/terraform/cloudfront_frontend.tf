@@ -183,8 +183,9 @@ resource "aws_cloudfront_distribution" "frontend" {
     geo_restriction {
       restriction_type = "none"
       locations        = []
+    }
   }
-
+  
   web_acl_id = aws_wafv2_web_acl.cf_frontend.arn
 
   depends_on = [aws_acm_certificate_validation.frontend]
