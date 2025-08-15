@@ -1,8 +1,8 @@
 ###############################################
 # WAFv2 (REGIONAL) for the backend ALB
-# - Blocks all requests by default
-# - Allows only requests that carry the exact X-EDGE-KEY header value
-# - Associates to aws_lb.api
+# - Block all by default
+# - Allow only requests with header X-EDGE-KEY == var.cloudfront_backend_edge_key
+# - Associate to aws_lb.api
 ###############################################
 
 resource "aws_wafv2_web_acl" "backend_alb" {
@@ -15,7 +15,7 @@ resource "aws_wafv2_web_acl" "backend_alb" {
     block {}
   }
 
-  # Allow when X-EDGE-KEY header matches var.cloudfront_backend_edge_key
+  # Allow when X-EDGE-KEY header matches the secret
   rule {
     name     = "AllowWithSecretHeader"
     priority = 1
@@ -30,7 +30,7 @@ resource "aws_wafv2_web_acl" "backend_alb" {
 
         field_to_match {
           single_header {
-            # Header names must be lowercase
+            # header names must be lowercase in WAF
             name = "x-edge-key"
           }
         }
@@ -58,7 +58,7 @@ resource "aws_wafv2_web_acl" "backend_alb" {
   }
 }
 
-# Associate the WAF ACL with the backend ALB (aws_lb.api)
+# Attach to the correct ALB resource (aws_lb.api defined in alb_backend.tf)
 resource "aws_wafv2_web_acl_association" "backend_alb_assoc" {
   resource_arn = aws_lb.api.arn
   web_acl_arn  = aws_wafv2_web_acl.backend_alb.arn

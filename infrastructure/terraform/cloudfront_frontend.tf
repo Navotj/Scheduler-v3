@@ -1,5 +1,8 @@
 ###############################################
-# CloudFront Distribution (Frontend + Private API via ALB)
+# CloudFront Distribution (Frontend + API via ALB)
+# - S3 (OAC) for static site
+# - Routes /auth/*, /availability/*, /users/*, /settings, /__debug/* to ALB
+# - No caching on API; forward cookies/headers/query
 ###############################################
 
 resource "aws_cloudfront_origin_access_control" "s3_oac" {
@@ -10,7 +13,6 @@ resource "aws_cloudfront_origin_access_control" "s3_oac" {
   signing_protocol                  = "sigv4"
 }
 
-# No-cache policy for API (forward cookies/qs, don't cache)
 resource "aws_cloudfront_cache_policy" "api_no_cache" {
   name        = "nat20-api-no-cache"
   default_ttl = 0
@@ -21,19 +23,12 @@ resource "aws_cloudfront_cache_policy" "api_no_cache" {
     enable_accept_encoding_brotli = true
     enable_accept_encoding_gzip   = true
 
-    headers_config {
-      header_behavior = "none"
-    }
-    cookies_config {
-      cookie_behavior = "all"
-    }
-    query_strings_config {
-      query_string_behavior = "all"
-    }
+    headers_config { header_behavior = "none" }
+    cookies_config { cookie_behavior = "all" }
+    query_strings_config { query_string_behavior = "all" }
   }
 }
 
-# Forward all headers/cookies/query to origin (backend)
 resource "aws_cloudfront_origin_request_policy" "api_forward_all" {
   name = "nat20-api-forward-all"
 
@@ -47,14 +42,16 @@ resource "aws_cloudfront_distribution" "frontend" {
   comment             = "nat20scheduling frontend + API"
   default_root_object = "index.html"
 
-  # ORIGINS
+  # -------- ORIGINS --------
+
+  # Static frontend (S3, private via OAC)
   origin {
     domain_name              = aws_s3_bucket.frontend.bucket_regional_domain_name
     origin_id                = "s3-frontend-origin"
     origin_access_control_id = aws_cloudfront_origin_access_control.s3_oac.id
   }
 
-  # Backend ALB origin (matches aws_lb.api)
+  # Backend API (ALB) — must match your ALB resource name in alb_backend.tf
   origin {
     domain_name = aws_lb.api.dns_name
     origin_id   = "alb-backend-origin"
@@ -66,14 +63,14 @@ resource "aws_cloudfront_distribution" "frontend" {
       origin_ssl_protocols   = ["TLSv1.2"]
     }
 
-    # Secret header for WAF rule at ALB
+    # Secret header enforced by WAF on the ALB
     origin_custom_header {
       name  = "X-EDGE-KEY"
       value = var.cloudfront_backend_edge_key
     }
   }
 
-  # DEFAULT: static site from S3
+  # -------- DEFAULT: STATIC --------
   default_cache_behavior {
     target_origin_id       = "s3-frontend-origin"
     viewer_protocol_policy = "redirect-to-https"
@@ -92,7 +89,7 @@ resource "aws_cloudfront_distribution" "frontend" {
     max_ttl     = 86400
   }
 
-  # API PATHS -> backend ALB (no cache, forward cookies/headers/qs)
+  # -------- API PATHS -> ALB (no cache; forward cookies/headers/query) --------
   ordered_cache_behavior {
     path_pattern             = "/auth/*"
     target_origin_id         = "alb-backend-origin"
@@ -162,7 +159,7 @@ resource "aws_cloudfront_distribution" "frontend" {
     ssl_support_method       = "sni-only"
   }
 
-  # SPA routing: return index.html for 403/404
+  # SPA-friendly mapping
   custom_error_response {
     error_code            = 403
     response_code         = 200
@@ -182,9 +179,7 @@ resource "aws_cloudfront_distribution" "frontend" {
     prefix          = "cloudfront/"
   }
 
-  restrictions {
-    geo_restriction { restriction_type = "none" }
-  }
+  restrictions { geo_restriction { restriction_type = "none" } }
 
   web_acl_id = aws_wafv2_web_acl.cf_frontend.arn
 
