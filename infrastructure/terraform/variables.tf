@@ -35,9 +35,3 @@ variable "create_api_alias" {
   type        = bool
   default     = false
 }
-
-# Shared secret header that CloudFront sends to ALB (matched by WAF).
-variable "cloudfront_backend_edge_key" {
-  description = "Secret value for X-EDGE-KEY header from CloudFront to ALB"
-  type        = string
-}
