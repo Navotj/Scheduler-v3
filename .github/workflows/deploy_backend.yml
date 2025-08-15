@@ -12,6 +12,10 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
 
+    permissions:
+      id-token: write
+      contents: read
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -23,6 +27,12 @@ jobs:
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws-region: eu-central-1
 
+    - name: Install Session Manager Plugin
+      run: |
+        curl -fsSL https://s3.amazonaws.com/session-manager-downloads/plugin/latest/ubuntu_64bit/session-manager-plugin.deb -o /tmp/session-manager-plugin.deb
+        sudo dpkg -i /tmp/session-manager-plugin.deb
+        session-manager-plugin --version
+
     - name: Get Backend Instance ID from tag
       id: backend_instance
       run: |
@@ -33,41 +43,82 @@ jobs:
         echo "INSTANCE_ID=$INSTANCE_ID" >> $GITHUB_ENV
         echo "instance_id=$INSTANCE_ID" >> $GITHUB_OUTPUT
 
-    - name: Create .env file from TF_VAR secrets
-      run: |
-        echo "MONGO_URI=mongodb://${{ secrets.TF_VAR_S3_MONGO_USER }}:${{ secrets.TF_VAR_S3_MONGO_PASSWORD }}@mongo.nat20scheduling.com:27017" >> backend/app/.env
-        echo "JWT_SECRET=${{ secrets.JWT_SECRET }}" >> backend/app/.env
-
-
-    - name: Zip backend files
+    - name: Zip backend files (code only, no .env)
       run: |
         cd backend
         zip -r ../backend.zip .
         cd ..
 
-    - name: Upload zip to S3 temp bucket
+    - name: Copy artifact to instance over SSM (no S3)
+      env:
+        INSTANCE_ID: ${{ env.INSTANCE_ID }}
       run: |
-        aws s3 cp backend.zip s3://nat20scheduling.com/backend.zip
+        # Try ec2-user first; if SSH server is not present/runs as ubuntu, toggle USER
+        USERNAME="ec2-user"
+        # Create target directory
+        aws ssm send-command \
+          --document-name "AWS-RunShellScript" \
+          --instance-ids "$INSTANCE_ID" \
+          --region eu-central-1 \
+          --comment "Prepare deploy directories" \
+          --parameters commands='[
+            "sudo mkdir -p /opt/app /tmp/installation",
+            "sudo chown -R $(whoami):$(whoami) /tmp/installation"
+          ]' \
+          --output text > /dev/null
 
-    - name: Deploy backend via SSM
+        # Use scp over SSM (port forwarding via AWS-StartSSHSession). Requires sshd on the instance.
+        scp -o StrictHostKeyChecking=no \
+            -o UserKnownHostsFile=/dev/null \
+            -o ProxyCommand="aws ssm start-session --target ${INSTANCE_ID} --document-name AWS-StartSSHSession --parameters portNumber=22 2>/dev/null" \
+            backend.zip ${USERNAME}@${INSTANCE_ID}:/tmp/installation/backend.zip || (
+              # Fallback to ubuntu user
+              USERNAME="ubuntu"
+              scp -o StrictHostKeyChecking=no \
+                  -o UserKnownHostsFile=/dev/null \
+                  -o ProxyCommand="aws ssm start-session --target ${INSTANCE_ID} --document-name AWS-StartSSHSession --parameters portNumber=22 2>/dev/null" \
+                  backend.zip ${USERNAME}@${INSTANCE_ID}:/tmp/installation/backend.zip
+            )
+
+    - name: Render env from SSM and deploy
+      env:
+        INSTANCE_ID: ${{ env.INSTANCE_ID }}
+        # Parameter names to read on the instance (SecureString in SSM Parameter Store)
+        SSM_JWT_SECRET_PARAM: /nat20/backend/JWT_SECRET
+        SSM_MONGO_USER_PARAM: /nat20/mongo/USER
+        SSM_MONGO_PASS_PARAM: /nat20/mongo/PASSWORD
+        MONGO_HOST: mongo.nat20scheduling.com
+        MONGO_PORT: "27017"
       run: |
         aws ssm send-command \
-        --document-name "AWS-RunShellScript" \
-        --instance-ids ${{ env.INSTANCE_ID }} \
-        --region eu-central-1 \
-        --comment "Deploy backend app" \
-        --parameters commands='[
-            "mkdir -p /opt/app /tmp/installation",
-            "aws s3 cp s3://nat20scheduling.com/backend.zip /tmp/installation/backend.zip",
-            "sudo unzip /tmp/installation/backend.zip -d /tmp/installation/",
-            "sudo bash -c '\''rm -rf /opt/app/* /opt/app/.* 2>/dev/null || true'\''",
-            "sudo mv /tmp/installation/app/* /opt/app",
-            "sudo mv /tmp/installation/app/.env /opt/app",
-            "sudo mv /tmp/installation/scheduler.service /etc/systemd/system/scheduler.service",
-            "cd /opt/app && npm install",
-            "sudo systemctl daemon-reexec",
-            "sudo systemctl daemon-reload",
-            "sudo systemctl enable scheduler",
-            "sudo systemctl restart scheduler"
-        ]' \
-        --output text
+          --document-name "AWS-RunShellScript" \
+          --instance-ids "$INSTANCE_ID" \
+          --region eu-central-1 \
+          --comment "Deploy backend app without S3; secrets pulled from SSM" \
+          --parameters commands="[
+            \"set -e\",
+            \"sudo mkdir -p /opt/app /tmp/installation\",
+            \"sudo chown -R $(whoami):$(whoami) /tmp/installation\",
+            \"unzip -o /tmp/installation/backend.zip -d /tmp/installation/\",
+            \"sudo bash -lc 'rm -rf /opt/app/* /opt/app/.* 2>/dev/null || true'\",
+            \"sudo mv /tmp/installation/app/* /opt/app || sudo mv /tmp/installation/* /opt/app || true\",
+            \"sudo mkdir -p /opt/app\",
+            \"# Render .env from SSM (avoid shipping secrets in artifact)\",
+            \"JWT_SECRET=$(aws ssm get-parameter --name ${SSM_JWT_SECRET_PARAM} --with-decryption --query Parameter.Value --output text)\",
+            \"MONGO_USER=$(aws ssm get-parameter --name ${SSM_MONGO_USER_PARAM} --with-decryption --query Parameter.Value --output text)\",
+            \"MONGO_PASS=$(aws ssm get-parameter --name ${SSM_MONGO_PASS_PARAM} --with-decryption --query Parameter.Value --output text)\",
+            \"echo \\\"JWT_SECRET=$JWT_SECRET\\\" | sudo tee /opt/app/.env >/dev/null\",
+            \"echo \\\"MONGO_URI=mongodb://$MONGO_USER:$MONGO_PASS@${MONGO_HOST}:${MONGO_PORT}\\\" | sudo tee -a /opt/app/.env >/dev/null\",
+            \"# Install deps and restart service\",
+            \"cd /opt/app && npm install --omit=dev || npm install\",
+            \"if [ -f /opt/app/scheduler.service ]; then sudo mv /opt/app/scheduler.service /etc/systemd/system/scheduler.service; fi\",
+            \"sudo systemctl daemon-reexec\",
+            \"sudo systemctl daemon-reload\",
+            \"sudo systemctl enable scheduler || true\",
+            \"sudo systemctl restart scheduler\"
+          ]" \
+          --output text
+
+    - name: Clean up local artifact
+      if: always()
+      run: rm -f backend.zip

@@ -26,4 +26,4 @@ jobs:
     - name: Sync frontend to S3 (clean deploy)
       run: |
         echo "Uploading to bucket: nat20scheduling.com (clean sync)"
-        aws s3 sync frontend/ s3://nat20scheduling.com/ --delete --acl public-read
+        aws s3 sync frontend/ s3://nat20scheduling.com/ --delete

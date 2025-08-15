@@ -11,7 +11,7 @@ window.initLoginForm = function () {
     errorDisplay.style.color = '#f55';
 
     try {
-      const res = await fetch('http://backend.nat20scheduling.com:3000/login', {
+      const res = await fetch('https://backend.nat20scheduling.com:3000/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',

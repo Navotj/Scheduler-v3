@@ -2,7 +2,7 @@
   'use strict';
 
   // --- Constants ---
-  const BASE_URL = 'http://backend.nat20scheduling.com:3000';
+  const BASE_URL = 'https://backend.nat20scheduling.com:3000';
   const SLOTS_PER_HOUR = 2;        // 30-minute slots
   const HOURS_START = 0;
   const HOURS_END = 24;

@@ -16,12 +16,6 @@ jobs:
     name: 'Deploy Terraform Infrastructure'
     runs-on: ubuntu-latest
 
-    env:
-      TF_VAR_admin_mongo_user: ${{ secrets.TF_VAR_ADMIN_MONGO_USER }}
-      TF_VAR_admin_mongo_password: ${{ secrets.TF_VAR_ADMIN_MONGO_PASSWORD }}
-      TF_VAR_s3_mongo_user: ${{ secrets.TF_VAR_s3_MONGO_USER }}
-      TF_VAR_s3_mongo_password: ${{ secrets.TF_VAR_s3_MONGO_PASSWORD }}
-
     environment: Development
 
     defaults:

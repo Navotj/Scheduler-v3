@@ -7,16 +7,15 @@ exec > >(tee /var/log/user_data.log | logger -t user-data -s 2>/dev/console) 2>&
 # Update package metadata
 yum update -y
 
-# Confirm required tools exist (minimal versions are already installed)
+# Confirm required tools exist
 command -v curl
-command -v gpg2
+command -v gpg2 || dnf install -y gnupg2
 
 # Import MongoDB GPG key
-curl -fsSL https://pgp.mongodb.com/server-8.0.asc | \
-gpg2 --dearmor -o /etc/pki/rpm-gpg/mongodb-org-8.0.gpg
+curl -fsSL https://pgp.mongodb.com/server-8.0.asc | gpg2 --dearmor -o /etc/pki/rpm-gpg/mongodb-org-8.0.gpg
 
-# Add MongoDB repo
-cat <<REPO > /etc/yum.repos.d/mongodb-org-8.0.repo
+# Add MongoDB repo (Amazon Linux 2023)
+cat <<'REPO' > /etc/yum.repos.d/mongodb-org-8.0.repo
 [mongodb-org-8.0]
 name=MongoDB Repository
 baseurl=https://repo.mongodb.org/yum/amazon/2023/mongodb-org/8.0/x86_64/
@@ -33,11 +32,8 @@ DEVICE="/dev/xvdf"
 MOUNT_POINT="/data/db"
 
 # Format only if no filesystem exists
-if ! blkid "$DEVICE"; then
-  echo "Formatting $DEVICE as XFS..."
+if ! blkid "$DEVICE" >/dev/null 2>&1; then
   mkfs.xfs "$DEVICE"
-else
-  echo "$DEVICE already has a filesystem, skipping format."
 fi
 
 # Create and mount the directory
@@ -52,7 +48,7 @@ fi
 # Set proper ownership for MongoDB
 chown -R mongod:mongod "$MOUNT_POINT"
 
-# Change settings
+# Update mongod configuration
 sed -i 's/^  bindIp:.*$/  bindIp: 0.0.0.0/' /etc/mongod.conf
 sed -i 's|dbPath: /var/lib/mongo|dbPath: /data/db|' /etc/mongod.conf
 
@@ -63,8 +59,48 @@ systemctl start mongod
 # Wait a bit for Mongo to come up
 sleep 10
 
-# Create admin user
-#mongosh admin --eval "db.createUser({ user: '${admin_mongo_user}', pwd: '${admin_mongo_password}', roles:[{role:'root', db:'admin'}] })"
-mongosh admin --eval "db.createUser({ user: '${s3_mongo_user}', pwd: '${s3_mongo_password}', roles:[{role:'root', db:'test'}] })"
-sed -i 's|#security:|security:\n  authorization: enabled|' /etc/mongod.conf
-systemctl restart mongod
+# ===== Secrets handling (no leaks in logs) =====
+# Temporarily disable xtrace so credentials are not echoed
+set +x
+
+# Ensure AWS CLI is present
+if ! command -v aws >/dev/null 2>&1; then
+  dnf install -y awscli
+fi
+
+# Read credentials from SSM (SecureString)
+S3_MONGO_USER="$(aws ssm get-parameter --name "/nat20/mongo/USER" --with-decryption --query 'Parameter.Value' --output text --region eu-central-1)"
+S3_MONGO_PASS="$(aws ssm get-parameter --name "/nat20/mongo/PASSWORD" --with-decryption --query 'Parameter.Value' --output text --region eu-central-1)"
+
+if [ -z "$S3_MONGO_USER" ] || [ -z "$S3_MONGO_PASS" ]; then
+  echo "ERROR: Missing SSM parameters /nat20/mongo/USER or /nat20/mongo/PASSWORD" >&2
+  exit 1
+fi
+
+# Create user idempotently using a JS file (credentials via env, not CLI args)
+cat >/tmp/create_app_user.js <<'JS'
+const user = (_getEnv("S3_MONGO_USER") || "").trim();
+const pass = (_getEnv("S3_MONGO_PASS") || "").trim();
+if (!user || !pass) { throw new Error("Missing S3_MONGO_USER or S3_MONGO_PASS"); }
+db = db.getSiblingDB("admin");
+const existing = db.system.users.findOne({ user: user, db: "admin" });
+if (existing) {
+  print(`User '${user}' already exists in admin; skipping create.`);
+} else {
+  // Grant cluster-wide admin (adjust to a narrower role if desired)
+  db.createUser({ user: user, pwd: pass, roles: [ { role: "root", db: "admin" } ] });
+  print(`Created admin user '${user}'.`);
+}
+JS
+
+# Run the JS with env vars
+S3_MONGO_USER="$S3_MONGO_USER" S3_MONGO_PASS="$S3_MONGO_PASS" mongosh --file /tmp/create_app_user.js
+
+# Re-enable xtrace
+set -x
+
+# Enable authorization (idempotent)
+if ! grep -qE '^\s*authorization:\s*enabled' /etc/mongod.conf; then
+  sed -i 's|#security:|security:\n  authorization: enabled|' /etc/mongod.conf
+  systemctl restart mongod
+fi

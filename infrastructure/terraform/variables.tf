@@ -1,17 +1,29 @@
-variable "admin_mongo_user" {
-  type = string
+variable "domain_name" {
+  description = "Base domain for the site (public hosted zone must already exist in Route53)"
+  type        = string
+  default     = "nat20scheduling.com"
 }
 
-variable "admin_mongo_password" {
-  type      = string
-  sensitive = true
+variable "api_subdomain" {
+  description = "Subdomain for the backend API"
+  type        = string
+  default     = "api"
 }
 
-variable "s3_mongo_user" {
-  type = string
+variable "backend_port" {
+  description = "TCP port your backend listens on"
+  type        = number
+  default     = 3000
 }
 
-variable "s3_mongo_password" {
-  type      = string
-  sensitive = true
+variable "backend_health_check_path" {
+  description = "HTTP path for ALB health check"
+  type        = string
+  default     = "/health"
+}
+
+variable "alarm_email" {
+  description = "Email address to subscribe to CloudWatch alarms (leave empty to skip)"
+  type        = string
+  default     = ""
 }

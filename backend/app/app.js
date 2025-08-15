@@ -15,7 +15,7 @@ const Availability = require('./models/availability');
 const app = express();
 
 app.use(cors({
-  origin: 'http://nat20scheduling.com',
+  origin: 'https://nat20scheduling.com',
   credentials: true
 }));
 

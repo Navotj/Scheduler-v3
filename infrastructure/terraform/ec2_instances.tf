@@ -1,3 +1,7 @@
+###############################################
+# EC2 Instances (SSM-managed, no embedded secrets)
+###############################################
+
 resource "aws_instance" "mongodb" {
   ami                    = "ami-0c1b03e30bca3b373"
   instance_type          = "t3.micro"
@@ -5,18 +9,14 @@ resource "aws_instance" "mongodb" {
   availability_zone      = "eu-central-1b"
   vpc_security_group_ids = [aws_security_group.mongodb_access.id]
   key_name               = "terraform-ec2"
-  iam_instance_profile   = aws_iam_instance_profile.ec2_ssm_instance_profile.name
+  iam_instance_profile   = aws_iam_instance_profile.ssm_ec2_profile.name
 
-  user_data = templatefile("${path.module}/mongo_install.sh.tmpl", {
-    admin_mongo_user     = var.admin_mongo_user
-    admin_mongo_password = var.admin_mongo_password
-    s3_mongo_user        = var.s3_mongo_user
-    s3_mongo_password    = var.s3_mongo_password
-  })
+  # No secrets here; script pulls creds from SSM at runtime
+  user_data = templatefile("${path.module}/mongo_install.sh.tmpl", {})
 
-  tags = {
-    Name = "terraform-mongodb"
-  }
+  tags = { Name = "terraform-mongodb" }
+
+  lifecycle { create_before_destroy = true }
 }
 
 resource "aws_instance" "backend" {
@@ -26,11 +26,12 @@ resource "aws_instance" "backend" {
   availability_zone      = "eu-central-1b"
   vpc_security_group_ids = [aws_security_group.backend_access.id]
   key_name               = "terraform-ec2"
-  iam_instance_profile   = aws_iam_instance_profile.ec2_ssm_instance_profile.name
+  iam_instance_profile   = aws_iam_instance_profile.ssm_ec2_profile.name
 
+  # No secrets here; app is deployed by GitHub Actions over SSM
   user_data = templatefile("${path.module}/backend_install.sh.tmpl", {})
 
-  tags = {
-    Name = "terraform-backend"
-  }
+  tags = { Name = "terraform-backend" }
+
+  lifecycle { create_before_destroy = true }
 }

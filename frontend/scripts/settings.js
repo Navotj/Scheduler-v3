@@ -41,7 +41,7 @@
 
   async function fetchRemote() {
     try {
-      const res = await fetch('http://backend.nat20scheduling.com:3000/settings', {
+      const res = await fetch('https://backend.nat20scheduling.com:3000/settings', {
         credentials: 'include',
         cache: 'no-cache'
       });
@@ -53,7 +53,7 @@
   }
 
   async function saveRemote(obj) {
-    const res = await fetch('http://backend.nat20scheduling.com:3000/settings', {
+    const res = await fetch('https://backend.nat20scheduling.com:3000/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
