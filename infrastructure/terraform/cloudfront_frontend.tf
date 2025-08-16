@@ -1,8 +1,12 @@
 ############################################################
 # CloudFront Distribution for Frontend (SPA) + /auth -> API
+# - Uses OAC (Origin Access Control) for S3 origin
+# - Uses managed Cache Policies:
+#     * Default: CachingOptimized (AWS managed)
+#     * /auth/*: CachingDisabled (AWS managed)
 ############################################################
 
-# Response headers for API (optional)
+# Response headers for API (optional; not attached by default)
 resource "aws_cloudfront_response_headers_policy" "api_cors" {
   name = "api-cors-${replace(var.domain_name, ".", "-")}"
 
@@ -30,12 +34,16 @@ resource "aws_cloudfront_response_headers_policy" "api_cors" {
   }
 }
 
-# Origin Access Identity (OAI) for S3 origin (provider version requires OAI)
-resource "aws_cloudfront_origin_access_identity" "frontend" {
-  comment = "OAI for ${var.domain_name} static frontend bucket"
+# Origin Access Control for S3 origin (recommended modern approach)
+resource "aws_cloudfront_origin_access_control" "frontend" {
+  name                              = "frontend-oac"
+  description                       = "OAC for frontend CloudFront to access S3"
+  origin_access_control_origin_type = "s3"
+  signing_behavior                  = "always"
+  signing_protocol                  = "sigv4"
 }
 
-# Origin/Cache policies for /auth/*
+# Origin/Cache policies for /auth/* (forward cookies + all query strings)
 resource "aws_cloudfront_origin_request_policy" "cookies_all_qs" {
   name = "cookies-all-qstrings-${replace(var.domain_name, ".", "-")}"
 
@@ -52,44 +60,25 @@ resource "aws_cloudfront_origin_request_policy" "cookies_all_qs" {
   }
 }
 
-resource "aws_cloudfront_cache_policy" "no_cache" {
-  name        = "no-cache-${replace(var.domain_name, ".", "-")}"
-  default_ttl = 0
-  max_ttl     = 0
-  min_ttl     = 0
-
-  parameters_in_cache_key_and_forwarded_to_origin {
-    cookies_config {
-      cookie_behavior = "all"
-    }
-    headers_config {
-      header_behavior = "none"
-    }
-    query_strings_config {
-      query_string_behavior = "all"
-    }
-    enable_accept_encoding_brotli = true
-    enable_accept_encoding_gzip   = true
-  }
-}
-
 resource "aws_cloudfront_distribution" "frontend" {
   enabled             = true
   comment             = "nat20scheduling frontend + /auth API proxy"
   default_root_object = "index.html"
+  is_ipv6_enabled     = true
+  price_class         = "PriceClass_100"
 
   aliases = [var.domain_name, "www.${var.domain_name}"]
 
   # ---------- Origins ----------
+  # S3 origin for static frontend (via OAC)
   origin {
-    origin_id   = "frontend-s3-origin"
-    domain_name = "${var.domain_name}.s3.${data.aws_region.current.name}.amazonaws.com"
-
-    s3_origin_config {
-      origin_access_identity = aws_cloudfront_origin_access_identity.frontend.cloudfront_access_identity_path
-    }
+    origin_id                = "frontend-s3-origin"
+    domain_name              = "${var.domain_name}.s3.${data.aws_region.current.name}.amazonaws.com"
+    origin_access_control_id = aws_cloudfront_origin_access_control.frontend.id
   }
 
+  # API origin for /auth/*
+  # NOTE: ALB must serve HTTPS for api.${domain_name} with a valid ACM cert
   origin {
     origin_id   = "alb-backend"
     domain_name = "${var.api_subdomain}.${var.domain_name}"
@@ -103,6 +92,7 @@ resource "aws_cloudfront_distribution" "frontend" {
   }
 
   # ---------- Behaviors ----------
+  # Default: serve SPA from S3 (Managed - CachingOptimized)
   default_cache_behavior {
     target_origin_id       = "frontend-s3-origin"
     viewer_protocol_policy = "redirect-to-https"
@@ -110,10 +100,11 @@ resource "aws_cloudfront_distribution" "frontend" {
     cached_methods         = ["GET", "HEAD"]
     compress               = true
 
-    # Managed - CachingOptimized
+    # AWS Managed: CachingOptimized
     cache_policy_id = "658327ea-f89d-4fab-a63d-7e88639e58f6"
   }
 
+  # Route /auth/* to the API origin, no cache, forward cookies + QS
   ordered_cache_behavior {
     path_pattern             = "/auth/*"
     target_origin_id         = "alb-backend"
@@ -121,9 +112,12 @@ resource "aws_cloudfront_distribution" "frontend" {
     allowed_methods          = ["GET","HEAD","OPTIONS","PUT","POST","PATCH","DELETE"]
     cached_methods           = ["GET","HEAD","OPTIONS"]
     compress                 = true
-    cache_policy_id          = aws_cloudfront_cache_policy.no_cache.id
+
+    # AWS Managed: CachingDisabled
+    cache_policy_id          = "4135ea2d-6df8-44a3-9df3-4b5a84be39ad"
     origin_request_policy_id = aws_cloudfront_origin_request_policy.cookies_all_qs.id
-    # response_headers_policy_id = aws_cloudfront_response_headers_policy.api_cors.id
+    # If you need CORS headers from CloudFront (usually not needed), uncomment:
+    # response_headers_policy_id  = aws_cloudfront_response_headers_policy.api_cors.id
   }
 
   # ---------- Error responses (SPA routing) ----------
@@ -148,6 +142,7 @@ resource "aws_cloudfront_distribution" "frontend" {
   }
 
   viewer_certificate {
+    # CloudFront certificate must be in us-east-1 (defined in acm_cloudfront.tf)
     acm_certificate_arn      = aws_acm_certificate.frontend.arn
     ssl_support_method       = "sni-only"
     minimum_protocol_version = "TLSv1.2_2021"
