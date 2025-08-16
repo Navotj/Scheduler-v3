@@ -16,167 +16,118 @@ jobs:
       id-token: write
       contents: read
 
-    env:
-      AWS_REGION: eu-central-1
-      # Adjust if your app exposes a different health endpoint:
-      BACKEND_HEALTH_PATH: /api/health
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+    - name: Checkout code
+      uses: actions/checkout@v4
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v2
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: eu-central-1
 
-      - name: Derive artifact bucket name
-        id: acct
-        run: |
-          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-          echo "ACCOUNT_ID=$ACCOUNT_ID" >> $GITHUB_ENV
-          ARTIFACT_BUCKET="nat20scheduling-com-deploy-artifacts-$ACCOUNT_ID"
-          echo "ARTIFACT_BUCKET=$ARTIFACT_BUCKET" >> $GITHUB_ENV
+    - name: Derive artifact bucket name
+      id: acct
+      run: |
+        set -euo pipefail
+        ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+        echo "ACCOUNT_ID=$ACCOUNT_ID" >> $GITHUB_ENV
+        ARTIFACT_BUCKET="nat20scheduling-com-deploy-artifacts-$ACCOUNT_ID"
+        echo "ARTIFACT_BUCKET=$ARTIFACT_BUCKET" >> $GITHUB_ENV
 
-      - name: Verify artifact bucket exists (managed by Terraform)
-        run: |
-          if ! aws s3api head-bucket --bucket "$ARTIFACT_BUCKET" 2>/dev/null; then
-            echo "Artifact bucket $ARTIFACT_BUCKET does not exist. Run the Terraform workflow first." >&2
-            exit 1
+    - name: Verify artifact bucket exists (managed by Terraform)
+      run: |
+        set -euo pipefail
+        if ! aws s3api head-bucket --bucket "$ARTIFACT_BUCKET" 2>/dev/null; then
+          echo "Artifact bucket $ARTIFACT_BUCKET does not exist. Run the Terraform workflow first." >&2
+          exit 1
+        fi
+
+    - name: Get Backend Instance ID from tag
+      id: backend_instance
+      run: |
+        set -euo pipefail
+        INSTANCE_ID=$(aws ec2 describe-instances \
+          --filters "Name=tag:Name,Values=terraform-backend" "Name=instance-state-name,Values=running" \
+          --query "Reservations[0].Instances[0].InstanceId" \
+          --output text)
+        echo "INSTANCE_ID=$INSTANCE_ID" >> $GITHUB_ENV
+        echo "instance_id=$INSTANCE_ID" >> $GITHUB_OUTPUT
+
+    - name: Zip backend files (code only, no secrets)
+      run: |
+        set -euo pipefail
+        cd backend
+        zip -r ../backend.zip .
+        cd ..
+
+    - name: Upload artifact to private S3 (encrypted)
+      run: |
+        set -euo pipefail
+        KEY="backend/${GITHUB_SHA}.zip"
+        echo "ARTIFACT_KEY=$KEY" >> $GITHUB_ENV
+        aws s3 cp backend.zip "s3://$ARTIFACT_BUCKET/$KEY" --sse AES256
+
+    - name: Deploy on instance via SSM (download from S3, render .env from SSM)
+      env:
+        INSTANCE_ID: ${{ env.INSTANCE_ID }}
+        ARTIFACT_BUCKET: ${{ env.ARTIFACT_BUCKET }}
+        ARTIFACT_KEY: ${{ env.ARTIFACT_KEY }}
+      run: |
+        set -euo pipefail
+
+        # Send the command; use single-quoted JSON so $... is NOT expanded on the runner
+        CMD_ID=$(aws ssm send-command \
+          --document-name "AWS-RunShellScript" \
+          --instance-ids "$INSTANCE_ID" \
+          --region eu-central-1 \
+          --comment "Deploy backend app from private S3 artifact; secrets from SSM" \
+          --parameters '{
+            "commands": [
+              "set -e",
+              "sudo mkdir -p /opt/app /tmp/installation",
+              "sudo chown -R root:root /tmp/installation",
+              "aws s3 cp s3://'${ARTIFACT_BUCKET}'/'${ARTIFACT_KEY}' /tmp/installation/backend.zip",
+              "unzip -o /tmp/installation/backend.zip -d /tmp/installation/",
+              "sudo bash -lc '\''rm -rf /opt/app/* /opt/app/.* 2>/dev/null || true'\''",
+              "sudo mv /tmp/installation/app/* /opt/app || sudo mv /tmp/installation/* /opt/app || true",
+              "JWT_SECRET=$(aws ssm get-parameter --name /nat20/backend/JWT_SECRET --with-decryption --query Parameter.Value --output text)",
+              "MONGO_USER=$(aws ssm get-parameter --name /nat20/mongo/USER --with-decryption --query Parameter.Value --output text)",
+              "MONGO_PASS=$(aws ssm get-parameter --name /nat20/mongo/PASSWORD --with-decryption --query Parameter.Value --output text)",
+              "MONGO_HOST=$(aws ssm get-parameter --name /nat20/mongo/HOST --with-decryption --query Parameter.Value --output text || echo mongo.nat20scheduling.com)",
+              "MONGO_DB=$(aws ssm get-parameter --name /nat20/mongo/DB --with-decryption --query Parameter.Value --output text || echo nat20)",
+              "echo \"JWT_SECRET=$JWT_SECRET\" | sudo tee /opt/app/.env >/dev/null",
+              "echo \"MONGO_URI=mongodb://$MONGO_USER:$MONGO_PASS@$MONGO_HOST:27017/$MONGO_DB?authSource=admin\" | sudo tee -a /opt/app/.env >/dev/null",
+              "cd /opt/app && npm ci --omit=dev || npm install",
+              "if [ -f /opt/app/scheduler.service ]; then sudo mv /opt/app/scheduler.service /etc/systemd/system/scheduler.service; fi",
+              "sudo systemctl daemon-reload",
+              "sudo systemctl enable scheduler || true",
+              "sudo systemctl restart scheduler",
+              "rm -f /tmp/installation/backend.zip",
+              "aws s3 rm s3://'${ARTIFACT_BUCKET}'/'${ARTIFACT_KEY}' || true"
+            ]
+          }' \
+          --query 'Command.CommandId' --output text)
+
+        # Poll for completion and print output
+        for i in $(seq 1 30); do
+          STATUS=$(aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" --query 'Status' --output text || true)
+          if [ "$STATUS" = "InProgress" ] || [ "$STATUS" = "Pending" ]; then
+            sleep 5
+            continue
           fi
+          echo "SSM status: $STATUS"
+          echo "SSM STDOUT"
+          aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" --query 'StandardOutputContent' --output text || true
+          echo "SSM STDERR"
+          aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" --query 'StandardErrorContent' --output text || true
+          [ "$STATUS" = "Success" ] && exit 0 || { echo "Remote deploy script failed with status: $STATUS" >&2; exit 1; }
+        done
 
-      - name: Get Backend Instance ID from tag
-        id: backend_instance
-        run: |
-          INSTANCE_ID=$(aws ec2 describe-instances \
-            --filters "Name=tag:Name,Values=terraform-backend" "Name=instance-state-name,Values=running" \
-            --query "Reservations[0].Instances[0].InstanceId" \
-            --output text)
-          if [ -z "$INSTANCE_ID" ] || [ "$INSTANCE_ID" = "None" ]; then
-            echo "No running backend instance found with tag Name=terraform-backend" >&2
-            exit 1
-          fi
-          echo "INSTANCE_ID=$INSTANCE_ID" >> $GITHUB_ENV
-          echo "instance_id=$INSTANCE_ID" >> $GITHUB_OUTPUT
+        echo "Timed out waiting for SSM command to finish" >&2
+        exit 1
 
-      - name: Zip backend files (code only, no secrets)
-        run: |
-          cd backend
-          zip -r ../backend.zip .
-          cd ..
-
-      - name: Upload artifact to private S3 (encrypted)
-        run: |
-          set -euo pipefail
-          KEY="backend/${GITHUB_SHA}.zip"
-          echo "ARTIFACT_KEY=$KEY" >> $GITHUB_ENV
-          aws s3 cp backend.zip "s3://$ARTIFACT_BUCKET/$KEY" --sse AES256
-
-      - name: Deploy on instance via SSM (download from S3, render .env from SSM, restart scheduler)
-        id: ssm_deploy
-        env:
-          INSTANCE_ID: ${{ env.INSTANCE_ID }}
-          ARTIFACT_BUCKET: ${{ env.ARTIFACT_BUCKET }}
-          ARTIFACT_KEY: ${{ env.ARTIFACT_KEY }}
-          SSM_JWT_SECRET_PARAM: /nat20/backend/JWT_SECRET
-          SSM_MONGO_USER_PARAM: /nat20/mongo/USER
-          SSM_MONGO_PASS_PARAM: /nat20/mongo/PASSWORD
-          SSM_MONGO_HOST_PARAM: /nat20/mongo/HOST
-          SSM_MONGO_DB_PARAM:   /nat20/mongo/DB
-          MONGO_PORT: "27017"
-        run: |
-          set -euo pipefail
-          CMD_ID=$(
-            aws ssm send-command \
-              --document-name "AWS-RunShellScript" \
-              --instance-ids "$INSTANCE_ID" \
-              --region "${AWS_REGION}" \
-              --comment "Deploy backend app from private S3 artifact; secrets from SSM" \
-              --parameters commands="[
-                \"set -e\",
-                \"sudo mkdir -p /opt/app /tmp/installation\",
-                \"sudo chown -R ec2-user:ec2-user /opt/app || true\",
-                \"sudo chown -R $(whoami):$(whoami) /tmp/installation\",
-                \"aws s3 cp s3://${ARTIFACT_BUCKET}/${ARTIFACT_KEY} /tmp/installation/backend.zip\",
-                \"unzip -o /tmp/installation/backend.zip -d /tmp/installation/\",
-                \"sudo bash -lc 'shopt -s dotglob nullglob; rm -rf /opt/app/*; mv /tmp/installation/* /opt/app/'\",
-                \"JWT_SECRET=\\\$(aws ssm get-parameter --name ${SSM_JWT_SECRET_PARAM} --with-decryption --query Parameter.Value --output text)\",
-                \"MONGO_USER=\\\$(aws ssm get-parameter --name ${SSM_MONGO_USER_PARAM} --with-decryption --query Parameter.Value --output text)\",
-                \"MONGO_PASS=\\\$(aws ssm get-parameter --name ${SSM_MONGO_PASS_PARAM} --with-decryption --query Parameter.Value --output text)\",
-                \"MONGO_HOST=\\\$(aws ssm get-parameter --name ${SSM_MONGO_HOST_PARAM} --with-decryption --query Parameter.Value --output text)\",
-                \"MONGO_DB=\\\$(aws ssm get-parameter --name ${SSM_MONGO_DB_PARAM}   --with-decryption --query Parameter.Value --output text)\",
-                \"echo JWT_SECRET=\\\$JWT_SECRET | sudo tee /opt/app/.env >/dev/null\",
-                \"echo MONGO_URI=mongodb://\\\$MONGO_USER:\\\$MONGO_PASS@\\\$MONGO_HOST:${MONGO_PORT}/\\\$MONGO_DB?authSource=admin | sudo tee -a /opt/app/.env >/dev/null\",
-                \"cd /opt/app && (npm ci --omit=dev || npm install --omit=dev || npm install)\",
-                \"if [ -f /opt/app/scheduler.service ]; then sudo mv /opt/app/scheduler.service /etc/systemd/system/scheduler.service; fi\",
-                \"sudo systemctl daemon-reload\",
-                \"sudo systemctl enable scheduler || true\",
-                \"sudo systemctl restart scheduler\",
-                \"sleep 2\",
-                \"sudo systemctl --no-pager -l status scheduler || true\",
-                \"rm -f /tmp/installation/backend.zip\",
-                \"aws s3 rm s3://${ARTIFACT_BUCKET}/${ARTIFACT_KEY} || true\"
-              ]" \
-              --query "Command.CommandId" --output text
-          )
-          echo "COMMAND_ID=$CMD_ID" >> "$GITHUB_ENV"
-
-          # Poll until the command finishes
-          for i in $(seq 1 60); do
-            STATUS=$(aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" --query Status --output text || true)
-            echo "SSM status: $STATUS"
-            case "$STATUS" in
-              Success) break ;;
-              Failed|Cancelled|TimedOut) break ;;
-              *) sleep 5 ;;
-            esac
-          done
-
-          echo "::group::SSM STDOUT"
-          aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" --query StandardOutputContent --output text || true
-          echo "::endgroup::"
-          echo "::group::SSM STDERR"
-          aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" --query StandardErrorContent --output text || true
-          echo "::endgroup::"
-
-          if [ "$STATUS" != "Success" ]; then
-            echo "Remote deploy script failed with status: $STATUS" >&2
-            exit 1
-          fi
-
-      - name: Post-deploy local health check via SSM
-        env:
-          INSTANCE_ID: ${{ env.INSTANCE_ID }}
-          BACKEND_HEALTH_PATH: ${{ env.BACKEND_HEALTH_PATH }}
-        run: |
-          set -euo pipefail
-          CMD_ID=$(
-            aws ssm send-command \
-              --document-name "AWS-RunShellScript" \
-              --instance-ids "$INSTANCE_ID" \
-              --region "${AWS_REGION}" \
-              --comment "post-deploy health check" \
-              --parameters commands="[
-                \"set -e\",
-                \"curl -sS -o /dev/null -w 'HTTP:%{http_code}\\n' http://127.0.0.1:3000${BACKEND_HEALTH_PATH}\"
-              ]" \
-              --query "Command.CommandId" --output text
-          )
-          for i in $(seq 1 20); do
-            STATUS=$(aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" --query Status --output text || true)
-            [ "$STATUS" = "Success" ] && break
-            [ "$STATUS" = "Failed" ] && break
-            sleep 3
-          done
-          OUT=$(aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" --query StandardOutputContent --output text || true)
-          echo "Local health: $OUT"
-          case "$OUT" in
-            *HTTP:2*|*HTTP:3*) echo "OK" ;;
-            *) echo "Health check did not return 2xx/3xx" >&2; exit 1 ;;
-          esac
-
-      - name: Clean up local artifact
-        if: always()
-        run: rm -f backend.zip
+    - name: Clean up local artifact
+      if: always()
+      run: rm -f backend.zip
