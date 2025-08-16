@@ -1,10 +1,13 @@
 ############################################################
-# CloudFront Distribution (SPA) + /auth -> API (via ALB)
-# - Uses Origin Access Control (OAC) for private S3 access
-# - For /auth/* we disable caching and forward all viewer headers
+# CloudFront Distribution for Frontend (SPA) + /auth -> API
+# - Uses OAC for S3 origin access (no public bucket)
+# - Keeps /auth/* uncached and forwards all viewer headers
+#   except Host (managed policy), so Authorization works
 ############################################################
 
-# Managed policies (no creation/deletion churn)
+# NOTE: data.aws_region.current is defined in data_sources.tf
+
+# Managed policies (no custom policies needed)
 data "aws_cloudfront_cache_policy" "managed_caching_optimized" {
   id = "658327ea-f89d-4fab-a63d-7e88639e58f6" # CachingOptimized
 }
@@ -14,12 +17,12 @@ data "aws_cloudfront_cache_policy" "managed_caching_disabled" {
 }
 
 data "aws_cloudfront_origin_request_policy" "managed_all_viewer" {
-  id = "216adef6-5c7f-47e4-b989-5492eafa07d3" # AllViewerExceptHostHeader (includes Authorization)
+  id = "216adef6-5c7f-47e4-b989-5492eafa07d3" # AllViewerExceptHostHeader
 }
 
-############################################################
-# Origin Access Control for S3 origin
-############################################################
+########################################
+# OAC (Origin Access Control) for S3
+########################################
 resource "aws_cloudfront_origin_access_control" "frontend" {
   name                              = "frontend-oac"
   description                       = "OAC for frontend CloudFront to access S3"
@@ -28,16 +31,13 @@ resource "aws_cloudfront_origin_access_control" "frontend" {
   signing_protocol                  = "sigv4"
 }
 
-############################################################
-# CloudFront Distribution
-# NOTE: Uses data.aws_region.current from data_sources.tf
-############################################################
+#####################################
+# CloudFront Distribution (2 origins)
+#####################################
 resource "aws_cloudfront_distribution" "frontend" {
   enabled             = true
   comment             = "nat20scheduling frontend + /auth API proxy"
   default_root_object = "index.html"
-  price_class         = "PriceClass_All"
-  is_ipv6_enabled     = true
 
   aliases = [
     var.domain_name,
@@ -45,14 +45,14 @@ resource "aws_cloudfront_distribution" "frontend" {
   ]
 
   # ---------- Origins ----------
-  # S3 origin (private bucket) via OAC
+  # S3 origin for static frontend (OAC)
   origin {
-    origin_id                = "frontend-s3-origin"
-    domain_name              = "${var.domain_name}.s3.${data.aws_region.current.name}.amazonaws.com"
-    origin_access_control_id = aws_cloudfront_origin_access_control.frontend.id
+    origin_id                   = "frontend-s3-origin"
+    domain_name                 = "${var.domain_name}.s3.${data.aws_region.current.name}.amazonaws.com"
+    origin_access_control_id    = aws_cloudfront_origin_access_control.frontend.id
   }
 
-  # API origin via ALB (HTTPS)
+  # API origin for /auth/*
   origin {
     origin_id   = "alb-backend"
     domain_name = "${var.api_subdomain}.${var.domain_name}"
@@ -68,19 +68,19 @@ resource "aws_cloudfront_distribution" "frontend" {
   }
 
   # ---------- Behaviors ----------
-  # Default: static SPA from S3
+  # Default: serve SPA from S3 (cached)
   default_cache_behavior {
     target_origin_id       = "frontend-s3-origin"
     viewer_protocol_policy = "redirect-to-https"
 
     allowed_methods = ["GET", "HEAD", "OPTIONS"]
     cached_methods  = ["GET", "HEAD"]
-    compress        = true
 
-    cache_policy_id = data.aws_cloudfront_cache_policy.managed_caching_optimized.id
+    compress         = true
+    cache_policy_id  = data.aws_cloudfront_cache_policy.managed_caching_optimized.id
   }
 
-  # /auth/* -> API origin (no cache, forward all viewer headers incl Authorization)
+  # /auth/* -> API (no cache; forward all viewer headers except Host)
   ordered_cache_behavior {
     path_pattern           = "/auth/*"
     target_origin_id       = "alb-backend"
@@ -88,16 +88,13 @@ resource "aws_cloudfront_distribution" "frontend" {
 
     allowed_methods = ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"]
     cached_methods  = ["GET", "HEAD"]
-    compress        = true
 
+    compress                 = true
     cache_policy_id          = data.aws_cloudfront_cache_policy.managed_caching_disabled.id
     origin_request_policy_id = data.aws_cloudfront_origin_request_policy.managed_all_viewer.id
-
-    # Uncomment if you need CORS headers injected by CloudFront (optional):
-    # response_headers_policy_id = aws_cloudfront_response_headers_policy.api_cors.id
   }
 
-  # ---------- SPA routing for deep-links ----------
+  # ---------- Error responses (SPA routing) ----------
   custom_error_response {
     error_code            = 403
     response_code         = 200
@@ -119,15 +116,16 @@ resource "aws_cloudfront_distribution" "frontend" {
   }
 
   viewer_certificate {
+    # CloudFront cert must be in us-east-1; resource is already created there
     acm_certificate_arn      = aws_acm_certificate.frontend.arn
     ssl_support_method       = "sni-only"
     minimum_protocol_version = "TLSv1.2_2021"
   }
 
+  # Use all edge locations
+  price_class = "PriceClass_All"
+
   tags = {
     Name = "nat20-frontend-cf"
   }
-
-  # Ensure the viewer cert is validated before deploying the distribution
-  depends_on = [aws_acm_certificate_validation.frontend]
 }
