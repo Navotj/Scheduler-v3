@@ -22,6 +22,8 @@ jobs:
       TF_IN_AUTOMATION: "true"
       TF_VAR_frontend_waf_name: ${{ vars.FRONTEND_WAF_NAME }}
       TF_VAR_attach_frontend_waf: "false"
+      # Force a public, unauthenticated health endpoint so ALB marks targets healthy
+      TF_VAR_backend_health_check_path: "/"
       TF_REGISTRY_CLIENT_TIMEOUT: "60s"
 
     steps:
@@ -105,7 +107,6 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Prepare three TF CLI configs without heredocs
           printf '%s\n' \
             'provider_installation {' \
             '  direct {}' \
@@ -145,7 +146,6 @@ jobs:
             return 1
           }
 
-          # Try direct -> both -> mirror
           attempt_init direct || attempt_init both || attempt_init mirror
 
       #-------------------- Optional import of existing artifacts bucket --------------------
@@ -180,7 +180,8 @@ jobs:
         run: |
           terraform plan -input=false -lock-timeout=5m \
             -var "frontend_waf_name=${{ vars.FRONTEND_WAF_NAME }}" \
-            -var "attach_frontend_waf=${{ env.TF_VAR_attach_frontend_waf }}"
+            -var "attach_frontend_waf=${{ env.TF_VAR_attach_frontend_waf }}" \
+            -var "backend_health_check_path=${{ env.TF_VAR_backend_health_check_path }}"
 
       - name: Terraform Apply
         if: github.ref == 'refs/heads/main'
@@ -189,4 +190,5 @@ jobs:
         run: |
           terraform apply -auto-approve -input=false -lock-timeout=5m \
             -var "frontend_waf_name=${{ vars.FRONTEND_WAF_NAME }}" \
-            -var "attach_frontend_waf=${{ env.TF_VAR_attach_frontend_waf }}"
+            -var "attach_frontend_waf=${{ env.TF_VAR_attach_frontend_waf }}" \
+            -var "backend_health_check_path=${{ env.TF_VAR_backend_health_check_path }}"
