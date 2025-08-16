@@ -21,9 +21,7 @@ jobs:
     env:
       TF_IN_AUTOMATION: "true"
       TF_VAR_frontend_waf_name: ${{ vars.FRONTEND_WAF_NAME }}
-      # Set to "false" unless you actually have a CloudFront-scoped WAF created.
       TF_VAR_attach_frontend_waf: "false"
-      # Give provider registry more time before timing out
       TF_REGISTRY_CLIENT_TIMEOUT: "60s"
 
     steps:
@@ -44,7 +42,6 @@ jobs:
 
       #-------------------- Plugin cache --------------------
       - name: Prepare Terraform plugin cache dir
-        shell: bash
         run: |
           set -euo pipefail
           mkdir -p "${HOME}/.terraform.d/plugin-cache"
@@ -68,7 +65,6 @@ jobs:
           REGION="${AWS_REGION}"
           DDB_TABLE="terraform-lock-table"
 
-          # --- S3 backend bucket (idempotent) ---
           if ! aws s3api head-bucket --bucket "$BUCKET" >/dev/null 2>&1; then
             aws s3api create-bucket \
               --bucket "$BUCKET" \
@@ -86,7 +82,6 @@ jobs:
             echo "S3 state bucket exists; continuing."
           fi
 
-          # --- DynamoDB lock table (idempotent & race-safe) ---
           if ! aws dynamodb describe-table --table-name "$DDB_TABLE" >/dev/null 2>&1; then
             if ! aws dynamodb create-table \
               --table-name "$DDB_TABLE" \
@@ -105,74 +100,53 @@ jobs:
             echo "DynamoDB lock table exists; continuing."
           fi
 
-      #-------------------- Terraform init with resilient registry config --------------------
+      #-------------------- Terraform init with retries (no heredocs) --------------------
       - name: Terraform Init (resilient)
-        shell: bash
-        env:
-          TF_IN_AUTOMATION: "true"
         run: |
           set -euo pipefail
 
-          write_rc() {
-            mode="$1"
-            case "$mode" in
-              direct)
-                cat > "${HOME}/.terraformrc" <<'RC'
-                provider_installation {
-                  # Try the official registry first (default behavior)
-                  direct {}
-                }
-                RC
-                ;;
-              mirror)
-                cat > "${HOME}/.terraformrc" <<'RC'
-                provider_installation {
-                  # Use HashiCorp releases mirror only
-                  network_mirror {
-                    url = "https://releases.hashicorp.com"
-                    include = ["hashicorp/*"]
-                  }
-                }
-                RC
-                ;;
-              both)
-                cat > "${HOME}/.terraformrc" <<'RC'
-                provider_installation {
-                  # Prefer official registry; if unreachable, fall back to releases mirror
-                  direct {}
-                  network_mirror {
-                    url = "https://releases.hashicorp.com"
-                    include = ["hashicorp/*"]
-                  }
-                }
-                RC
-                ;;
-            esac
-            echo "=== Wrote .terraformrc (mode=${mode}) ==="
-            sed -n '1,200p' "${HOME}/.terraformrc"
-          }
+          # Prepare three TF CLI configs without heredocs
+          printf '%s\n' \
+            'provider_installation {' \
+            '  direct {}' \
+            '}' > "$HOME/.tfrc.direct"
+
+          printf '%s\n' \
+            'provider_installation {' \
+            '  network_mirror {' \
+            '    url = "https://releases.hashicorp.com"' \
+            '    include = ["hashicorp/*"]' \
+            '  }' \
+            '}' > "$HOME/.tfrc.mirror"
+
+          printf '%s\n' \
+            'provider_installation {' \
+            '  direct {}' \
+            '  network_mirror {' \
+            '    url = "https://releases.hashicorp.com"' \
+            '    include = ["hashicorp/*"]' \
+            '  }' \
+            '}' > "$HOME/.tfrc.both"
 
           attempt_init() {
-            echo "Running: terraform init -reconfigure (mode=$1)"
-            terraform init -reconfigure -lock-timeout=5m
-          }
-
-          # Try in order: direct -> both -> mirror, each with retries/backoff
-          for mode in direct both mirror; do
-            write_rc "$mode"
-            for n in $(seq 1 5); do
-              if attempt_init "$mode"; then
-                echo "terraform init succeeded with mode=$mode"
-                exit 0
+            mode="$1"
+            cp "$HOME/.tfrc.${mode}" "$HOME/.terraformrc"
+            echo "Using TF CLI config: $HOME/.tfrc.${mode}"
+            n=0
+            until [ $n -ge 5 ]; do
+              if terraform init -reconfigure -lock-timeout=5m; then
+                return 0
               fi
+              n=$((n+1))
               delay=$(( n * 10 ))
-              echo "terraform init failed (mode=$mode, attempt $n). Retrying in ${delay}s ..."
+              echo "terraform init failed (mode=${mode}, attempt ${n}). Retrying in ${delay}s ..."
               sleep "${delay}"
             done
-          done
+            return 1
+          }
 
-          echo "terraform init failed in all modes."
-          exit 1
+          # Try direct -> both -> mirror
+          attempt_init direct || attempt_init both || attempt_init mirror
 
       #-------------------- Optional import of existing artifacts bucket --------------------
       - name: Import deploy artifacts bucket (if exists)
