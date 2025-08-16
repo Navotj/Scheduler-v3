@@ -23,6 +23,7 @@ jobs:
       TF_VAR_frontend_waf_name: ${{ vars.FRONTEND_WAF_NAME }}
       # Set to "false" unless you actually have a CloudFront-scoped WAF created.
       TF_VAR_attach_frontend_waf: "false"
+      TF_PLUGIN_CACHE_DIR: ${{ runner.temp }}/.terraform-plugin-cache
 
     steps:
       - name: Checkout
@@ -40,6 +41,47 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: eu-central-1
 
+      #---------- Network preflight + Terraform CLI mirror to avoid registry.terraform.io ----------
+      - name: Preflight connectivity to Terraform endpoints
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Checking connectivity to registry.terraform.io and releases.hashicorp.com ..."
+          for host in "https://registry.terraform.io/.well-known/terraform.json" "https://releases.hashicorp.com"; do
+            if curl -fsSL --max-time 10 "$host" >/dev/null; then
+              echo "OK: $host"
+            else
+              echo "WARN: Cannot reach $host (continuing with mirror config if possible)"
+            fi
+          done
+
+      - name: Configure Terraform CLI to use HashiCorp releases mirror
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > "${HOME}/.terraformrc" <<'RC'
+          provider_installation {
+            network_mirror {
+              url = "https://releases.hashicorp.com"
+              include = ["hashicorp/*"]
+            }
+            direct {
+              exclude = ["hashicorp/*"]
+            }
+          }
+          RC
+          echo "Wrote ${HOME}/.terraformrc:"
+          sed -n '1,200p' "${HOME}/.terraformrc"
+
+      - name: Cache Terraform plugin cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.TF_PLUGIN_CACHE_DIR }}
+          key: tf-plugin-cache-${{ runner.os }}-${{ hashFiles('infrastructure/terraform/**/*.tf','infrastructure/terraform/.terraform.lock.hcl') }}
+          restore-keys: |
+            tf-plugin-cache-${{ runner.os }}-
+
+      #---------- Backend bootstrap ----------
       - name: Bootstrap remote state (S3+DDB)
         env:
           AWS_REGION: eu-central-1
@@ -86,10 +128,19 @@ jobs:
             echo "DynamoDB lock table exists; continuing."
           fi
 
-      - name: Terraform Init
+      #---------- Terraform operations with retries ----------
+      - name: Terraform Init (with retries)
         env:
           TF_IN_AUTOMATION: "true"
-        run: terraform init -reconfigure
+        run: |
+          set -euo pipefail
+          n=0
+          until [ $n -ge 5 ]; do
+            terraform init -reconfigure && break
+            n=$((n+1))
+            echo "terraform init failed (attempt $n). Retrying in $((n*10))s ..."
+            sleep $((n*10))
+          done
 
       - name: Import deploy artifacts bucket (if exists)
         id: import_artifacts_bucket
@@ -130,5 +181,5 @@ jobs:
           TF_IN_AUTOMATION: "true"
         run: |
           terraform apply -auto-approve -input=false \
-            -var "frontend_waf_name=${{ vars.frontend_waf_name || vars.FRONTEND_WAF_NAME }}" \
+            -var "frontend_waf_name=${{ vars.FRONTEND_WAF_NAME }}" \
             -var "attach_frontend_waf=${{ env.TF_VAR_attach_frontend_waf }}"
