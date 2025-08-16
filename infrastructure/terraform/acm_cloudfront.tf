@@ -1,7 +1,6 @@
 ############################################################
-# ACM Certificate for CloudFront
+# ACM Certificate for CloudFront (us-east-1)
 ############################################################
-
 
 resource "aws_acm_certificate" "frontend" {
   provider          = aws.us_east_1
@@ -14,13 +13,12 @@ resource "aws_acm_certificate" "frontend" {
 }
 
 resource "aws_route53_record" "frontend_cert_validation" {
-  zone_id = data.aws_route53_zone.main.zone_id
+  zone_id = aws_route53_zone.main.zone_id
   name    = tolist(aws_acm_certificate.frontend.domain_validation_options)[0].resource_record_name
   type    = tolist(aws_acm_certificate.frontend.domain_validation_options)[0].resource_record_type
   records = [tolist(aws_acm_certificate.frontend.domain_validation_options)[0].resource_record_value]
   ttl     = 60
   allow_overwrite = true
-
 }
 
 resource "aws_acm_certificate_validation" "frontend" {
