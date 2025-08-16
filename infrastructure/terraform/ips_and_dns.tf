@@ -2,56 +2,47 @@
 # Public DNS records
 ###############################################
 
-# Apex -> CloudFront (A / AAAA)
+# Apex -> CloudFront
 resource "aws_route53_record" "apex_a" {
-  zone_id         = aws_route53_zone.main.zone_id
-  name            = chomp(aws_route53_zone.main.name)
-  type            = "A"
-  allow_overwrite = true
+  zone_id = aws_route53_zone.main.zone_id
+  name    = aws_route53_zone.main.name
+  type    = "A"
 
   alias {
     name                   = aws_cloudfront_distribution.frontend.domain_name
-    zone_id                = aws_cloudfront_distribution.frontend.hosted_zone_id
+    zone_id                = "Z2FDTNDATAQYW2" # CloudFront hosted zone ID
     evaluate_target_health = false
   }
-}
 
-resource "aws_route53_record" "apex_aaaa" {
-  zone_id         = aws_route53_zone.main.zone_id
-  name            = chomp(aws_route53_zone.main.name)
-  type            = "AAAA"
   allow_overwrite = true
-
-  alias {
-    name                   = aws_cloudfront_distribution.frontend.domain_name
-    zone_id                = aws_cloudfront_distribution.frontend.hosted_zone_id
-    evaluate_target_health = false
-  }
 }
 
-# www -> CloudFront (A / AAAA)
+# www -> CloudFront
 resource "aws_route53_record" "www_a" {
-  zone_id         = aws_route53_zone.main.zone_id
-  name            = "www.${chomp(aws_route53_zone.main.name)}"
-  type            = "A"
-  allow_overwrite = true
+  zone_id = aws_route53_zone.main.zone_id
+  name    = "www.${aws_route53_zone.main.name}"
+  type    = "A"
 
   alias {
     name                   = aws_cloudfront_distribution.frontend.domain_name
-    zone_id                = aws_cloudfront_distribution.frontend.hosted_zone_id
+    zone_id                = "Z2FDTNDATAQYW2" # CloudFront hosted zone ID
     evaluate_target_health = false
   }
+
+  allow_overwrite = true
 }
 
-resource "aws_route53_record" "www_aaaa" {
-  zone_id         = aws_route53_zone.main.zone_id
-  name            = "www.${chomp(aws_route53_zone.main.name)}"
-  type            = "AAAA"
-  allow_overwrite = true
+# api.<domain> -> ALB (for CloudFront origin SNI match)
+resource "aws_route53_record" "api_alb_a" {
+  zone_id = aws_route53_zone.main.zone_id
+  name    = "${var.api_subdomain}.${var.domain_name}"
+  type    = "A"
 
   alias {
-    name                   = aws_cloudfront_distribution.frontend.domain_name
-    zone_id                = aws_cloudfront_distribution.frontend.hosted_zone_id
+    name                   = aws_lb.api.dns_name
+    zone_id                = aws_lb.api.zone_id
     evaluate_target_health = false
   }
+
+  allow_overwrite = true
 }

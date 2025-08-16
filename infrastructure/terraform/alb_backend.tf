@@ -1,48 +1,55 @@
-###############################################
-# ALB + HTTPS for backend (secured behind CloudFront)
-###############################################
+############################################################
+# Application Load Balancer for Backend API (HTTP -> HTTPS)
+############################################################
 
-# CloudFront origin-facing IPs (managed prefix list)
-data "aws_ec2_managed_prefix_list" "cloudfront_origin" {
-  name = "com.amazonaws.global.cloudfront.origin-facing"
-}
-
-# Security group for ALB: HTTPS only, from CloudFront POPs
+# Security group for ALB: allow 80/443 from internet (tighten to CF IPs later)
 resource "aws_security_group" "alb" {
-  name        = "alb-https-${replace(var.domain_name, ".", "-")}"
-  description = "Allow HTTPS to ALB only from CloudFront"
+  name        = "nat20-alb-sg"
+  description = "ALB security group"
   vpc_id      = data.aws_vpc.default.id
 
-  # No wide-open rules; allowlist CloudFront only
   ingress {
-    description     = "CloudFront to ALB HTTPS"
-    from_port       = 443
-    to_port         = 443
-    protocol        = "tcp"
-    prefix_list_ids = [data.aws_ec2_managed_prefix_list.cloudfront_origin.id]
+    description = "HTTP"
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    description = "HTTPS"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
   }
 
   egress {
-    description = "All egress"
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  tags = { Name = "alb-https" }
+  tags = {
+    Name = "nat20-alb-sg"
+  }
 }
 
-# Application Load Balancer (internet-facing; reachable only from CloudFront by SG)
+# Application Load Balancer
 resource "aws_lb" "api" {
   name               = "nat20-backend-alb"
   internal           = false
   load_balancer_type = "application"
   security_groups    = [aws_security_group.alb.id]
   subnets            = [data.aws_subnet.eu_central_1a.id, data.aws_subnet.eu_central_1b.id]
+
+  tags = {
+    Name = "nat20-backend-alb"
+  }
 }
 
-# Target group forwarding to backend EC2 on var.backend_port
+# Target group forwarding to backend (EC2 / ASG / ECS register here)
 resource "aws_lb_target_group" "api" {
   name     = "nat20-backend-tg"
   port     = var.backend_port
@@ -52,81 +59,47 @@ resource "aws_lb_target_group" "api" {
   health_check {
     path                = var.backend_health_check_path
     matcher             = "200-399"
+    protocol            = "HTTP"
+    interval            = 30
+    timeout             = 5
     healthy_threshold   = 2
     unhealthy_threshold = 2
-    interval            = 15
-    timeout             = 5
+  }
+
+  tags = {
+    Name = "nat20-backend-tg"
   }
 }
 
-# Attach backend instance to the target group
-resource "aws_lb_target_group_attachment" "api_backend" {
-  target_group_arn = aws_lb_target_group.api.arn
-  target_id        = aws_instance.backend.id
-  port             = var.backend_port
-}
+# HTTP listener: redirect to HTTPS
+resource "aws_lb_listener" "http" {
+  load_balancer_arn = aws_lb.api.arn
+  port              = 80
+  protocol          = "HTTP"
 
-# ACM cert for API origin domain (api.<domain>) — used ONLY between CloudFront and ALB
-resource "aws_acm_certificate" "api" {
-  domain_name       = "${var.api_subdomain}.${var.domain_name}"
-  validation_method = "DNS"
-
-  lifecycle { create_before_destroy = true }
-}
-
-# --- Use static keys so keys are known at plan time ---
-# Keys: the requested DNS names (derived from input vars, not computed attrs)
-locals {
-  api_cert_domains = ["${var.api_subdomain}.${var.domain_name}"]
-}
-
-# DNS validation records for ACM (avoids "for_each keys unknown until apply")
-resource "aws_route53_record" "api_cert_validation" {
-  for_each = {
-    for d in local.api_cert_domains : d => d
+  default_action {
+    type = "redirect"
+    redirect {
+      port        = "443"
+      protocol    = "HTTPS"
+      status_code = "HTTP_301"
+    }
   }
-
-  zone_id = aws_route53_zone.main.zone_id
-  name    = one([for o in aws_acm_certificate.api.domain_validation_options : o.resource_record_name if o.domain_name == each.key])
-  type    = one([for o in aws_acm_certificate.api.domain_validation_options : o.resource_record_type if o.domain_name == each.key])
-  ttl     = 60
-  records = [
-    one([for o in aws_acm_certificate.api.domain_validation_options : o.resource_record_value if o.domain_name == each.key])
-  ]
-  allow_overwrite = true
 }
 
-# Validate certificate
-resource "aws_acm_certificate_validation" "api" {
-  certificate_arn         = aws_acm_certificate.api.arn
-  validation_record_fqdns = [for r in aws_route53_record.api_cert_validation : r.fqdn]
-}
-
-# HTTPS listener forwarding to backend TG
+# HTTPS listener with ACM cert for api.<domain>
 resource "aws_lb_listener" "https" {
   load_balancer_arn = aws_lb.api.arn
   port              = 443
   protocol          = "HTTPS"
-  ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-Res-2021-06"
-  certificate_arn   = aws_acm_certificate_validation.api.certificate_arn
+  ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-2021-06"
+  certificate_arn   = aws_acm_certificate.api.arn
+
+  # Ensure the certificate is validated before creating the listener
+  depends_on = [aws_acm_certificate_validation.api]
 
   default_action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.api.arn
   }
-}
-
-# Optional public DNS for origin (api.<domain>) -> ALB (required if CloudFront origin uses this host).
-# Keep disabled to avoid publishing a public record; when you wire CloudFront, set to true.
-resource "aws_route53_record" "api_alias" {
-  count   = var.create_api_alias ? 1 : 0
-  zone_id = aws_route53_zone.main.zone_id
-  name    = "${var.api_subdomain}.${aws_route53_zone.main.name}"
-  type    = "A"
-  alias {
-    name                   = aws_lb.api.dns_name
-    zone_id                = aws_lb.api.zone_id
-    evaluate_target_health = false
-  }
-  allow_overwrite = true
 }
