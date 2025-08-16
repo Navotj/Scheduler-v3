@@ -6,10 +6,10 @@ const cookieParser = require('cookie-parser');
 require('dotenv').config();
 
 // Routers
-const authRoutes = require('./auth');                 // /login, /auth/*, /logout
-const availabilityRoutes = require('./availability'); // /availability/*
-const settingsRoutes = require('./settings');         // /settings (GET/POST)
-const usersRoutes = require('./users');               // /users/*
+const authRoutes = require('./routes/auth');                 // /login, /auth/*, /logout
+const availabilityRoutes = require('./routes/availability'); // /availability/*
+const settingsRoutes = require('./routes/settings');         // /settings (GET/POST)
+const usersRoutes = require('./routes/users');               // /users/*
 
 const app = express();
 

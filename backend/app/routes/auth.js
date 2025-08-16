@@ -2,8 +2,8 @@
 const express = require('express');
 const router = express.Router();
 const { body } = require('express-validator');
-const userModel = require('./user');
-const { generateToken, verifyToken } = require('./jwt');
+const userModel = require('../models/user');
+const { generateToken, verifyToken } = require('../utils/jwt');
 
 const COOKIE_DOMAIN = '.nat20scheduling.com';
 

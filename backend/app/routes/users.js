@@ -1,7 +1,7 @@
 // Users utility routes with verbose logging
 const express = require('express');
 const router = express.Router();
-const userModel = require('./user');
+const userModel = require('../models/user');
 
 // GET /users/exists?username=foo
 router.get('/exists', async (req, res) => {
