@@ -1,8 +1,11 @@
-############################################################
-# Security Groups for Backend and MongoDB
-############################################################
+###############################################
+# Security Groups
+# - Backend instance: only ALB SG can reach backend_port
+# - MongoDB instance: only Backend SG can reach 27017
+# - No SSH ingress (use SSM)
+###############################################
 
-# Backend instance security group (reachable only from ALB SG on backend_port)
+# Backend instance security group
 resource "aws_security_group" "backend_access" {
   name        = "backend-access"
   description = "Backend app traffic (only from ALB)"
@@ -19,6 +22,8 @@ resource "aws_security_group" "backend_access" {
   tags = { Name = "backend-access" }
 }
 
+# Allow only ALB SG to reach Backend instance on backend_port
+# (aws_security_group.alb is defined in your ALB file)
 resource "aws_security_group_rule" "backend_ingress_from_alb" {
   type                     = "ingress"
   description              = "ALB to Backend"
@@ -29,13 +34,15 @@ resource "aws_security_group_rule" "backend_ingress_from_alb" {
   protocol                 = "tcp"
 }
 
-# MongoDB security group (only backend can reach 27017)
+# MongoDB security group (use name_prefix to avoid duplicate name collision)
 resource "aws_security_group" "mongodb_access" {
   name_prefix = "mongodb-access-"
   description = "MongoDB access (only from Backend)"
   vpc_id      = data.aws_vpc.default.id
 
-  lifecycle { create_before_destroy = true }
+  lifecycle {
+    create_before_destroy = true
+  }
 
   egress {
     description = "Allow all egress"
@@ -48,6 +55,7 @@ resource "aws_security_group" "mongodb_access" {
   tags = { Name = "mongodb-access" }
 }
 
+# Allow ONLY the Backend SG to reach MongoDB on 27017
 resource "aws_security_group_rule" "mongodb_ingress_from_backend" {
   type                     = "ingress"
   description              = "Backend to MongoDB 27017"

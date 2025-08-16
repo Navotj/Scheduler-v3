@@ -1,5 +1,5 @@
 ############################################################
-# WAF for Frontend CloudFront (optional)
+# WAF for Frontend CloudFront
 ############################################################
 
 resource "aws_wafv2_web_acl" "frontend" {
@@ -8,7 +8,9 @@ resource "aws_wafv2_web_acl" "frontend" {
   scope       = "CLOUDFRONT"
   description = "WAF for frontend CloudFront"
 
-  default_action { allow {} }
+  default_action {
+    allow {}
+  }
 
   visibility_config {
     cloudwatch_metrics_enabled = true
