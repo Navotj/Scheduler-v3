@@ -37,14 +37,55 @@ resource "aws_iam_role_policy_attachment" "attach_ssm_core" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
-# Custom policy that allows the instance to read private deploy artifacts from S3
-# (policy resource aws_iam_policy.s3_artifacts_read is defined elsewhere)
+############################################################
+# Artifacts bucket read/delete (used by deploy via SSM on EC2)
+# NOTE: This assumes you have `aws_s3_bucket.deploy_artifacts` defined
+#       (as in the rest of your config). If it’s a data source or a
+#       different name, adjust the references below accordingly.
+############################################################
+
+data "aws_iam_policy_document" "s3_artifacts_read" {
+  # List & get bucket location (bucket-level)
+  statement {
+    sid     = "ListAndLocateArtifactsBucket"
+    effect  = "Allow"
+    actions = [
+      "s3:ListBucket",
+      "s3:GetBucketLocation",
+    ]
+    resources = [
+      aws_s3_bucket.deploy_artifacts.arn,
+    ]
+  }
+
+  # Read & delete objects (object-level)
+  statement {
+    sid     = "ReadAndDeleteArtifactsObjects"
+    effect  = "Allow"
+    actions = [
+      "s3:GetObject",
+      "s3:DeleteObject",
+      "s3:ListBucketMultipartUploads",
+      "s3:AbortMultipartUpload",
+    ]
+    resources = [
+      "${aws_s3_bucket.deploy_artifacts.arn}/*",
+    ]
+  }
+}
+
+resource "aws_iam_policy" "s3_artifacts_read" {
+  name   = "ec2-read-deploy-artifacts"
+  path   = "/"
+  policy = data.aws_iam_policy_document.s3_artifacts_read.json
+}
+
 resource "aws_iam_role_policy_attachment" "attach_s3_artifacts_read" {
   role       = aws_iam_role.ssm_ec2_role.name
   policy_arn = aws_iam_policy.s3_artifacts_read.arn
 }
 
-# ---- SSM Parameters read policy (resource defined here; document comes from iam_ssm_params_read.tf) ----
+# ---- SSM Parameters read policy (resource is defined here; its document is in iam_ssm_params_read.tf) ----
 
 resource "aws_iam_policy" "ssm_params_read" {
   name   = "ec2-read-ssm-params-nat20"
