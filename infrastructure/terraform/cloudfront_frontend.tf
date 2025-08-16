@@ -1,31 +1,35 @@
-############################################################
-# CloudFront Distribution for Frontend
-############################################################
+provider "aws" {
+  alias  = "us_east_1"
+  region = "us-east-1"
+}
 
-resource "aws_cloudfront_origin_access_control" "frontend_oac" {
+data "aws_caller_identity" "current" {}
+
+resource "aws_cloudfront_origin_access_control" "frontend" {
   name                              = "nat20-frontend-oac"
-  description                       = "OAC for nat20 frontend CloudFront"
+  description                       = "CloudFront OAC for nat20 frontend"
   origin_access_control_origin_type = "s3"
   signing_behavior                  = "always"
   signing_protocol                  = "sigv4"
 }
 
 resource "aws_cloudfront_distribution" "frontend" {
+  provider = aws.us_east_1
+
   enabled             = true
-  is_ipv6_enabled     = true
-  comment             = "CloudFront distribution for nat20 frontend"
   default_root_object = "index.html"
 
   origin {
-    domain_name              = aws_s3_bucket.deploy_artifacts.bucket_regional_domain_name
-    origin_id                = "nat20-frontend-s3"
-    origin_access_control_id = aws_cloudfront_origin_access_control.frontend_oac.id
+    domain_name = aws_s3_bucket.frontend.bucket_regional_domain_name
+    origin_id   = aws_s3_bucket.frontend.id
+
+    origin_access_control_id = aws_cloudfront_origin_access_control.frontend.id
   }
 
   default_cache_behavior {
-    allowed_methods  = ["GET", "HEAD"]
+    allowed_methods  = ["GET", "HEAD", "OPTIONS"]
     cached_methods   = ["GET", "HEAD"]
-    target_origin_id = "nat20-frontend-s3"
+    target_origin_id = aws_s3_bucket.frontend.id
 
     forwarded_values {
       query_string = false
@@ -52,35 +56,38 @@ resource "aws_cloudfront_distribution" "frontend" {
     minimum_protocol_version = "TLSv1.2_2021"
   }
 
+  depends_on = [aws_s3_bucket.frontend]
+}
+
+resource "aws_s3_bucket" "frontend" {
+  bucket = "nat20-frontend-bucket"
+
   tags = {
-    Name = "nat20-frontend-cloudfront"
+    Name        = "nat20-frontend"
+    Environment = "prod"
   }
 }
 
-############################################################
-# DNS Record for CloudFront
-############################################################
-
-resource "aws_route53_record" "frontend_alias" {
-  zone_id = data.aws_route53_zone.main.zone_id
-  name    = "nat20scheduling.com"
-  type    = "A"
-
-  alias {
-    name                   = aws_cloudfront_distribution.frontend.domain_name
-    zone_id                = aws_cloudfront_distribution.frontend.hosted_zone_id
-    evaluate_target_health = false
-  }
+resource "aws_s3_bucket_policy" "frontend_oac" {
+  bucket = aws_s3_bucket.frontend.id
+  policy = data.aws_iam_policy_document.frontend_oac.json
 }
 
-resource "aws_route53_record" "frontend_alias_www" {
-  zone_id = data.aws_route53_zone.main.zone_id
-  name    = "www.nat20scheduling.com"
-  type    = "A"
+data "aws_iam_policy_document" "frontend_oac" {
+  statement {
+    effect = "Allow"
+    principals {
+      type        = "Service"
+      identifiers = ["cloudfront.amazonaws.com"]
+    }
 
-  alias {
-    name                   = aws_cloudfront_distribution.frontend.domain_name
-    zone_id                = aws_cloudfront_distribution.frontend.hosted_zone_id
-    evaluate_target_health = false
+    actions   = ["s3:GetObject"]
+    resources = ["${aws_s3_bucket.frontend.arn}/*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "AWS:SourceArn"
+      values   = [aws_cloudfront_distribution.frontend.arn]
+    }
   }
 }

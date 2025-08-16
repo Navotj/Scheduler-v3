@@ -1,51 +1,42 @@
-############################################################
-# ACM certificate for CloudFront (must be in us-east-1)
-# DNS validation records created with static keys to avoid
-# "for_each keys unknown until apply" planner errors.
-############################################################
+provider "aws" {
+  alias  = "us_east_1"
+  region = "us-east-1"
+}
 
-# NOTE: Provider alias aws.us_east_1 is defined in main.tf
+data "aws_route53_zone" "main" {
+  name         = "nat20scheduling.com."
+  private_zone = false
+}
 
-# Primary domain for the SPA served by CloudFront
-# Expects data.aws_route53_zone.main to be defined elsewhere
 resource "aws_acm_certificate" "frontend" {
   provider          = aws.us_east_1
-  domain_name       = var.domain_name
+  domain_name       = "nat20scheduling.com"
   validation_method = "DNS"
 
   lifecycle {
     create_before_destroy = true
   }
-
-  tags = {
-    Name = "cloudfront-cert-${var.domain_name}"
-  }
 }
 
-# We use a static list of domains as keys so the keys are known at plan time.
-# If you later add SANs, extend local.frontend_cert_domains accordingly.
-locals {
-  frontend_cert_domains = [var.domain_name]
-}
-
-# Create one validation record per domain in the static list.
-# We look up the corresponding DVO fields from the certificate resource.
 resource "aws_route53_record" "frontend_cert_validation" {
   for_each = {
-    for d in local.frontend_cert_domains : d => d
+    for dvo in aws_acm_certificate.frontend.domain_validation_options : dvo.domain_name => {
+      name   = dvo.resource_record_name
+      type   = dvo.resource_record_type
+      record = dvo.resource_record_value
+    }
   }
 
-  zone_id = data.aws_route53_zone.main.zone_id
-  name    = one([for o in aws_acm_certificate.frontend.domain_validation_options : o.resource_record_name if o.domain_name == each.key])
-  type    = one([for o in aws_acm_certificate.frontend.domain_validation_options : o.resource_record_type if o.domain_name == each.key])
-  ttl     = 60
-  records = [
-    one([for o in aws_acm_certificate.frontend.domain_validation_options : o.resource_record_value if o.domain_name == each.key])
-  ]
+  allow_overwrite = true
+  name            = each.value.name
+  type            = each.value.type
+  zone_id         = data.aws_route53_zone.main.zone_id
+  records         = [each.value.record]
+  ttl             = 60
 }
 
 resource "aws_acm_certificate_validation" "frontend" {
   provider                = aws.us_east_1
   certificate_arn         = aws_acm_certificate.frontend.arn
-  validation_record_fqdns = [for r in aws_route53_record.frontend_cert_validation : r.fqdn]
+  validation_record_fqdns = [for record in aws_route53_record.frontend_cert_validation : record.fqdn]
 }
