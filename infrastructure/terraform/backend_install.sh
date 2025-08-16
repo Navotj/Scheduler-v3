@@ -18,7 +18,7 @@ dnf install -y python3 python3-pip awscli jq unzip
 AWS_REGION="$(curl -s http://169.254.169.254/latest/dynamic/instance-identity/document | jq -r .region)"
 
 # ---------- Read secrets from SSM Parameter Store ----------
-# Required SSM parameters:
+# Required SSM parameters (already created):
 #   /nat20/mongo/HOST
 #   /nat20/mongo/USER
 #   /nat20/mongo/PASSWORD
@@ -44,7 +44,7 @@ APP_DIR="/opt/app"
 mkdir -p "$APP_DIR"
 chmod 750 "$APP_DIR"
 
-# Build connection string (avoid ${...} so Terraform doesn't try to template it)
+# Build connection string
 MONGO_URI="mongodb://$MONGO_USER:$MONGO_PASS@$MONGO_HOST:27017/$MONGO_DB?authSource=admin"
 
 # Write .env

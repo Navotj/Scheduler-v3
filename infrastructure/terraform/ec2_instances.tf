@@ -25,7 +25,8 @@ resource "aws_instance" "backend" {
   vpc_security_group_ids = [aws_security_group.backend_access.id]
   iam_instance_profile   = aws_iam_instance_profile.ssm_ec2_profile.name
 
-  user_data = templatefile("${path.module}/backend_install.sh.tmpl", {})
+  user_data                   = file("${path.module}/backend_install.sh")
+  user_data_replace_on_change = true
 
   tags = { Name = "terraform-backend" }
 
