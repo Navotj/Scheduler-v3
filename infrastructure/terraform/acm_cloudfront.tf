@@ -2,15 +2,6 @@
 # ACM Certificate for CloudFront
 ############################################################
 
-provider "aws" {
-  alias  = "us_east_1"
-  region = "us-east-1"
-}
-
-data "aws_route53_zone" "main" {
-  name         = var.domain_name
-  private_zone = false
-}
 
 resource "aws_acm_certificate" "frontend" {
   provider          = aws.us_east_1
