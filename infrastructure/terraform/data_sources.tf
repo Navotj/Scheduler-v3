@@ -33,9 +33,3 @@ data "aws_subnet" "eu_central_1b" {
 
 # Caller identity (account id, etc.)
 data "aws_caller_identity" "current" {}
-
-# Public hosted zone for your domain
-data "aws_route53_zone" "main" {
-  name         = var.domain_name
-  private_zone = false
-}

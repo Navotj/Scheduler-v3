@@ -4,8 +4,8 @@
 
 # Apex -> CloudFront
 resource "aws_route53_record" "apex_a" {
-  zone_id = data.aws_route53_zone.main.zone_id
-  name    = data.aws_route53_zone.main.name
+  zone_id = aws_route53_zone.main.zone_id
+  name    = aws_route53_zone.main.name
   type    = "A"
 
   alias {
@@ -19,8 +19,8 @@ resource "aws_route53_record" "apex_a" {
 
 # www -> CloudFront
 resource "aws_route53_record" "www_a" {
-  zone_id = data.aws_route53_zone.main.zone_id
-  name    = "www.${chomp(data.aws_route53_zone.main.name)}"
+  zone_id = aws_route53_zone.main.zone_id
+  name    = "www.${chomp(aws_route53_zone.main.name)}"
   type    = "A"
 
   alias {

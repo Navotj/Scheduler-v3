@@ -64,7 +64,7 @@ resource "aws_cloudfront_distribution" "frontend" {
 ############################################################
 
 resource "aws_route53_record" "frontend" {
-  zone_id = data.aws_route53_zone.main.zone_id
+  zone_id = aws_route53_zone.main.zone_id
   name    = var.frontend_domain
   type    = "A"
 

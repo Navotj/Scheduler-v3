@@ -86,7 +86,7 @@ resource "aws_route53_record" "api_cert_validation" {
     for d in local.api_cert_domains : d => d
   }
 
-  zone_id = data.aws_route53_zone.main.zone_id
+  zone_id = aws_route53_zone.main.zone_id
   name    = one([for o in aws_acm_certificate.api.domain_validation_options : o.resource_record_name if o.domain_name == each.key])
   type    = one([for o in aws_acm_certificate.api.domain_validation_options : o.resource_record_type if o.domain_name == each.key])
   ttl     = 60
@@ -120,8 +120,8 @@ resource "aws_lb_listener" "https" {
 # Keep disabled to avoid publishing a public record; when you wire CloudFront, set to true.
 resource "aws_route53_record" "api_alias" {
   count   = var.create_api_alias ? 1 : 0
-  zone_id = data.aws_route53_zone.main.zone_id
-  name    = "${var.api_subdomain}.${data.aws_route53_zone.main.name}"
+  zone_id = aws_route53_zone.main.zone_id
+  name    = "${var.api_subdomain}.${aws_route53_zone.main.name}"
   type    = "A"
   alias {
     name                   = aws_lb.api.dns_name
