@@ -19,6 +19,8 @@ resource "aws_route53_record" "frontend_cert_validation" {
   type    = tolist(aws_acm_certificate.frontend.domain_validation_options)[0].resource_record_type
   records = [tolist(aws_acm_certificate.frontend.domain_validation_options)[0].resource_record_value]
   ttl     = 60
+  allow_overwrite = true
+
 }
 
 resource "aws_acm_certificate_validation" "frontend" {

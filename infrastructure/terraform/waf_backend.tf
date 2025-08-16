@@ -19,6 +19,6 @@ resource "aws_wafv2_web_acl" "backend" {
 }
 
 resource "aws_wafv2_web_acl_association" "backend" {
-  resource_arn = data.aws_lb.backend.arn
+  resource_arn = aws_lb.api.arn
   web_acl_arn  = aws_wafv2_web_acl.backend.arn
 }

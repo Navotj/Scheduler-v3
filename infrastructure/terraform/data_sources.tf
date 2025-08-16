@@ -39,7 +39,3 @@ data "aws_route53_zone" "main" {
   name         = var.domain_name
   private_zone = false
 }
-
-data "aws_lb" "backend" {
-  name = "nat20-backend-alb"
-}
