@@ -1,15 +1,12 @@
 ############################################################
 # CloudFront Distribution for Frontend (SPA) + /auth -> API
-# - Uses OAI for S3 origin access (provider bug requires s3_origin_config + OAI)
+# - Uses OAI for S3 origin access (provider requires s3_origin_config + OAI)
 # - /auth/* routes to api.<domain> (ALB) with:
 #     * Managed-CachingDisabled (no cache)
 #     * Managed-AllViewer (forwards ALL viewer headers incl. Authorization)
 # - Default SPA behavior uses Managed-CachingOptimized
 # - 403/404 are rewritten to /index.html for client-side routing
 ############################################################
-
-# Current AWS region (used to form S3 regional endpoint)
-data "aws_region" "current" {}
 
 ########################################
 # OPTIONAL: Response headers policy (CORS)
@@ -48,9 +45,6 @@ resource "aws_cloudfront_response_headers_policy" "api_cors" {
 
 ########################################
 # Origin Access Identity for S3 (frontend)
-# NOTE: We intentionally use OAI (not OAC) because the AWS provider
-#       still requires s3_origin_config.origin_access_identity for
-#       compatibility in this project.
 ########################################
 resource "aws_cloudfront_origin_access_identity" "frontend" {
   comment = "OAI for ${var.domain_name} static frontend bucket"
