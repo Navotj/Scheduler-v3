@@ -1,10 +1,3 @@
-provider "aws" {
-  alias  = "us_east_1"
-  region = "us-east-1"
-}
-
-data "aws_caller_identity" "current" {}
-
 resource "aws_cloudfront_origin_access_control" "frontend" {
   name                              = "nat20-frontend-oac"
   description                       = "CloudFront OAC for nat20 frontend"
@@ -56,38 +49,8 @@ resource "aws_cloudfront_distribution" "frontend" {
     minimum_protocol_version = "TLSv1.2_2021"
   }
 
-  depends_on = [aws_s3_bucket.frontend]
-}
-
-resource "aws_s3_bucket" "frontend" {
-  bucket = "nat20-frontend-bucket"
-
-  tags = {
-    Name        = "nat20-frontend"
-    Environment = "prod"
-  }
-}
-
-resource "aws_s3_bucket_policy" "frontend_oac" {
-  bucket = aws_s3_bucket.frontend.id
-  policy = data.aws_iam_policy_document.frontend_oac.json
-}
-
-data "aws_iam_policy_document" "frontend_oac" {
-  statement {
-    effect = "Allow"
-    principals {
-      type        = "Service"
-      identifiers = ["cloudfront.amazonaws.com"]
-    }
-
-    actions   = ["s3:GetObject"]
-    resources = ["${aws_s3_bucket.frontend.arn}/*"]
-
-    condition {
-      test     = "StringEquals"
-      variable = "AWS:SourceArn"
-      values   = [aws_cloudfront_distribution.frontend.arn]
-    }
-  }
+  depends_on = [
+    aws_s3_bucket.frontend,
+    aws_acm_certificate_validation.frontend
+  ]
 }
