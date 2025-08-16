@@ -1,20 +1,30 @@
 ############################################################
 # Application Load Balancer for Backend API (HTTPS only)
+# - Fixes SG destroy hangs by:
+#   * Using name_prefix + create_before_destroy (new SG is created, LB is updated, old SG is deleted)
+#   * Setting revoke_rules_on_delete = true to ensure rules are removed even if dependencies linger
+#   * Allowing inbound 443 only from CloudFront origin-facing prefix list
 ############################################################
 
-# Allow HTTPS only from CloudFront origin-facing IPs (managed prefix list)
+# CloudFront origin-facing managed prefix list (global)
 data "aws_ec2_managed_prefix_list" "cloudfront_origin" {
   name = "com.amazonaws.global.cloudfront.origin-facing"
 }
 
-# Security group for ALB: 443 from CloudFront only
+# Security group for ALB (HTTPS from CloudFront only)
 resource "aws_security_group" "alb" {
-  name        = "nat20-alb-sg"
-  description = "ALB security group (HTTPS from CloudFront only)"
-  vpc_id      = data.aws_vpc.default.id
+  name_prefix              = "nat20-alb-sg-"
+  description              = "ALB security group (HTTPS from CloudFront only)"
+  vpc_id                   = data.aws_vpc.default.id
+  revoke_rules_on_delete   = true
+
+  # Ensure new SG is created before old one is destroyed, preventing destroy stalls
+  lifecycle {
+    create_before_destroy = true
+  }
 
   ingress {
-    description     = "HTTPS from CloudFront"
+    description     = "HTTPS from CloudFront origin fetchers"
     from_port       = 443
     to_port         = 443
     protocol        = "tcp"
@@ -29,7 +39,7 @@ resource "aws_security_group" "alb" {
   }
 
   tags = {
-    Name = "nat20-alb-sg"
+    Name = "nat20-backend-alb-sg"
   }
 }
 
