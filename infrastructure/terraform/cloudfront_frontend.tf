@@ -1,7 +1,39 @@
 ############################################################
-# CloudFront Distribution for Frontend
+# CloudFront Distribution for Frontend (SPA + /auth -> ALB)
 ############################################################
 
+# CORS headers for API responses proxied via CloudFront
+resource "aws_cloudfront_response_headers_policy" "api_cors" {
+  name = "api-cors-${replace(var.domain_name, ".", "-")}"
+
+  cors_config {
+    access_control_allow_credentials = false
+
+    access_control_allow_headers {
+      items = ["*"]
+    }
+
+    access_control_allow_methods {
+      items = ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"]
+    }
+
+    access_control_allow_origins {
+      items = [
+        "https://${var.domain_name}",
+        "https://www.${var.domain_name}",
+      ]
+    }
+
+    access_control_expose_headers {
+      items = ["*"]
+    }
+
+    access_control_max_age_sec = 600
+    origin_override            = true
+  }
+}
+
+# Origin Access Control for S3 origin
 resource "aws_cloudfront_origin_access_control" "frontend" {
   name                              = "frontend-oac"
   description                       = "OAC for frontend CloudFront to access S3"
@@ -14,18 +46,35 @@ resource "aws_cloudfront_distribution" "frontend" {
   enabled             = true
   is_ipv6_enabled     = true
   default_root_object = "index.html"
+  price_class         = "PriceClass_100"
 
   aliases = [
-    var.frontend_domain,
-    "www.${var.frontend_domain}",
+    var.domain_name,
+    "www.${var.domain_name}",
   ]
 
+  # --- Origins ---
   origin {
     domain_name              = aws_s3_bucket.frontend.bucket_regional_domain_name
     origin_id                = "frontend-s3-origin"
     origin_access_control_id = aws_cloudfront_origin_access_control.frontend.id
   }
 
+  # Backend API (ALB) origin for /auth/*
+  origin {
+    domain_name = aws_lb.api.dns_name
+    origin_id   = "alb-backend"
+
+    custom_origin_config {
+      http_port              = 80
+      https_port             = 443
+      origin_protocol_policy = "https-only"
+      origin_ssl_protocols   = ["TLSv1.2"]
+    }
+  }
+
+  # --- Behaviors ---
+  # Default: serve SPA assets from S3
   default_cache_behavior {
     target_origin_id       = "frontend-s3-origin"
     viewer_protocol_policy = "redirect-to-https"
@@ -35,15 +84,49 @@ resource "aws_cloudfront_distribution" "frontend" {
 
     forwarded_values {
       query_string = false
-      cookies {
-        forward = "none"
-      }
+      headers      = []
+      cookies { forward = "none" }
     }
 
     compress = true
   }
 
-  price_class = "PriceClass_100"
+  # Route /auth/* -> backend (no cache; forward all for CORS/auth)
+  ordered_cache_behavior {
+    path_pattern           = "/auth/*"
+    target_origin_id       = "alb-backend"
+    viewer_protocol_policy = "redirect-to-https"
+
+    allowed_methods = ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"]
+    cached_methods  = ["GET", "HEAD", "OPTIONS"]
+
+    forwarded_values {
+      query_string = true
+      headers      = ["*"]
+      cookies { forward = "all" }
+    }
+
+    min_ttl     = 0
+    default_ttl = 0
+    max_ttl     = 0
+
+    response_headers_policy_id = aws_cloudfront_response_headers_policy.api_cors.id
+  }
+
+  # --- SPA fallback: 403/404 -> /index.html (200) ---
+  custom_error_response {
+    error_code            = 403
+    response_code         = 200
+    response_page_path    = "/index.html"
+    error_caching_min_ttl = 0
+  }
+
+  custom_error_response {
+    error_code            = 404
+    response_code         = 200
+    response_page_path    = "/index.html"
+    error_caching_min_ttl = 0
+  }
 
   restrictions {
     geo_restriction {
@@ -59,37 +142,5 @@ resource "aws_cloudfront_distribution" "frontend" {
 
   tags = {
     Name = "nat20-frontend-cf"
-  }
-}
-
-############################################################
-# Route53 Records for CloudFront Distribution
-############################################################
-
-# Apex A/ALIAS -> CloudFront
-resource "aws_route53_record" "frontend" {
-  zone_id         = aws_route53_zone.main.zone_id
-  name            = var.frontend_domain
-  type            = "A"
-  allow_overwrite = true
-
-  alias {
-    name                   = aws_cloudfront_distribution.frontend.domain_name
-    zone_id                = aws_cloudfront_distribution.frontend.hosted_zone_id
-    evaluate_target_health = false
-  }
-}
-
-# www A/ALIAS -> CloudFront
-resource "aws_route53_record" "www_a" {
-  zone_id         = aws_route53_zone.main.zone_id
-  name            = "www.${var.frontend_domain}"
-  type            = "A"
-  allow_overwrite = true
-
-  alias {
-    name                   = aws_cloudfront_distribution.frontend.domain_name
-    zone_id                = aws_cloudfront_distribution.frontend.hosted_zone_id
-    evaluate_target_health = false
   }
 }
