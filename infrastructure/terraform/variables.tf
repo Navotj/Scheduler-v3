@@ -51,3 +51,8 @@ variable "attach_frontend_waf" {
   type        = bool
   default     = true
 }
+
+variable "frontend_domain" {
+  description = "The domain name for the frontend (CloudFront/ACM)."
+  type        = string
+}
