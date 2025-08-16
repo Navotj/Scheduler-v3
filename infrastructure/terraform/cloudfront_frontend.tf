@@ -1,8 +1,15 @@
 ############################################################
-# CloudFront Distribution for Frontend (SPA + /auth -> API)
+# CloudFront Distribution for Frontend (SPA) + /auth -> API
 ############################################################
 
-# CORS headers for API responses proxied via CloudFront
+# Current AWS region (used to form S3 regional endpoint)
+data "aws_region" "current" {}
+
+############################
+# Response headers (optional)
+############################
+# If you need CORS on API responses (usually not required when same host),
+# you can attach this policy to the /auth/* behavior via response_headers_policy_id.
 resource "aws_cloudfront_response_headers_policy" "api_cors" {
   name = "api-cors-${replace(var.domain_name, ".", "-")}"
 
@@ -14,13 +21,21 @@ resource "aws_cloudfront_response_headers_policy" "api_cors" {
     }
 
     access_control_allow_methods {
-      items = ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"]
+      items = [
+        "GET",
+        "HEAD",
+        "OPTIONS",
+        "POST",
+        "PUT",
+        "PATCH",
+        "DELETE"
+      ]
     }
 
     access_control_allow_origins {
       items = [
         "https://${var.domain_name}",
-        "https://www.${var.domain_name}",
+        "https://www.${var.domain_name}"
       ]
     }
 
@@ -33,50 +48,105 @@ resource "aws_cloudfront_response_headers_policy" "api_cors" {
   }
 }
 
-# Origin Access Control for S3 origin
+########################################
+# Origin Access Control for S3 (frontend)
+########################################
 resource "aws_cloudfront_origin_access_control" "frontend" {
-  name                              = "frontend-oac"
-  description                       = "OAC for frontend CloudFront to access S3"
+  name                              = "oac-frontend-${replace(var.domain_name, ".", "-")}"
+  description                       = "OAC for S3 origin of ${var.domain_name}"
   origin_access_control_origin_type = "s3"
   signing_behavior                  = "always"
   signing_protocol                  = "sigv4"
 }
 
+#############################################
+# Origin/Cache policies for the /auth/* paths
+#############################################
+# Forward all cookies + all query strings to the API
+resource "aws_cloudfront_origin_request_policy" "cookies_all_qs" {
+  name = "cookies-all-qstrings-${replace(var.domain_name, ".", "-")}"
+
+  cookies_config {
+    cookie_behavior = "all"
+  }
+
+  headers_config {
+    # Viewer headers are not required for cookie auth; keep minimal
+    header_behavior = "none"
+  }
+
+  query_strings_config {
+    query_string_behavior = "all"
+  }
+}
+
+# Disable caching for auth endpoints
+resource "aws_cloudfront_cache_policy" "no_cache" {
+  name        = "no-cache-${replace(var.domain_name, ".", "-")}"
+  default_ttl = 0
+  max_ttl     = 0
+  min_ttl     = 0
+
+  parameters_in_cache_key_and_forwarded_to_origin {
+    cookies_config {
+      cookie_behavior = "all"
+    }
+
+    headers_config {
+      header_behavior = "none"
+    }
+
+    query_strings_config {
+      query_string_behavior = "all"
+    }
+
+    enable_accept_encoding_brotli = true
+    enable_accept_encoding_gzip   = true
+  }
+}
+
+#####################################
+# CloudFront Distribution (2 origins)
+#####################################
 resource "aws_cloudfront_distribution" "frontend" {
   enabled             = true
-  is_ipv6_enabled     = true
+  comment             = "nat20scheduling frontend + /auth API proxy"
   default_root_object = "index.html"
-  price_class         = "PriceClass_100"
 
   aliases = [
     var.domain_name,
     "www.${var.domain_name}",
   ]
 
-  # --- Origins ---
-  # S3 origin for static frontend assets
+  # ---------- Origins ----------
+  # S3 origin for static frontend
   origin {
-    domain_name              = aws_s3_bucket.frontend.bucket_regional_domain_name
-    origin_id                = "frontend-s3-origin"
+    origin_id   = "frontend-s3-origin"
+    domain_name = "${var.domain_name}.s3.${data.aws_region.current.name}.amazonaws.com"
+
+    s3_origin_config {
+      origin_access_identity = null
+    }
+
     origin_access_control_id = aws_cloudfront_origin_access_control.frontend.id
   }
 
-  # Backend API (ALB) origin for /auth/*
-  # Best practice: use an API subdomain with a matching ACM cert on the ALB
+  # API origin for /auth/*
+  # NOTE: ALB must serve HTTPS for api.${domain_name} with a valid ACM cert
   origin {
-    domain_name = "${var.api_subdomain}.${var.domain_name}"
     origin_id   = "alb-backend"
+    domain_name = "${var.api_subdomain}.${var.domain_name}"
 
     custom_origin_config {
       http_port              = 80
       https_port             = 443
-      origin_protocol_policy = "https-only"
+      origin_protocol_policy = "https-only"   # keep HTTPS from CF -> ALB
       origin_ssl_protocols   = ["TLSv1.2"]
     }
   }
 
-  # --- Behaviors ---
-  # Default: serve SPA assets from S3
+  # ---------- Behaviors ----------
+  # Default: serve SPA from S3
   default_cache_behavior {
     target_origin_id       = "frontend-s3-origin"
     viewer_protocol_policy = "redirect-to-https"
@@ -84,16 +154,13 @@ resource "aws_cloudfront_distribution" "frontend" {
     allowed_methods = ["GET", "HEAD", "OPTIONS"]
     cached_methods  = ["GET", "HEAD"]
 
-    forwarded_values {
-      query_string = false
-      headers      = []
-      cookies { forward = "none" }
-    }
-
     compress = true
+
+    # Use the managed optimized cache policy for static sites
+    cache_policy_id = "658327ea-f89d-4fab-a63d-7e88639e58f6" # Managed-CachingOptimized
   }
 
-  # Route /auth/* -> backend (no cache; forward all for CORS/auth)
+  # Route /auth/* to the API origin, no cache, forward cookies + QS
   ordered_cache_behavior {
     path_pattern           = "/auth/*"
     target_origin_id       = "alb-backend"
@@ -102,20 +169,14 @@ resource "aws_cloudfront_distribution" "frontend" {
     allowed_methods = ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"]
     cached_methods  = ["GET", "HEAD", "OPTIONS"]
 
-    forwarded_values {
-      query_string = true
-      headers      = ["*"]
-      cookies { forward = "all" }
-    }
-
-    min_ttl     = 0
-    default_ttl = 0
-    max_ttl     = 0
-
-    response_headers_policy_id = aws_cloudfront_response_headers_policy.api_cors.id
+    compress                    = true
+    cache_policy_id             = aws_cloudfront_cache_policy.no_cache.id
+    origin_request_policy_id    = aws_cloudfront_origin_request_policy.cookies_all_qs.id
+    # If you need CORS headers from CloudFront (usually not needed), uncomment:
+    # response_headers_policy_id  = aws_cloudfront_response_headers_policy.api_cors.id
   }
 
-  # --- SPA fallback: 403/404 -> /index.html (200) ---
+  # ---------- Error responses (SPA routing) ----------
   custom_error_response {
     error_code            = 403
     response_code         = 200
