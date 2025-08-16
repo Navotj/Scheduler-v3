@@ -1,5 +1,5 @@
 ############################################################
-# CloudFront Distribution for Frontend (SPA + /auth -> ALB)
+# CloudFront Distribution for Frontend (SPA + /auth -> API)
 ############################################################
 
 # CORS headers for API responses proxied via CloudFront
@@ -54,6 +54,7 @@ resource "aws_cloudfront_distribution" "frontend" {
   ]
 
   # --- Origins ---
+  # S3 origin for static frontend assets
   origin {
     domain_name              = aws_s3_bucket.frontend.bucket_regional_domain_name
     origin_id                = "frontend-s3-origin"
@@ -61,8 +62,9 @@ resource "aws_cloudfront_distribution" "frontend" {
   }
 
   # Backend API (ALB) origin for /auth/*
+  # Best practice: use an API subdomain with a matching ACM cert on the ALB
   origin {
-    domain_name = aws_lb.api.dns_name
+    domain_name = "${var.api_subdomain}.${var.domain_name}"
     origin_id   = "alb-backend"
 
     custom_origin_config {
@@ -135,6 +137,7 @@ resource "aws_cloudfront_distribution" "frontend" {
   }
 
   viewer_certificate {
+    # CloudFront certificate must be in us-east-1 (defined in acm_cloudfront.tf)
     acm_certificate_arn      = aws_acm_certificate.frontend.arn
     ssl_support_method       = "sni-only"
     minimum_protocol_version = "TLSv1.2_2021"
