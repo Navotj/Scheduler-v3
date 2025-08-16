@@ -93,6 +93,7 @@ resource "aws_route53_record" "api_cert_validation" {
   records = [
     one([for o in aws_acm_certificate.api.domain_validation_options : o.resource_record_value if o.domain_name == each.key])
   ]
+  allow_overwrite = true
 }
 
 # Validate certificate

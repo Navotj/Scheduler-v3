@@ -1,0 +1,207 @@
+name: cleanup-aws
+
+on:
+  workflow_dispatch:
+    inputs:
+      domain:
+        description: "Root domain (apex)"
+        required: true
+        default: "nat20scheduling.com"
+        type: string
+      eu_region:
+        description: "Primary AWS region"
+        required: true
+        default: "eu-central-1"
+        type: string
+      us_east_1:
+        description: "Secondary region for global services"
+        required: true
+        default: "us-east-1"
+        type: string
+      delete_cloudfront:
+        description: "Remove CF aliases & delete matching distributions"
+        required: true
+        default: true
+        type: boolean
+      delete_secret:
+        description: "Delete /nat20/cloudfront/backend_edge_key secret"
+        required: true
+        default: true
+        type: boolean
+      delete_cloudtrail:
+        description: "Delete CloudTrail trail for the domain"
+        required: true
+        default: true
+        type: boolean
+      delete_guardduty:
+        description: "Delete GuardDuty detectors in EU + us-east-1"
+        required: true
+        default: true
+        type: boolean
+      delete_iam:
+        description: "Delete IAM role/profile & local policies"
+        required: true
+        default: true
+        type: boolean
+      delete_r53_acm_cnames:
+        description: "Delete ACM validation CNAMEs in Route53"
+        required: true
+        default: true
+        type: boolean
+      delete_s3:
+        description: "Delete project S3 buckets (DANGEROUS)"
+        required: true
+        default: false
+        type: boolean
+
+jobs:
+  clean:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      # Requires OIDC role in secrets: AWS_ROLE_ARN
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ inputs.eu_region }}
+
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Cleanup selected resources
+        env:
+          DOMAIN: ${{ inputs.domain }}
+          EU_REGION: ${{ inputs.eu_region }}
+          US_EAST_1: ${{ inputs.us_east_1 }}
+          ROLE: nat20-ec2-ssm-role
+          PROFILE: nat20-ec2-ssm-profile
+          DELETE_CLOUDFRONT: ${{ inputs.delete_cloudfront }}
+          DELETE_SECRET: ${{ inputs.delete_secret }}
+          DELETE_CLOUDTRAIL: ${{ inputs.delete_cloudtrail }}
+          DELETE_GUARDDUTY: ${{ inputs.delete_guardduty }}
+          DELETE_IAM: ${{ inputs.delete_iam }}
+          DELETE_R53_ACM_CNAMEs: ${{ inputs.delete_r53_acm_cnames }}
+          DELETE_S3: ${{ inputs.delete_s3 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          bool() { [[ "${1:-false}" == "true" ]]; }
+
+          echo "Domain: $DOMAIN"
+
+          # --- CloudFront: remove aliases and delete distributions holding the domain ---
+          if bool "$DELETE_CLOUDFRONT"; then
+            echo "Cleaning CloudFront distributions holding $DOMAIN / www.$DOMAIN ..."
+            IDS=$(aws cloudfront list-distributions \
+              --query "DistributionList.Items[?Aliases.Quantity>0 && (contains(Aliases.Items, '${DOMAIN}') || contains(Aliases.Items, 'www.${DOMAIN}'))].Id" \
+              --output text || true)
+            for id in $IDS; do
+              echo "Processing distribution $id"
+              cfg_json=$(aws cloudfront get-distribution-config --id "$id")
+              etag=$(jq -r '.ETag' <<<"$cfg_json")
+              dist_cfg=$(jq '.DistributionConfig' <<<"$cfg_json")
+              # Clear aliases and disable
+              dist_cfg=$(jq '.Aliases.Items=[] | .Aliases.Quantity=0 | .Enabled=false' <<<"$dist_cfg")
+              aws cloudfront update-distribution --id "$id" --if-match "$etag" --distribution-config "$dist_cfg"
+              aws cloudfront wait distribution-deployed --id "$id"
+              new_etag=$(aws cloudfront get-distribution-config --id "$id" --query ETag --output text)
+              aws cloudfront delete-distribution --id "$id" --if-match "$new_etag" || true
+            done
+          fi
+
+          # --- Secrets Manager: delete CF backend edge key ---
+          if bool "$DELETE_SECRET"; then
+            echo "Deleting Secrets Manager key /nat20/cloudfront/backend_edge_key ..."
+            aws secretsmanager delete-secret --secret-id /nat20/cloudfront/backend_edge_key --force-delete-without-recovery --region "$EU_REGION" || true
+          fi
+
+          # --- CloudTrail: delete named trail if present ---
+          if bool "$DELETE_CLOUDTRAIL"; then
+            TRAIL_NAME="trail-${DOMAIN//./-}"
+            if aws cloudtrail describe-trails --region "$EU_REGION" --query "trailList[?Name=='$TRAIL_NAME'].Name" --output text | grep -q .; then
+              echo "Deleting CloudTrail $TRAIL_NAME ..."
+              aws cloudtrail delete-trail --name "$TRAIL_NAME" --region "$EU_REGION" || true
+            fi
+          fi
+
+          # --- GuardDuty: delete detectors in both regions ---
+          if bool "$DELETE_GUARDDUTY"; then
+            for R in "$EU_REGION" "$US_EAST_1"; do
+              det=$(aws guardduty list-detectors --region "$R" --query 'DetectorIds[0]' --output text || true)
+              if [[ -n "$det" && "$det" != "None" ]]; then
+                echo "Deleting GuardDuty detector $det in $R ..."
+                aws guardduty delete-detector --detector-id "$det" --region "$R" || true
+              fi
+            done
+          fi
+
+          # --- IAM: delete instance profile, detach policies, delete role & local policies ---
+          if bool "$DELETE_IAM"; then
+            echo "Cleaning IAM role/profile/policies ..."
+            aws iam get-instance-profile --instance-profile-name "$PROFILE" >/dev/null 2>&1 && \
+              aws iam remove-role-from-instance-profile --instance-profile-name "$PROFILE" --role-name "$ROLE" || true
+            aws iam delete-instance-profile --instance-profile-name "$PROFILE" || true
+
+            for arn in $(aws iam list-attached-role-policies --role-name "$ROLE" --query 'AttachedPolicies[].PolicyArn' --output text 2>/dev/null || true); do
+              aws iam detach-role-policy --role-name "$ROLE" --policy-arn "$arn" || true
+            done
+            for name in $(aws iam list-role-policies --role-name "$ROLE" --query 'PolicyNames[]' --output text 2>/dev/null || true); do
+              aws iam delete-role-policy --role-name "$ROLE" --policy-name "$name" || true
+            done
+            aws iam delete-role --role-name "$ROLE" || true
+
+            # Delete local customer-managed policies used by this project
+            for P in ec2-read-ssm-params-nat20 ec2-read-deploy-artifacts nat20-backend-ssm-read nat20-backend-ssm-read-hostdb; do
+              arn=$(aws iam list-policies --scope Local --query "Policies[?PolicyName=='$P'].Arn" --output text || true)
+              if [[ -n "$arn" && "$arn" != "None" ]]; then
+                for v in $(aws iam list-policy-versions --policy-arn "$arn" --query 'Versions[?IsDefaultVersion==`false`].VersionId' --output text || true); do
+                  aws iam delete-policy-version --policy-arn "$arn" --version-id "$v" || true
+                done
+                aws iam delete-policy --policy-arn "$arn" || true
+              fi
+            done
+          fi
+
+          # --- Route53: delete ACM validation CNAMEs under the hosted zone (optional) ---
+          if bool "${DELETE_R53_ACM_CNAMEs:-true}"; then
+            echo "Deleting ACM validation CNAMEs in Route53 for $DOMAIN (if any) ..."
+            HZID=$(aws route53 list-hosted-zones-by-name --dns-name "$DOMAIN" --query 'HostedZones[0].Id' --output text 2>/dev/null || true)
+            HZID=${HZID##*/} || true
+            if [[ -n "${HZID:-}" && "$HZID" != "None" ]]; then
+              recs=$(aws route53 list-resource-record-sets --hosted-zone-id "$HZID" | \
+                jq -c --arg dom "$DOMAIN." '
+                  .ResourceRecordSets[]
+                  | select(.Type=="CNAME")
+                  | select(.Name|test("^_.*\\." + ($dom|gsub("\\."; "\\\\.")) + "$"))
+                  | select((.ResourceRecords|length>0) and (.ResourceRecords[0].Value|test("acm-validations\\.aws\\.$")))
+                ' || true)
+              if [[ -n "$recs" ]]; then
+                while IFS= read -r rec; do
+                  NAME=$(jq -r .Name <<<"$rec")
+                  TTL=$(jq -r .TTL <<<"$rec")
+                  VALUE=$(jq -r '.ResourceRecords[0].Value' <<<"$rec")
+                  cat > /tmp/r53-delete.json <<EOF
+          {"Comment":"delete acm validation cname","Changes":[{"Action":"DELETE","ResourceRecordSet":{"Name":"$NAME","Type":"CNAME","TTL":$TTL,"ResourceRecords":[{"Value":"$VALUE"}]}}]}
+          EOF
+                  aws route53 change-resource-record-sets --hosted-zone-id "$HZID" --change-batch file:///tmp/r53-delete.json || true
+                done <<< "$recs"
+              fi
+            fi
+          fi
+
+          # --- S3: delete project buckets (DANGEROUS) ---
+          if bool "$DELETE_S3"; then
+            echo "Deleting S3 buckets for $DOMAIN ..."
+            aws s3 rb "s3://$DOMAIN" --force || true
+            aws s3api list-buckets --query 'Buckets[].Name' --output text | tr '\t' '\n' | \
+              grep -E "^${DOMAIN//./-}-(logs|deploy-artifacts|cloudtrail)-" | \
+              while read -r b; do
+                aws s3 rb "s3://$b" --force || true
+              done
+          fi
+
+          echo "Cleanup complete."
