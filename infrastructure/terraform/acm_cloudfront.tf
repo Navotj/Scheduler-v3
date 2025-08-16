@@ -1,36 +1,109 @@
-############################################################
-# ACM Certificate for CloudFront (must be in us-east-1)
-############################################################
-
-resource "aws_acm_certificate" "frontend" {
-  provider                  = aws.us_east_1
-  domain_name               = var.domain_name
-  subject_alternative_names = ["www.${var.domain_name}"]
-  validation_method         = "DNS"
-
-  lifecycle { create_before_destroy = true }
+# --- add (once) ---
+data "aws_cloudfront_origin_request_policy" "all_viewer" {
+  name = "Managed-AllViewer"
 }
 
-resource "aws_route53_record" "frontend_cert_validation" {
-  for_each = {
-    for dvo in aws_acm_certificate.frontend.domain_validation_options :
-    dvo.domain_name => {
-      name  = dvo.resource_record_name
-      type  = dvo.resource_record_type
-      value = dvo.resource_record_value
+data "aws_cloudfront_cache_policy" "caching_disabled" {
+  name = "Managed-CachingDisabled"
+}
+
+# In your existing aws_cloudfront_distribution.frontend {...}:
+resource "aws_cloudfront_distribution" "frontend" {
+  # ... your existing config (S3 origin, default behavior, cert, etc.)
+
+  # --- add ALB origin ---
+  origin {
+    domain_name = aws_lb.nat20_backend_alb.dns_name  # adjust to your ALB resource
+    origin_id   = "alb-origin"
+
+    custom_origin_config {
+      http_port              = 80
+      https_port             = 443
+      origin_protocol_policy = "http-only"           # switch to https-only if you add 443 on ALB
+      origin_ssl_protocols   = ["TLSv1.2"]
     }
   }
 
-  zone_id         = aws_route53_zone.main.zone_id
-  name            = each.value.name
-  type            = each.value.type
-  records         = [each.value.value]
-  ttl             = 60
-  allow_overwrite = true
-}
+  # --- add behaviors for backend paths (forward cookies) ---
+  ordered_cache_behavior {
+    path_pattern             = "/auth/*"
+    target_origin_id         = "alb-origin"
+    allowed_methods          = ["GET","HEAD","OPTIONS","PUT","POST","PATCH","DELETE"]
+    cached_methods           = ["GET","HEAD","OPTIONS"]
+    viewer_protocol_policy   = "redirect-to-https"
+    cache_policy_id          = data.aws_cloudfront_cache_policy.caching_disabled.id
+    origin_request_policy_id = data.aws_cloudfront_origin_request_policy.all_viewer.id
+  }
 
-resource "aws_acm_certificate_validation" "frontend" {
-  provider                = aws.us_east_1
-  certificate_arn         = aws_acm_certificate.frontend.arn
-  validation_record_fqdns = [for r in aws_route53_record.frontend_cert_validation : r.fqdn]
+  ordered_cache_behavior {
+    path_pattern             = "/users/*"
+    target_origin_id         = "alb-origin"
+    allowed_methods          = ["GET","HEAD","OPTIONS","PUT","POST","PATCH","DELETE"]
+    cached_methods           = ["GET","HEAD","OPTIONS"]
+    viewer_protocol_policy   = "redirect-to-https"
+    cache_policy_id          = data.aws_cloudfront_cache_policy.caching_disabled.id
+    origin_request_policy_id = data.aws_cloudfront_origin_request_policy.all_viewer.id
+  }
+
+  ordered_cache_behavior {
+    path_pattern             = "/availability/*"
+    target_origin_id         = "alb-origin"
+    allowed_methods          = ["GET","HEAD","OPTIONS","PUT","POST","PATCH","DELETE"]
+    cached_methods           = ["GET","HEAD","OPTIONS"]
+    viewer_protocol_policy   = "redirect-to-https"
+    cache_policy_id          = data.aws_cloudfront_cache_policy.caching_disabled.id
+    origin_request_policy_id = data.aws_cloudfront_origin_request_policy.all_viewer.id
+  }
+
+  ordered_cache_behavior {
+    path_pattern             = "/settings"
+    target_origin_id         = "alb-origin"
+    allowed_methods          = ["GET","HEAD","OPTIONS","PUT","POST","PATCH","DELETE"]
+    cached_methods           = ["GET","HEAD","OPTIONS"]
+    viewer_protocol_policy   = "redirect-to-https"
+    cache_policy_id          = data.aws_cloudfront_cache_policy.caching_disabled.id
+    origin_request_policy_id = data.aws_cloudfront_origin_request_policy.all_viewer.id
+  }
+
+  ordered_cache_behavior {
+    path_pattern             = "/settings/*"
+    target_origin_id         = "alb-origin"
+    allowed_methods          = ["GET","HEAD","OPTIONS","PUT","POST","PATCH","DELETE"]
+    cached_methods           = ["GET","HEAD","OPTIONS"]
+    viewer_protocol_policy   = "redirect-to-https"
+    cache_policy_id          = data.aws_cloudfront_cache_policy.caching_disabled.id
+    origin_request_policy_id = data.aws_cloudfront_origin_request_policy.all_viewer.id
+  }
+
+  ordered_cache_behavior {
+    path_pattern             = "/login"
+    target_origin_id         = "alb-origin"
+    allowed_methods          = ["GET","HEAD","OPTIONS","PUT","POST","PATCH","DELETE"]
+    cached_methods           = ["GET","HEAD","OPTIONS"]
+    viewer_protocol_policy   = "redirect-to-https"
+    cache_policy_id          = data.aws_cloudfront_cache_policy.caching_disabled.id
+    origin_request_policy_id = data.aws_cloudfront_origin_request_policy.all_viewer.id
+  }
+
+  ordered_cache_behavior {
+    path_pattern             = "/logout"
+    target_origin_id         = "alb-origin"
+    allowed_methods          = ["GET","HEAD","OPTIONS","PUT","POST","PATCH","DELETE"]
+    cached_methods           = ["GET","HEAD","OPTIONS"]
+    viewer_protocol_policy   = "redirect-to-https"
+    cache_policy_id          = data.aws_cloudfront_cache_policy.caching_disabled.id
+    origin_request_policy_id = data.aws_cloudfront_origin_request_policy.all_viewer.id
+  }
+
+  ordered_cache_behavior {
+    path_pattern             = "/health"
+    target_origin_id         = "alb-origin"
+    allowed_methods          = ["GET","HEAD","OPTIONS"]
+    cached_methods           = ["GET","HEAD","OPTIONS"]
+    viewer_protocol_policy   = "redirect-to-https"
+    cache_policy_id          = data.aws_cloudfront_cache_policy.caching_disabled.id
+    origin_request_policy_id = data.aws_cloudfront_origin_request_policy.all_viewer.id
+  }
+
+  # ... keep your existing default_cache_behavior to S3 for static files
 }

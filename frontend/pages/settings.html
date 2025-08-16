@@ -118,9 +118,15 @@
       }
     }
 
+    window.setAuthState = function(authenticated, username) {
+      isAuthenticated = !!authenticated;
+      currentUsername = authenticated ? username : null;
+      updateAuthUI();
+    };
+
     async function logout() {
       try {
-        await fetch('/logout', {
+        await fetch('/auth/logout', {
           method: 'POST',
           credentials: 'include'
         });
@@ -149,23 +155,34 @@
           overlay.style.display = 'flex';
           document.body.classList.add('modal-active');
           runModalInit(path);
-        })
-        .catch(() => {
-          container.innerHTML = '<div class="panel"><p>Failed to load.</p></div>';
-          overlay.style.display = 'flex';
-          document.body.classList.add('modal-active');
         });
-
-      overlay.onclick = (e) => {
-        if (e.target === overlay) {
-          overlay.style.display = 'none';
-          document.body.classList.remove('modal-active');
-          container.innerHTML = '';
-        }
-      };
     }
 
-    checkAuth();
+    function swapModal(path) {
+      const container = document.getElementById('modal-container');
+      fetch(path, { cache: 'no-cache' })
+        .then(res => res.text())
+        .then(html => {
+          container.innerHTML = html;
+          runModalInit(path);
+        });
+    }
+
+    function closeModal() {
+      const overlay = document.getElementById('modal-overlay');
+      const container = document.getElementById('modal-container');
+      overlay.style.display = 'none';
+      document.body.classList.remove('modal-active');
+      container.innerHTML = '';
+    }
+
+    window.openModal = openModal;
+    window.swapModal = swapModal;
+    window.closeModal = closeModal;
+
+    document.addEventListener('DOMContentLoaded', () => {
+      checkAuth();
+    });
   </script>
 </body>
 </html>

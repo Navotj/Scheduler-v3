@@ -101,9 +101,23 @@
       }
     }
 
+    window.setAuthState = function(authenticated, username) {
+      isAuthenticated = !!authenticated;
+      currentUsername = authenticated ? username : null;
+      updateAuthUI();
+      if (window.schedule && typeof window.schedule.setAuth === 'function') {
+        window.schedule.setAuth(isAuthenticated);
+      }
+      document.getElementById('prev-week').disabled = !isAuthenticated;
+      document.getElementById('next-week').disabled = !isAuthenticated;
+      document.getElementById('mode-add').disabled = !isAuthenticated;
+      document.getElementById('mode-subtract').disabled = !isAuthenticated;
+      document.getElementById('save').disabled = !isAuthenticated;
+    };
+
     async function logout() {
       try {
-        await fetch('/logout', {
+        await fetch('/auth/logout', {
           method: 'POST',
           credentials: 'include'
         });
@@ -157,26 +171,7 @@
     window.swapModal = swapModal;
     window.closeModal = closeModal;
 
-    window.setAuthState = function(authenticated, username) {
-      isAuthenticated = !!authenticated;
-      currentUsername = authenticated ? username : null;
-      updateAuthUI();
-      if (window.schedule && typeof window.schedule.setAuth === 'function') {
-        window.schedule.setAuth(isAuthenticated);
-      }
-      document.getElementById('prev-week').disabled = !isAuthenticated;
-      document.getElementById('next-week').disabled = !isAuthenticated;
-      document.getElementById('mode-add').disabled = !isAuthenticated;
-      document.getElementById('mode-subtract').disabled = !isAuthenticated;
-      document.getElementById('save').disabled = !isAuthenticated;
-    };
-
-    document.addEventListener('DOMContentLoaded', () => {
-      if (window.schedule && typeof window.schedule.init === 'function') {
-        window.schedule.init();
-      }
-      checkAuth();
-    });
+    document.addEventListener('DOMContentLoaded', checkAuth);
   </script>
 </body>
 </html>
