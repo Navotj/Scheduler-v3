@@ -1,27 +1,24 @@
 ############################################################
-# Application Load Balancer for Backend API (HTTP -> HTTPS)
+# Application Load Balancer for Backend API (HTTPS only)
 ############################################################
 
-# Security group for ALB: allow 80/443 from internet (tighten to CF IPs later)
+# Allow HTTPS only from CloudFront origin-facing IPs (managed prefix list)
+data "aws_ec2_managed_prefix_list" "cloudfront_origin" {
+  name = "com.amazonaws.global.cloudfront.origin-facing"
+}
+
+# Security group for ALB: 443 from CloudFront only
 resource "aws_security_group" "alb" {
   name        = "nat20-alb-sg"
-  description = "ALB security group"
+  description = "ALB security group (HTTPS from CloudFront only)"
   vpc_id      = data.aws_vpc.default.id
 
   ingress {
-    description = "HTTP"
-    from_port   = 80
-    to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  ingress {
-    description = "HTTPS"
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    description     = "HTTPS from CloudFront"
+    from_port       = 443
+    to_port         = 443
+    protocol        = "tcp"
+    prefix_list_ids = [data.aws_ec2_managed_prefix_list.cloudfront_origin.id]
   }
 
   egress {
@@ -49,7 +46,8 @@ resource "aws_lb" "api" {
   }
 }
 
-# Target group forwarding to backend (EC2 / ASG / ECS register here)
+# Target group forwarding to backend instances/containers
+# (ALB terminates TLS; targets speak HTTP on backend_port)
 resource "aws_lb_target_group" "api" {
   name     = "nat20-backend-tg"
   port     = var.backend_port
@@ -71,23 +69,7 @@ resource "aws_lb_target_group" "api" {
   }
 }
 
-# HTTP listener: redirect to HTTPS
-resource "aws_lb_listener" "http" {
-  load_balancer_arn = aws_lb.api.arn
-  port              = 80
-  protocol          = "HTTP"
-
-  default_action {
-    type = "redirect"
-    redirect {
-      port        = "443"
-      protocol    = "HTTPS"
-      status_code = "HTTP_301"
-    }
-  }
-}
-
-# HTTPS listener with ACM cert for api.<domain>
+# HTTPS listener with ACM cert for api.<domain> (regional cert in eu-central-1)
 resource "aws_lb_listener" "https" {
   load_balancer_arn = aws_lb.api.arn
   port              = 443
