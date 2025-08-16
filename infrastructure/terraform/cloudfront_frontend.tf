@@ -49,14 +49,11 @@ resource "aws_cloudfront_response_headers_policy" "api_cors" {
 }
 
 ########################################
-# Origin Access Control for S3 (frontend)
+# Origin Access Identity for S3 (frontend)
+# (Using OAI because your provider requires s3_origin_config.origin_access_identity)
 ########################################
-resource "aws_cloudfront_origin_access_control" "frontend" {
-  name                              = "oac-frontend-${replace(var.domain_name, ".", "-")}"
-  description                       = "OAC for S3 origin of ${var.domain_name}"
-  origin_access_control_origin_type = "s3"
-  signing_behavior                  = "always"
-  signing_protocol                  = "sigv4"
+resource "aws_cloudfront_origin_access_identity" "frontend" {
+  comment = "OAI for ${var.domain_name} static frontend bucket"
 }
 
 #############################################
@@ -125,10 +122,9 @@ resource "aws_cloudfront_distribution" "frontend" {
     domain_name = "${var.domain_name}.s3.${data.aws_region.current.name}.amazonaws.com"
 
     s3_origin_config {
-      origin_access_identity = null
+      # Provider version in your environment requires OAI here.
+      origin_access_identity = aws_cloudfront_origin_access_identity.frontend.cloudfront_access_identity_path
     }
-
-    origin_access_control_id = aws_cloudfront_origin_access_control.frontend.id
   }
 
   # API origin for /auth/*
@@ -156,8 +152,8 @@ resource "aws_cloudfront_distribution" "frontend" {
 
     compress = true
 
-    # Use the managed optimized cache policy for static sites
-    cache_policy_id = "658327ea-f89d-4fab-a63d-7e88639e58f6" # Managed-CachingOptimized
+    # Managed - CachingOptimized (ID fixed by AWS)
+    cache_policy_id = "658327ea-f89d-4fab-a63d-7e88639e58f6"
   }
 
   # Route /auth/* to the API origin, no cache, forward cookies + QS
@@ -169,9 +165,9 @@ resource "aws_cloudfront_distribution" "frontend" {
     allowed_methods = ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"]
     cached_methods  = ["GET", "HEAD", "OPTIONS"]
 
-    compress                    = true
-    cache_policy_id             = aws_cloudfront_cache_policy.no_cache.id
-    origin_request_policy_id    = aws_cloudfront_origin_request_policy.cookies_all_qs.id
+    compress                 = true
+    cache_policy_id          = aws_cloudfront_cache_policy.no_cache.id
+    origin_request_policy_id = aws_cloudfront_origin_request_policy.cookies_all_qs.id
     # If you need CORS headers from CloudFront (usually not needed), uncomment:
     # response_headers_policy_id  = aws_cloudfront_response_headers_policy.api_cors.id
   }
