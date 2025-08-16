@@ -1,16 +1,18 @@
 ############################################################
 # CloudFront Distribution for Frontend (SPA) + /auth -> API
-# - Uses OAI for S3 origin access (provider requires s3_origin_config + OAI)
-# - /auth/* routes to api.<domain> (ALB) with:
-#     * Managed-CachingDisabled (no cache)
-#     * Managed-AllViewer (forwards ALL viewer headers incl. Authorization)
-# - Default SPA behavior uses Managed-CachingOptimized
-# - 403/404 are rewritten to /index.html for client-side routing
+# - Keeps legacy OAC + old custom Origin Request Policy so Terraform
+#   does NOT attempt to delete them while the distribution still
+#   references them internally. After propagation, you can remove
+#   these two resources in a later cleanup PR.
+# - Actively uses OAI for S3 origin access and AWS-managed policies:
+#     * Managed-CachingOptimized for default (SPA)
+#     * Managed-CachingDisabled for /auth/* (no cache)
+#     * Managed-AllViewer for /auth/* (forwards ALL headers incl. Authorization)
+# - 403/404 rewritten to /index.html for SPA routing
 ############################################################
 
 ########################################
 # OPTIONAL: Response headers policy (CORS)
-# Only needed if you want CloudFront to inject CORS headers.
 # Not attached by default; uncomment in ordered_cache_behavior to use.
 ########################################
 resource "aws_cloudfront_response_headers_policy" "api_cors" {
@@ -44,17 +46,14 @@ resource "aws_cloudfront_response_headers_policy" "api_cors" {
 }
 
 ########################################
-# Origin Access Identity for S3 (frontend)
+# Origin Access Identity for S3 (frontend) — ACTIVE path
 ########################################
 resource "aws_cloudfront_origin_access_identity" "frontend" {
   comment = "OAI for ${var.domain_name} static frontend bucket"
 }
 
 ############################################################
-# Use AWS-Managed Policies (no custom creation/deletion)
-# - Managed-CachingOptimized (default behavior)
-# - Managed-CachingDisabled (no-cache for /auth/*)
-# - Managed-AllViewer (forward ALL headers incl. Authorization)
+# Managed Policies we actively use for the distribution
 ############################################################
 data "aws_cloudfront_cache_policy" "managed_caching_optimized" {
   name = "Managed-CachingOptimized"
@@ -68,6 +67,43 @@ data "aws_cloudfront_origin_request_policy" "managed_all_viewer" {
   name = "Managed-AllViewer"
 }
 
+############################################################
+# Legacy resources kept to avoid 409 InUse deletions during transition
+# DO NOT reference these in the distribution below. We keep them so
+# Terraform won't try to delete while CloudFront still has stale refs.
+############################################################
+resource "aws_cloudfront_origin_access_control" "frontend" {
+  name                              = "frontend-oac"
+  description                       = "OAC for frontend CloudFront to access S3"
+  origin_access_control_origin_type = "s3"
+  signing_behavior                  = "always"
+  signing_protocol                  = "sigv4"
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "aws_cloudfront_origin_request_policy" "cookies_all_qs" {
+  name = "cookies-all-qstrings-${replace(var.domain_name, ".", "-")}"
+
+  cookies_config {
+    cookie_behavior = "all"
+  }
+
+  headers_config {
+    header_behavior = "none"
+  }
+
+  query_strings_config {
+    query_string_behavior = "all"
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
 #####################################
 # CloudFront Distribution (2 origins)
 #####################################
@@ -78,14 +114,13 @@ resource "aws_cloudfront_distribution" "frontend" {
   is_ipv6_enabled     = true
   price_class         = "PriceClass_All"
 
-  # Serve both apex and www via CloudFront
   aliases = [
     var.domain_name,
     "www.${var.domain_name}",
   ]
 
   # ---------- Origins ----------
-  # S3 origin for static frontend
+  # S3 origin for static frontend (use OAI)
   origin {
     origin_id   = "frontend-s3-origin"
     domain_name = "${var.domain_name}.s3.${data.aws_region.current.name}.amazonaws.com"
@@ -96,7 +131,6 @@ resource "aws_cloudfront_distribution" "frontend" {
   }
 
   # API origin for /auth/*
-  # NOTE: ALB must serve HTTPS for api.<domain> with a valid ACM cert
   origin {
     origin_id   = "alb-backend"
     domain_name = "${var.api_subdomain}.${var.domain_name}"
@@ -104,7 +138,7 @@ resource "aws_cloudfront_distribution" "frontend" {
     custom_origin_config {
       http_port              = 80
       https_port             = 443
-      origin_protocol_policy = "https-only"   # keep HTTPS from CF -> ALB
+      origin_protocol_policy = "https-only"
       origin_ssl_protocols   = ["TLSv1.2"]
     }
   }
@@ -122,7 +156,7 @@ resource "aws_cloudfront_distribution" "frontend" {
     cache_policy_id = data.aws_cloudfront_cache_policy.managed_caching_optimized.id
   }
 
-  # Route /auth/* to the API origin, no cache, forward ALL viewer headers (incl. Authorization)
+  # /auth/* -> API, no cache, forward ALL viewer headers (incl. Authorization)
   ordered_cache_behavior {
     path_pattern           = "/auth/*"
     target_origin_id       = "alb-backend"
@@ -134,7 +168,6 @@ resource "aws_cloudfront_distribution" "frontend" {
     compress                 = true
     cache_policy_id          = data.aws_cloudfront_cache_policy.managed_caching_disabled.id
     origin_request_policy_id = data.aws_cloudfront_origin_request_policy.managed_all_viewer.id
-    # If you need CORS headers from CloudFront (usually not needed), uncomment:
     # response_headers_policy_id = aws_cloudfront_response_headers_policy.api_cors.id
   }
 
@@ -160,7 +193,6 @@ resource "aws_cloudfront_distribution" "frontend" {
   }
 
   viewer_certificate {
-    # CloudFront certificate must be in us-east-1 (defined in acm_cloudfront.tf)
     acm_certificate_arn      = aws_acm_certificate.frontend.arn
     ssl_support_method       = "sni-only"
     minimum_protocol_version = "TLSv1.2_2021"
