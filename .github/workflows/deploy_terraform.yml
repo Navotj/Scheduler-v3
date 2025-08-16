@@ -22,7 +22,6 @@ jobs:
       TF_IN_AUTOMATION: "true"
       TF_VAR_frontend_waf_name: ${{ vars.FRONTEND_WAF_NAME }}
       TF_VAR_attach_frontend_waf: "false"
-      # Force a public, unauthenticated health endpoint so ALB marks targets healthy
       TF_VAR_backend_health_check_path: "/"
       TF_REGISTRY_CLIENT_TIMEOUT: "60s"
 
@@ -192,3 +191,26 @@ jobs:
             -var "frontend_waf_name=${{ vars.FRONTEND_WAF_NAME }}" \
             -var "attach_frontend_waf=${{ env.TF_VAR_attach_frontend_waf }}" \
             -var "backend_health_check_path=${{ env.TF_VAR_backend_health_check_path }}"
+
+      #-------------------- CloudFront invalidation to pick up /auth behavior immediately --------------------
+      - name: CloudFront Invalidation (/auth/* and index.html)
+        run: |
+          set -euo pipefail
+          DOMAIN="$(terraform output -raw frontend_dns || echo 'nat20scheduling.com')"
+          DIST_ID="$(aws cloudfront list-distributions \
+            --query "DistributionList.Items[?Aliases.Items && (contains(Aliases.Items, '${DOMAIN}') || contains(Aliases.Items, 'www.${DOMAIN}'))].Id | [0]" \
+            --output text || true)"
+          if [ -n "${DIST_ID}" ] && [ "${DIST_ID}" != "None" ]; then
+            aws cloudfront create-invalidation --distribution-id "${DIST_ID}" --paths "/auth/*" "/index.html"
+            echo "Created invalidation on ${DIST_ID}."
+          else
+            echo "Could not resolve CloudFront distribution ID for ${DOMAIN}; skipping invalidation."
+          fi
+
+      #-------------------- Quick origin health check (logs only) --------------------
+      - name: Check API origin health quickly
+        run: |
+          set -euo pipefail
+          DOMAIN="$(terraform output -raw backend_dns || echo 'api.nat20scheduling.com')"
+          code="$(curl -sS -o /dev/null -w "%{http_code}\n" "https://${DOMAIN}/auth/check" || echo "000")"
+          echo "HTTPS https://${DOMAIN}/auth/check -> ${code}"
