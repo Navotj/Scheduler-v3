@@ -18,7 +18,7 @@ jobs:
 
     env:
       AWS_REGION: eu-central-1
-      # Health path we *expect* the app to serve; tweak if your app differs.
+      # Adjust if your app exposes a different health endpoint:
       BACKEND_HEALTH_PATH: /api/health
 
     steps:
@@ -102,13 +102,13 @@ jobs:
                 \"aws s3 cp s3://${ARTIFACT_BUCKET}/${ARTIFACT_KEY} /tmp/installation/backend.zip\",
                 \"unzip -o /tmp/installation/backend.zip -d /tmp/installation/\",
                 \"sudo bash -lc 'shopt -s dotglob nullglob; rm -rf /opt/app/*; mv /tmp/installation/* /opt/app/'\",
-                \"JWT_SECRET=$(aws ssm get-parameter --name ${SSM_JWT_SECRET_PARAM} --with-decryption --query Parameter.Value --output text)\",
-                \"MONGO_USER=$(aws ssm get-parameter --name ${SSM_MONGO_USER_PARAM} --with-decryption --query Parameter.Value --output text)\",
-                \"MONGO_PASS=$(aws ssm get-parameter --name ${SSM_MONGO_PASS_PARAM} --with-decryption --query Parameter.Value --output text)\",
-                \"MONGO_HOST=$(aws ssm get-parameter --name ${SSM_MONGO_HOST_PARAM} --with-decryption --query Parameter.Value --output text)\",
-                \"MONGO_DB=$(aws ssm get-parameter --name ${SSM_MONGO_DB_PARAM} --with-decryption --query Parameter.Value --output text)\",
-                \"echo JWT_SECRET=$JWT_SECRET            | sudo tee /opt/app/.env >/dev/null\",
-                \"echo MONGO_URI=mongodb://$MONGO_USER:$MONGO_PASS@$MONGO_HOST:${MONGO_PORT}/$MONGO_DB?authSource=admin | sudo tee -a /opt/app/.env >/dev/null\",
+                \"JWT_SECRET=\\\$(aws ssm get-parameter --name ${SSM_JWT_SECRET_PARAM} --with-decryption --query Parameter.Value --output text)\",
+                \"MONGO_USER=\\\$(aws ssm get-parameter --name ${SSM_MONGO_USER_PARAM} --with-decryption --query Parameter.Value --output text)\",
+                \"MONGO_PASS=\\\$(aws ssm get-parameter --name ${SSM_MONGO_PASS_PARAM} --with-decryption --query Parameter.Value --output text)\",
+                \"MONGO_HOST=\\\$(aws ssm get-parameter --name ${SSM_MONGO_HOST_PARAM} --with-decryption --query Parameter.Value --output text)\",
+                \"MONGO_DB=\\\$(aws ssm get-parameter --name ${SSM_MONGO_DB_PARAM}   --with-decryption --query Parameter.Value --output text)\",
+                \"echo JWT_SECRET=\\\$JWT_SECRET | sudo tee /opt/app/.env >/dev/null\",
+                \"echo MONGO_URI=mongodb://\\\$MONGO_USER:\\\$MONGO_PASS@\\\$MONGO_HOST:${MONGO_PORT}/\\\$MONGO_DB?authSource=admin | sudo tee -a /opt/app/.env >/dev/null\",
                 \"cd /opt/app && (npm ci --omit=dev || npm install --omit=dev || npm install)\",
                 \"if [ -f /opt/app/scheduler.service ]; then sudo mv /opt/app/scheduler.service /etc/systemd/system/scheduler.service; fi\",
                 \"sudo systemctl daemon-reload\",
