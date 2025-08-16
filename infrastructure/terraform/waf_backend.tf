@@ -7,7 +7,9 @@ resource "aws_wafv2_web_acl" "backend" {
   scope       = "REGIONAL"
   description = "WAF for backend ALB"
 
-  default_action { allow {} }
+  default_action {
+    allow {}
+  }
 
   visibility_config {
     cloudwatch_metrics_enabled = true

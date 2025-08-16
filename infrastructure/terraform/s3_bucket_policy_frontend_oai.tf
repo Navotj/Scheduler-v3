@@ -16,15 +16,24 @@ data "aws_iam_policy_document" "frontend_oai_policy" {
   }
 
   statement {
-    sid    = "DenyInsecureTransport"
-    effect = "Deny"
+    sid     = "DenyInsecureTransport"
+    effect  = "Deny"
     actions = ["s3:GetObject","s3:ListBucket"]
     resources = [
       aws_s3_bucket.frontend.arn,
       "${aws_s3_bucket.frontend.arn}/*"
     ]
-    principals { type = "*", identifiers = ["*"] }
-    condition { test = "Bool", variable = "aws:SecureTransport", values = ["false"] }
+
+    principals {
+      type        = "*"
+      identifiers = ["*"]
+    }
+
+    condition {
+      test     = "Bool"
+      variable = "aws:SecureTransport"
+      values   = ["false"]
+    }
   }
 }
 

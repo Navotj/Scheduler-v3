@@ -9,10 +9,21 @@ resource "aws_cloudfront_response_headers_policy" "api_cors" {
   cors_config {
     access_control_allow_credentials = false
 
-    access_control_allow_headers { items = ["*"] }
-    access_control_allow_methods { items = ["GET","HEAD","OPTIONS","POST","PUT","PATCH","DELETE"] }
-    access_control_allow_origins { items = ["https://${var.domain_name}", "https://www.${var.domain_name}"] }
-    access_control_expose_headers { items = ["*"] }
+    access_control_allow_headers {
+      items = ["*"]
+    }
+
+    access_control_allow_methods {
+      items = ["GET","HEAD","OPTIONS","POST","PUT","PATCH","DELETE"]
+    }
+
+    access_control_allow_origins {
+      items = ["https://${var.domain_name}", "https://www.${var.domain_name}"]
+    }
+
+    access_control_expose_headers {
+      items = ["*"]
+    }
 
     access_control_max_age_sec = 600
     origin_override            = true
@@ -27,9 +38,18 @@ resource "aws_cloudfront_origin_access_identity" "frontend" {
 # Origin/Cache policies for /auth/*
 resource "aws_cloudfront_origin_request_policy" "cookies_all_qs" {
   name = "cookies-all-qstrings-${replace(var.domain_name, ".", "-")}"
-  cookies_config  { cookie_behavior = "all" }
-  headers_config  { header_behavior = "none" }
-  query_strings_config { query_string_behavior = "all" }
+
+  cookies_config {
+    cookie_behavior = "all"
+  }
+
+  headers_config {
+    header_behavior = "none"
+  }
+
+  query_strings_config {
+    query_string_behavior = "all"
+  }
 }
 
 resource "aws_cloudfront_cache_policy" "no_cache" {
@@ -37,10 +57,17 @@ resource "aws_cloudfront_cache_policy" "no_cache" {
   default_ttl = 0
   max_ttl     = 0
   min_ttl     = 0
+
   parameters_in_cache_key_and_forwarded_to_origin {
-    cookies_config  { cookie_behavior = "all" }
-    headers_config  { header_behavior = "none" }
-    query_strings_config { query_string_behavior = "all" }
+    cookies_config {
+      cookie_behavior = "all"
+    }
+    headers_config {
+      header_behavior = "none"
+    }
+    query_strings_config {
+      query_string_behavior = "all"
+    }
     enable_accept_encoding_brotli = true
     enable_accept_encoding_gzip   = true
   }
@@ -88,13 +115,13 @@ resource "aws_cloudfront_distribution" "frontend" {
   }
 
   ordered_cache_behavior {
-    path_pattern           = "/auth/*"
-    target_origin_id       = "alb-backend"
-    viewer_protocol_policy = "redirect-to-https"
-    allowed_methods        = ["GET","HEAD","OPTIONS","PUT","POST","PATCH","DELETE"]
-    cached_methods         = ["GET","HEAD","OPTIONS"]
-    compress               = true
-    cache_policy_id        = aws_cloudfront_cache_policy.no_cache.id
+    path_pattern             = "/auth/*"
+    target_origin_id         = "alb-backend"
+    viewer_protocol_policy   = "redirect-to-https"
+    allowed_methods          = ["GET","HEAD","OPTIONS","PUT","POST","PATCH","DELETE"]
+    cached_methods           = ["GET","HEAD","OPTIONS"]
+    compress                 = true
+    cache_policy_id          = aws_cloudfront_cache_policy.no_cache.id
     origin_request_policy_id = aws_cloudfront_origin_request_policy.cookies_all_qs.id
     # response_headers_policy_id = aws_cloudfront_response_headers_policy.api_cors.id
   }
@@ -114,7 +141,11 @@ resource "aws_cloudfront_distribution" "frontend" {
     error_caching_min_ttl = 0
   }
 
-  restrictions { geo_restriction { restriction_type = "none" } }
+  restrictions {
+    geo_restriction {
+      restriction_type = "none"
+    }
+  }
 
   viewer_certificate {
     acm_certificate_arn      = aws_acm_certificate.frontend.arn
@@ -122,5 +153,7 @@ resource "aws_cloudfront_distribution" "frontend" {
     minimum_protocol_version = "TLSv1.2_2021"
   }
 
-  tags = { Name = "nat20-frontend-cf" }
+  tags = {
+    Name = "nat20-frontend-cf"
+  }
 }

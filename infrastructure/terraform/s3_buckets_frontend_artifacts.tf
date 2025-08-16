@@ -19,12 +19,20 @@ resource "aws_s3_bucket_public_access_block" "frontend" {
 
 resource "aws_s3_bucket_server_side_encryption_configuration" "frontend" {
   bucket = aws_s3_bucket.frontend.id
-  rule { apply_server_side_encryption_by_default { sse_algorithm = "AES256" } }
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
 }
 
 resource "aws_s3_bucket_versioning" "frontend" {
   bucket = aws_s3_bucket.frontend.id
-  versioning_configuration { status = "Enabled" }
+
+  versioning_configuration {
+    status = "Enabled"
+  }
 }
 
 # Private S3 bucket for deployment artifacts
@@ -47,7 +55,12 @@ resource "aws_s3_bucket_public_access_block" "deploy_artifacts" {
 
 resource "aws_s3_bucket_server_side_encryption_configuration" "deploy_artifacts" {
   bucket = aws_s3_bucket.deploy_artifacts.id
-  rule { apply_server_side_encryption_by_default { sse_algorithm = "AES256" } }
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
 }
 
 resource "aws_s3_bucket_lifecycle_configuration" "deploy_artifacts" {
@@ -56,9 +69,21 @@ resource "aws_s3_bucket_lifecycle_configuration" "deploy_artifacts" {
   rule {
     id     = "expire-backend-artifacts-1d"
     status = "Enabled"
-    filter { prefix = "backend/" }
-    expiration { days = 1 }
-    noncurrent_version_expiration { noncurrent_days = 1 }
-    abort_incomplete_multipart_upload { days_after_initiation = 1 }
+
+    filter {
+      prefix = "backend/"
+    }
+
+    expiration {
+      days = 1
+    }
+
+    noncurrent_version_expiration {
+      noncurrent_days = 1
+    }
+
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 1
+    }
   }
 }
