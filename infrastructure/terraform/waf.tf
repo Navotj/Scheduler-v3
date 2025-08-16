@@ -1,149 +1,20 @@
-# WAF for CloudFront must be created in us-east-1
-resource "aws_wafv2_web_acl" "cf_frontend" {
-  provider    = aws.us_east_1
-  name        = "waf-cf-${replace(var.domain_name, ".", "-")}"
-  description = "WAF for CloudFront frontend of ${var.domain_name}"
-  scope       = "CLOUDFRONT"
+############################################################
+# Variables for WAF
+############################################################
 
-  default_action {
-    allow {}
-  }
+variable "backend_alb_name" {
+  type        = string
+  description = "Name of the backend ALB to attach WAF"
+}
 
-  visibility_config {
-    cloudwatch_metrics_enabled = true
-    metric_name                = "waf-cf-${replace(var.domain_name, ".", "-")}"
-    sampled_requests_enabled   = true
-  }
+variable "frontend_waf_name" {
+  type        = string
+  description = "Name of the WAF for frontend CloudFront"
+  default     = "nat20-frontend-cf-waf"
+}
 
-  rule {
-    name     = "AWSManagedRulesCommonRuleSet"
-    priority = 10
-
-    override_action {
-      none {}
-    }
-
-    statement {
-      managed_rule_group_statement {
-        name        = "AWSManagedRulesCommonRuleSet"
-        vendor_name = "AWS"
-      }
-    }
-
-    visibility_config {
-      cloudwatch_metrics_enabled = true
-      metric_name                = "CommonRuleSet"
-      sampled_requests_enabled   = true
-    }
-  }
-
-  rule {
-    name     = "AWSManagedRulesKnownBadInputsRuleSet"
-    priority = 20
-
-    override_action {
-      none {}
-    }
-
-    statement {
-      managed_rule_group_statement {
-        name        = "AWSManagedRulesKnownBadInputsRuleSet"
-        vendor_name = "AWS"
-      }
-    }
-
-    visibility_config {
-      cloudwatch_metrics_enabled = true
-      metric_name                = "KnownBadInputs"
-      sampled_requests_enabled   = true
-    }
-  }
-
-  rule {
-    name     = "AWSManagedRulesSQLiRuleSet"
-    priority = 30
-
-    override_action {
-      none {}
-    }
-
-    statement {
-      managed_rule_group_statement {
-        name        = "AWSManagedRulesSQLiRuleSet"
-        vendor_name = "AWS"
-      }
-    }
-
-    visibility_config {
-      cloudwatch_metrics_enabled = true
-      metric_name                = "SQLi"
-      sampled_requests_enabled   = true
-    }
-  }
-
-  rule {
-    name     = "AWSManagedRulesAnonymousIpList"
-    priority = 40
-
-    override_action {
-      none {}
-    }
-
-    statement {
-      managed_rule_group_statement {
-        name        = "AWSManagedRulesAnonymousIpList"
-        vendor_name = "AWS"
-      }
-    }
-
-    visibility_config {
-      cloudwatch_metrics_enabled = true
-      metric_name                = "AnonymousIP"
-      sampled_requests_enabled   = true
-    }
-  }
-
-  rule {
-    name     = "AWSManagedRulesAmazonIpReputationList"
-    priority = 50
-
-    override_action {
-      none {}
-    }
-
-    statement {
-      managed_rule_group_statement {
-        name        = "AWSManagedRulesAmazonIpReputationList"
-        vendor_name = "AWS"
-      }
-    }
-
-    visibility_config {
-      cloudwatch_metrics_enabled = true
-      metric_name                = "ReputationList"
-      sampled_requests_enabled   = true
-    }
-  }
-
-  rule {
-    name     = "RateLimit1kPer5Min"
-    priority = 60
-
-    action {
-      block {}
-    }
-
-    statement {
-      rate_based_statement {
-        aggregate_key_type = "IP"
-        limit              = 1000
-      }
-    }
-
-    visibility_config {
-      cloudwatch_metrics_enabled = true
-      metric_name                = "RateLimit1k"
-      sampled_requests_enabled   = true
-    }
-  }
+variable "attach_frontend_waf" {
+  type        = bool
+  description = "Whether to attach WAF to frontend CloudFront"
+  default     = false
 }

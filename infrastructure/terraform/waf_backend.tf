@@ -1,11 +1,15 @@
 ############################################################
-# WAFv2 Web ACL for Backend ALB
+# WAF for Backend ALB
 ############################################################
 
+data "aws_lb" "backend" {
+  name = var.backend_alb_name
+}
+
 resource "aws_wafv2_web_acl" "backend" {
-  name        = "nat20-backend-alb-waf"
-  description = "WAF for nat20 backend Application Load Balancer"
+  name        = "nat20-backend-waf"
   scope       = "REGIONAL"
+  description = "WAF for backend ALB"
 
   default_action {
     allow {}
@@ -13,58 +17,10 @@ resource "aws_wafv2_web_acl" "backend" {
 
   visibility_config {
     cloudwatch_metrics_enabled = true
-    metric_name                = "nat20-backend-waf"
+    metric_name                = "backend-waf"
     sampled_requests_enabled   = true
   }
-
-  rule {
-    name     = "AWSManagedRulesCommonRuleSet"
-    priority = 1
-
-    override_action {
-      none {}
-    }
-
-    statement {
-      managed_rule_group_statement {
-        name        = "AWSManagedRulesCommonRuleSet"
-        vendor_name = "AWS"
-      }
-    }
-
-    visibility_config {
-      cloudwatch_metrics_enabled = true
-      metric_name                = "AWSManagedRulesCommonRuleSet"
-      sampled_requests_enabled   = true
-    }
-  }
-
-  rule {
-    name     = "AWSManagedRulesAmazonIpReputationList"
-    priority = 2
-
-    override_action {
-      none {}
-    }
-
-    statement {
-      managed_rule_group_statement {
-        name        = "AWSManagedRulesAmazonIpReputationList"
-        vendor_name = "AWS"
-      }
-    }
-
-    visibility_config {
-      cloudwatch_metrics_enabled = true
-      metric_name                = "AWSManagedRulesAmazonIpReputationList"
-      sampled_requests_enabled   = true
-    }
-  }
 }
-
-############################################################
-# Associate Backend WAF with ALB
-############################################################
 
 resource "aws_wafv2_web_acl_association" "backend" {
   resource_arn = data.aws_lb.backend.arn

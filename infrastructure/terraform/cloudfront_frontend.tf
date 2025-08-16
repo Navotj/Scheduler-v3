@@ -1,28 +1,34 @@
+############################################################
+# CloudFront Distribution for Frontend
+############################################################
+
 resource "aws_cloudfront_origin_access_control" "frontend" {
-  name                              = "nat20-frontend-oac"
-  description                       = "CloudFront OAC for nat20 frontend"
+  name                              = "frontend-oac"
+  description                       = "OAC for frontend CloudFront to access S3"
   origin_access_control_origin_type = "s3"
   signing_behavior                  = "always"
   signing_protocol                  = "sigv4"
 }
 
 resource "aws_cloudfront_distribution" "frontend" {
-  provider = aws.us_east_1
-
   enabled             = true
+  is_ipv6_enabled     = true
   default_root_object = "index.html"
 
-  origin {
-    domain_name = aws_s3_bucket.frontend.bucket_regional_domain_name
-    origin_id   = aws_s3_bucket.frontend.id
+  aliases = [var.frontend_domain]
 
+  origin {
+    domain_name              = aws_s3_bucket.frontend.bucket_regional_domain_name
+    origin_id                = "frontend-s3-origin"
     origin_access_control_id = aws_cloudfront_origin_access_control.frontend.id
   }
 
   default_cache_behavior {
-    allowed_methods  = ["GET", "HEAD", "OPTIONS"]
-    cached_methods   = ["GET", "HEAD"]
-    target_origin_id = aws_s3_bucket.frontend.id
+    target_origin_id       = "frontend-s3-origin"
+    viewer_protocol_policy = "redirect-to-https"
+
+    allowed_methods = ["GET", "HEAD", "OPTIONS"]
+    cached_methods  = ["GET", "HEAD"]
 
     forwarded_values {
       query_string = false
@@ -31,11 +37,10 @@ resource "aws_cloudfront_distribution" "frontend" {
       }
     }
 
-    viewer_protocol_policy = "redirect-to-https"
-    min_ttl                = 0
-    default_ttl            = 3600
-    max_ttl                = 86400
+    compress = true
   }
+
+  price_class = "PriceClass_100"
 
   restrictions {
     geo_restriction {
@@ -44,13 +49,28 @@ resource "aws_cloudfront_distribution" "frontend" {
   }
 
   viewer_certificate {
-    acm_certificate_arn      = aws_acm_certificate_validation.frontend.certificate_arn
+    acm_certificate_arn      = aws_acm_certificate.frontend.arn
     ssl_support_method       = "sni-only"
     minimum_protocol_version = "TLSv1.2_2021"
   }
 
-  depends_on = [
-    aws_s3_bucket.frontend,
-    aws_acm_certificate_validation.frontend
-  ]
+  tags = {
+    Name = "nat20-frontend-cf"
+  }
+}
+
+############################################################
+# Route53 Record for CloudFront Distribution
+############################################################
+
+resource "aws_route53_record" "frontend" {
+  zone_id = data.aws_route53_zone.main.zone_id
+  name    = var.frontend_domain
+  type    = "A"
+
+  alias {
+    name                   = aws_cloudfront_distribution.frontend.domain_name
+    zone_id                = aws_cloudfront_distribution.frontend.hosted_zone_id
+    evaluate_target_health = false
+  }
 }
