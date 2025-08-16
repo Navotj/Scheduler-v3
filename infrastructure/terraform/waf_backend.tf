@@ -2,10 +2,6 @@
 # WAF for Backend ALB
 ############################################################
 
-data "aws_lb" "backend" {
-  name = var.backend_alb_name
-}
-
 resource "aws_wafv2_web_acl" "backend" {
   name        = "nat20-backend-waf"
   scope       = "REGIONAL"
