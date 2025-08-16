@@ -23,7 +23,6 @@ jobs:
       TF_VAR_frontend_waf_name: ${{ vars.FRONTEND_WAF_NAME }}
       # Set to "false" unless you actually have a CloudFront-scoped WAF created.
       TF_VAR_attach_frontend_waf: "false"
-      TF_PLUGIN_CACHE_DIR: ${{ runner.temp }}/.terraform-plugin-cache
 
     steps:
       - name: Checkout
@@ -73,10 +72,17 @@ jobs:
           echo "Wrote ${HOME}/.terraformrc:"
           sed -n '1,200p' "${HOME}/.terraformrc"
 
+      - name: Prepare Terraform plugin cache dir
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${HOME}/.terraform.d/plugin-cache"
+          echo "TF_PLUGIN_CACHE_DIR=${HOME}/.terraform.d/plugin-cache" >> "$GITHUB_ENV"
+
       - name: Cache Terraform plugin cache
         uses: actions/cache@v4
         with:
-          path: ${{ env.TF_PLUGIN_CACHE_DIR }}
+          path: ~/.terraform.d/plugin-cache
           key: tf-plugin-cache-${{ runner.os }}-${{ hashFiles('infrastructure/terraform/**/*.tf','infrastructure/terraform/.terraform.lock.hcl') }}
           restore-keys: |
             tf-plugin-cache-${{ runner.os }}-
