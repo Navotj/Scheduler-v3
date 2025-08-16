@@ -45,3 +45,9 @@ variable "frontend_waf_name" {
   description = "Name of the WAFv2 Web ACL (scope=CLOUDFRONT) to attach to the CloudFront distribution"
   type        = string
 }
+
+variable "attach_frontend_waf" {
+  description = "Whether to attach the WAF to the CloudFront frontend"
+  type        = bool
+  default     = true
+}
