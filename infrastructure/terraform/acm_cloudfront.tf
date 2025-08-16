@@ -2,27 +2,39 @@
 # ACM Certificate for CloudFront (us-east-1)
 ############################################################
 
+# ACM Certificate for CloudFront (us-east-1)
 resource "aws_acm_certificate" "frontend" {
-  provider          = aws.us_east_1
-  domain_name       = var.frontend_domain
-  validation_method = "DNS"
+  provider                  = aws.us_east_1
+  domain_name               = "nat20scheduling.com"
+  subject_alternative_names = ["www.nat20scheduling.com"]
+  validation_method         = "DNS"
 
   lifecycle {
     create_before_destroy = true
   }
 }
 
+# Create DNS validation records for ALL names (apex + www)
 resource "aws_route53_record" "frontend_cert_validation" {
-  zone_id = aws_route53_zone.main.zone_id
-  name    = tolist(aws_acm_certificate.frontend.domain_validation_options)[0].resource_record_name
-  type    = tolist(aws_acm_certificate.frontend.domain_validation_options)[0].resource_record_type
-  records = [tolist(aws_acm_certificate.frontend.domain_validation_options)[0].resource_record_value]
-  ttl     = 60
+  for_each = {
+    for dvo in aws_acm_certificate.frontend.domain_validation_options :
+    dvo.domain_name => {
+      name   = dvo.resource_record_name
+      type   = dvo.resource_record_type
+      value  = dvo.resource_record_value
+    }
+  }
+
+  zone_id         = aws_route53_zone.main.zone_id
+  name            = each.value.name
+  type            = each.value.type
+  records         = [each.value.value]
+  ttl             = 60
   allow_overwrite = true
 }
 
 resource "aws_acm_certificate_validation" "frontend" {
   provider                = aws.us_east_1
   certificate_arn         = aws_acm_certificate.frontend.arn
-  validation_record_fqdns = [aws_route53_record.frontend_cert_validation.fqdn]
+  validation_record_fqdns = [for r in aws_route53_record.frontend_cert_validation : r.fqdn]
 }

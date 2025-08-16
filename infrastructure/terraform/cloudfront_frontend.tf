@@ -15,7 +15,10 @@ resource "aws_cloudfront_distribution" "frontend" {
   is_ipv6_enabled     = true
   default_root_object = "index.html"
 
-  aliases = [var.frontend_domain]
+  aliases = [
+    var.frontend_domain,
+    "www.${var.frontend_domain}",
+  ]
 
   origin {
     domain_name              = aws_s3_bucket.frontend.bucket_regional_domain_name
@@ -60,13 +63,29 @@ resource "aws_cloudfront_distribution" "frontend" {
 }
 
 ############################################################
-# Route53 Record for CloudFront Distribution
+# Route53 Records for CloudFront Distribution
 ############################################################
 
+# Apex A/ALIAS -> CloudFront
 resource "aws_route53_record" "frontend" {
-  zone_id = aws_route53_zone.main.zone_id
-  name    = var.frontend_domain
-  type    = "A"
+  zone_id         = aws_route53_zone.main.zone_id
+  name            = var.frontend_domain
+  type            = "A"
+  allow_overwrite = true
+
+  alias {
+    name                   = aws_cloudfront_distribution.frontend.domain_name
+    zone_id                = aws_cloudfront_distribution.frontend.hosted_zone_id
+    evaluate_target_health = false
+  }
+}
+
+# www A/ALIAS -> CloudFront
+resource "aws_route53_record" "www_a" {
+  zone_id         = aws_route53_zone.main.zone_id
+  name            = "www.${var.frontend_domain}"
+  type            = "A"
+  allow_overwrite = true
 
   alias {
     name                   = aws_cloudfront_distribution.frontend.domain_name
