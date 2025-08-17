@@ -5,8 +5,6 @@ const { body } = require('express-validator');
 const userModel = require('../models/user');
 const { generateToken, verifyToken } = require('../utils/jwt');
 
-const COOKIE_DOMAIN = '.nat20scheduling.com';
-
 function isSecure() {
   return String(process.env.COOKIE_SECURE).toLowerCase() === 'true';
 }
@@ -71,7 +69,6 @@ router.post(
         sameSite: 'Lax',
         secure: isSecure(),
         path: '/',
-        domain: COOKIE_DOMAIN,
         maxAge: 7 * 24 * 60 * 60 * 1000
       });
 
