@@ -210,12 +210,3 @@ jobs:
           else
             echo "Could not resolve CloudFront distribution ID for ${DOMAIN}; skipping invalidation."
           fi
-
-      #-------------------- Quick origin health check (logs only) --------------------
-      - name: Check API origin health quickly
-        timeout-minutes: 3
-        run: |
-          set -euo pipefail
-          DOMAIN="$(terraform output -raw backend_dns || echo 'api.nat20scheduling.com')"
-          code="$(curl -sS -o /dev/null -w "%{http_code}\n" "https://${DOMAIN}/auth/check" || echo "000")"
-          echo "HTTPS https://${DOMAIN}/auth/check -> ${code}"
