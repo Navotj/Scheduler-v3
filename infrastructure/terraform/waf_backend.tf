@@ -49,7 +49,7 @@ resource "aws_wafv2_web_acl" "backend" {
     }
   }
 
-  # 1 - Always allow CORS preflight requests
+  # 1 - Always allow CORS preflight requests (OPTIONS)
   rule {
     name     = "AllowCORSPreflight"
     priority = 1
@@ -115,7 +115,7 @@ resource "aws_wafv2_web_acl" "backend" {
 
     statement {
       or_statement {
-        statements {
+        statement {
           regex_match_statement {
             regex_string = "(?i)\\$(ne|gt|gte|lt|lte|in|nin|or|and|where)\\b"
 
@@ -129,7 +129,8 @@ resource "aws_wafv2_web_acl" "backend" {
             }
           }
         }
-        statements {
+
+        statement {
           regex_match_statement {
             regex_string = "(?i)\\$(ne|gt|gte|lt|lte|in|nin|or|and|where)\\b"
 
@@ -164,50 +165,61 @@ resource "aws_wafv2_web_acl" "backend" {
 
     statement {
       and_statement {
-        statements {
+        # Part A: Method is POST or PUT or PATCH
+        statement {
           or_statement {
-            statements {
+            statement {
               byte_match_statement {
                 search_string         = "POST"
                 positional_constraint = "EXACTLY"
+
                 field_to_match {
                   method {}
                 }
+
                 text_transformation {
                   priority = 0
-                  type = "NONE"
+                  type     = "NONE"
                 }
               }
             }
-            statements {
+
+            statement {
               byte_match_statement {
                 search_string         = "PUT"
                 positional_constraint = "EXACTLY"
+
                 field_to_match {
                   method {}
                 }
+
                 text_transformation {
                   priority = 0
-                  type = "NONE"
+                  type     = "NONE"
                 }
               }
             }
-            statements {
+
+            statement {
               byte_match_statement {
                 search_string         = "PATCH"
                 positional_constraint = "EXACTLY"
+
                 field_to_match {
                   method {}
                 }
+
                 text_transformation {
                   priority = 0
-                  type = "NONE"  
+                  type     = "NONE"
                 }
               }
             }
           }
         }
-        statements {
+
+        # Part B: NOT (Content-Type contains application/json)
+        statement {
           not_statement {
             statement {
               byte_match_statement {
@@ -215,7 +227,9 @@ resource "aws_wafv2_web_acl" "backend" {
                 positional_constraint = "CONTAINS"
 
                 field_to_match {
-                  single_header { name = "content-type" }
+                  single_header {
+                    name = "content-type"
+                  }
                 }
 
                 text_transformation {
@@ -237,6 +251,7 @@ resource "aws_wafv2_web_acl" "backend" {
   }
 
   # 8 - JSON body oversize handling (block if body too large/invalid to inspect)
+  # Uses json_body in field_to_match which REQUIRES match_pattern.
   rule {
     name     = "LimitJsonBodySize"
     priority = 8
@@ -252,9 +267,13 @@ resource "aws_wafv2_web_acl" "backend" {
 
         field_to_match {
           json_body {
-            match_scope                = "ALL"
-            invalid_fallback_behavior  = "MATCH"
-            oversize_handling          = "MATCH"
+            match_scope               = "ALL"
+            invalid_fallback_behavior = "MATCH"
+            oversize_handling         = "MATCH"
+
+            match_pattern {
+              all {}
+            }
           }
         }
 
