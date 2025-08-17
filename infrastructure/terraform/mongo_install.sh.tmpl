@@ -24,8 +24,8 @@ enabled=1
 gpgkey=file:///etc/pki/rpm-gpg/mongodb-org-8.0.gpg
 REPO
 
-# Install MongoDB
-dnf install -y mongodb-org
+# Install MongoDB and filesystem tools
+dnf install -y mongodb-org xfsprogs awscli
 
 # Prepare persistent EBS volume
 DEVICE="/dev/xvdf"
@@ -60,50 +60,43 @@ systemctl start mongod
 sleep 10
 
 # ===== Secrets handling (no leaks in logs) =====
-# Temporarily disable xtrace so credentials are not echoed
 set +x
-
-# Ensure AWS CLI is present
-if ! command -v aws >/dev/null 2>&1; then
-  dnf install -y awscli
-fi
-
 AWS_REGION="eu-central-1"
 SSM_USER_PARAM="/nat20/mongo/USER"
 SSM_PASS_PARAM="/nat20/mongo/PASSWORD"
-
-# Read credentials from SSM (SecureString)
 S3_MONGO_USER="$(aws ssm get-parameter --name "$SSM_USER_PARAM" --with-decryption --query 'Parameter.Value' --output text --region "$AWS_REGION")"
 S3_MONGO_PASS="$(aws ssm get-parameter --name "$SSM_PASS_PARAM" --with-decryption --query 'Parameter.Value' --output text --region "$AWS_REGION")"
-
 if [ -z "$S3_MONGO_USER" ] || [ -z "$S3_MONGO_PASS" ]; then
   echo "ERROR: Missing SSM parameters $SSM_USER_PARAM or $SSM_PASS_PARAM" >&2
   exit 1
 fi
 
-# Create user idempotently using a JS file
 cat >/tmp/create_app_user.js <<'JS'
-var user = (_getEnv("S3_MONGO_USER") || "").trim();
-var pass = (_getEnv("S3_MONGO_PASS") || "").trim();
+const user = (process.env.S3_MONGO_USER || "").trim();
+const pass = (process.env.S3_MONGO_PASS || "").trim();
 if (!user || !pass) { throw new Error("Missing S3_MONGO_USER or S3_MONGO_PASS"); }
-db = db.getSiblingDB("admin");
-var existing = db.system.users.findOne({ user: user, db: "admin" });
+const admin = db.getSiblingDB("admin");
+const existing = admin.system.users.findOne({ user, db: "admin" });
 if (existing) {
   print("User '" + user + "' already exists in admin; skipping create.");
 } else {
-  db.createUser({ user: user, pwd: pass, roles: [ { role: "root", db: "admin" } ] });
+  admin.createUser({ user, pwd: pass, roles: [ { role: "root", db: "admin" } ] });
   print("Created admin user '" + user + "'.");
 }
 JS
-
-# Run the JS with env vars
 S3_MONGO_USER="$S3_MONGO_USER" S3_MONGO_PASS="$S3_MONGO_PASS" mongosh --file /tmp/create_app_user.js
-
-# Re-enable xtrace
 set -x
 
 # Enable authorization (idempotent)
-if ! grep -qE '^\s*authorization:\s*enabled' /etc/mongod.conf; then
-  sed -i 's|#security:|security:\n  authorization: enabled|' /etc/mongod.conf
-  systemctl restart mongod
+if grep -qE '^\s*#\s*security:' /etc/mongod.conf; then
+  sed -i 's/^\s*#\s*security:.*/security:\n  authorization: enabled/' /etc/mongod.conf
+elif ! grep -qE '^\s*security:' /etc/mongod.conf; then
+  printf '\nsecurity:\n  authorization: enabled\n' >> /etc/mongod.conf
+else
+  if ! grep -qE '^\s*authorization:\s*enabled' /etc/mongod.conf; then
+    sed -i '/^\s*security:/a\  authorization: enabled' /etc/mongod.conf
+  fi
 fi
+
+# Restart to apply auth
+systemctl restart mongod
