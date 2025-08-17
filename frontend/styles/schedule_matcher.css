@@ -222,17 +222,6 @@ tr.row-hour > th {
   pointer-events: none;
 }
 
-/* Availability color scale 0..7 — tuned for higher contrast
-   1 is closer to black; 4 vs 5 clearly distinct */
-.slot-cell[data-c="0"] { background: #0b0b0b; } /* black */
-.slot-cell[data-c="1"] { background: #0e120f; }
-.slot-cell[data-c="2"] { background: #132418; }
-.slot-cell[data-c="3"] { background: #163a22; }
-.slot-cell[data-c="4"] { background: #1d5a2f; }
-.slot-cell[data-c="5"] { background: #277e3f; }
-.slot-cell[data-c="6"] { background: #33a353; }
-.slot-cell[data-c="7"] { background: #49c86b; }
-
 /* Compress-low mode (>=11 members): 0..4 all render as black */
 .compress-low .slot-cell[data-c="0"],
 .compress-low .slot-cell[data-c="1"],

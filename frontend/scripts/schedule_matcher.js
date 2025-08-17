@@ -140,6 +140,30 @@
     return { day, row };
   }
 
+  // --- Dynamic gradient (black -> vibrant green), with low-count compression when many members ---
+  function shadeForCount(count) {
+    // If 11+ members, compress the lower counts to pure black so the legend stays readable:
+    // counts <= (n-10) are black; the top 10 distinct counts are spread across the gradient.
+    const n = totalMembers || 0;
+    const threshold = n >= 11 ? (n - 10) : 0;
+
+    if (n <= 0) return '#0a0a0a';
+    if (count <= threshold) return '#0a0a0a';
+
+    const denom = Math.max(1, n - threshold);       // 1..10
+    const t0 = (count - threshold) / denom;         // 0..1 within top band
+    const t = Math.max(0, Math.min(1, t0));
+
+    // Gamma curve for punchier mid-tones
+    const e = Math.pow(t, 0.75);
+
+    // Vibrant green target: #39ff88 (57,255,136)
+    const r = Math.round(57 * e);
+    const g = Math.round(255 * e);
+    const b = Math.round(136 * e);
+    return `rgb(${r}, ${g}, ${b})`;
+  }
+
   // --- Build table ---
   function buildTable() {
     table.innerHTML = '';
@@ -277,15 +301,7 @@
     findCandidates();
   }
 
-    // Map raw available count -> normalized shade 0..7, so max players is always brightest
-  function mapCountToShade(count) {
-    if (totalMembers <= 0) return 0;
-    const idx = Math.round((count / totalMembers) * 7);
-    return clamp(idx, 0, 7);
-  }
-
-
-  // --- Paint counts into cells (0..7+) and build week arrays ---
+  // --- Paint counts into cells (dynamic gradient) and build week arrays ---
   function slotCount(epoch) {
     let count = 0;
     for (const u of members) {
@@ -295,27 +311,34 @@
     return count;
   }
 
-    function paintCounts() {
+  function paintCounts() {
     counts = [];
     sets = [];
     const tds = table.querySelectorAll('.slot-cell');
+    const n = totalMembers || 0;
+    const threshold = n >= 11 ? (n - 10) : 0;
+
     for (const td of tds) {
       const epoch = Number(td.dataset.epoch);
-
-      // raw count for logic
       const raw = slotCount(epoch);
 
-      // normalized shade for color (0..7, 7 is always "max players" green)
-      const shade = mapCountToShade(raw);
+      // Dynamic gradient background
+      td.style.backgroundColor = shadeForCount(raw);
 
-      td.dataset.c = String(shade);
+      // Keep dataset.c only to cooperate with existing CSS (e.g., .compress-low blacks 0..4 with !important)
+      if (n >= 11) {
+        td.dataset.c = (raw <= threshold) ? '0' : '7';
+      } else {
+        td.dataset.c = raw > 0 ? '7' : '0';
+      }
+
       td.classList.remove('dim', 'highlight');
 
       const day = Number(td.dataset.day);
       const row = Number(td.dataset.row);
       const g = day * ROWS_PER_DAY + row;
 
-      // keep raw counts for filters/candidate search
+      // Keep raw count for filters/candidate search
       counts[g] = raw;
 
       // who is available in this slot
@@ -604,92 +627,110 @@
     return { available, unavailable };
   }
 
-function updateLegend() {
-  const blocks = document.getElementById('legend-blocks');
-  const steps = document.getElementById('legend-steps');
-  const labels = document.getElementById('legend-labels');
+  function updateLegend() {
+    // Prefer the alternating rows container if present
+    const blocks = document.getElementById('legend-blocks');
+    const steps = document.getElementById('legend-steps');
+    const labels = document.getElementById('legend-labels');
 
-  const n = members.length;
-  const chips = [];
+    const n = members.length;
+    const chips = [];
 
-  // Toggle compress-low when many members
-  document.documentElement.classList.toggle('compress-low', n >= 11);
+    // Toggle compress-low styling when there are many members (kept for layout consistency)
+    document.documentElement.classList.toggle('compress-low', n >= 11);
 
-  if (n >= 11) {
-    const threshold = Math.max(0, n - 10); // participants ≤ threshold => merged to black
-    chips.push({ raw: 0, label: `≤${threshold}` });
-    for (let i = threshold + 1; i <= n; i++) chips.push({ raw: i, label: String(i) });
-  } else {
-    for (let i = 0; i <= n; i++) chips.push({ raw: i, label: String(i) });
-  }
+    // Build legend items as raw counts; color is applied via dynamic gradient
+    if (n >= 11) {
+      const threshold = Math.max(0, n - 10); // participants ≤ threshold => merged to black
+      chips.push({ raw: 0, label: `≤${threshold}` });
+      for (let i = threshold + 1; i <= n; i++) chips.push({ raw: i, label: String(i) });
+    } else {
+      for (let i = 0; i <= n; i++) chips.push({ raw: i, label: String(i) });
+    }
 
-  // Alternating layout (preferred)
-  if (blocks) {
-    blocks.innerHTML = '';
-    const COLS = 5;
+    // New alternating layout: fixed 5 columns per row; use spacers to keep widths identical
+    if (blocks) {
+      blocks.innerHTML = '';
+      const COLS = 5;
 
-    for (let i = 0; i < chips.length; i += COLS) {
-      const group = chips.slice(i, i + COLS);
+      for (let i = 0; i < chips.length; i += COLS) {
+        const group = chips.slice(i, i + COLS);
 
-      const stepsRow = document.createElement('div');
-      stepsRow.className = 'steps-row';
+        const stepsRow = document.createElement('div');
+        stepsRow.className = 'steps-row';
 
-      const labelsRow = document.createElement('div');
-      labelsRow.className = 'labels-row';
+        const labelsRow = document.createElement('div');
+        labelsRow.className = 'labels-row';
 
-      for (const item of group) {
+        for (const item of group) {
+          const chip = document.createElement('div');
+          chip.className = 'chip slot-cell';
+          chip.style.backgroundColor = shadeForCount(item.raw);
+
+          // Protect against CSS .compress-low overriding with !important by setting dataset.c > 4 when not black
+          if (n >= 11) {
+            const threshold = Math.max(0, n - 10);
+            chip.dataset.c = (item.raw <= threshold) ? '0' : '7';
+          } else {
+            chip.dataset.c = item.raw > 0 ? '7' : '0';
+          }
+
+          stepsRow.appendChild(chip);
+
+          const lab = document.createElement('span');
+          lab.textContent = item.label;
+          labelsRow.appendChild(lab);
+        }
+
+        // Fill to 5 columns so the last line items are NOT wider
+        for (let f = group.length; f < COLS; f++) {
+          const spacerChip = document.createElement('div');
+          spacerChip.className = 'chip spacer';
+          stepsRow.appendChild(spacerChip);
+
+          const spacerLab = document.createElement('span');
+          spacerLab.className = 'spacer';
+          spacerLab.textContent = '';
+          labelsRow.appendChild(spacerLab);
+        }
+
+        blocks.appendChild(stepsRow);
+        blocks.appendChild(labelsRow);
+      }
+
+      syncResultsHeight();
+      return;
+    }
+
+    // Fallback: single-row legend
+    if (steps && labels) {
+      steps.innerHTML = '';
+      labels.innerHTML = '';
+      steps.style.gridTemplateColumns = 'repeat(5, 1fr)';
+      labels.style.gridTemplateColumns = 'repeat(5, 1fr)';
+
+      for (const item of chips) {
         const chip = document.createElement('div');
         chip.className = 'chip slot-cell';
-        // Normalize color scale to current totalMembers
-        chip.dataset.c = String(mapCountToShade(item.raw));
-        stepsRow.appendChild(chip);
+        chip.style.backgroundColor = shadeForCount(item.raw);
+
+        if (n >= 11) {
+          const threshold = Math.max(0, n - 10);
+          chip.dataset.c = (item.raw <= threshold) ? '0' : '7';
+        } else {
+          chip.dataset.c = item.raw > 0 ? '7' : '0';
+        }
+
+        steps.appendChild(chip);
 
         const lab = document.createElement('span');
         lab.textContent = item.label;
-        labelsRow.appendChild(lab);
+        labels.appendChild(lab);
       }
 
-      // Fillers so last row doesn't stretch
-      for (let f = group.length; f < COLS; f++) {
-        const spacerChip = document.createElement('div');
-        spacerChip.className = 'chip spacer';
-        stepsRow.appendChild(spacerChip);
-
-        const spacerLab = document.createElement('span');
-        spacerLab.className = 'spacer';
-        spacerLab.textContent = '';
-        labelsRow.appendChild(spacerLab);
-      }
-
-      blocks.appendChild(stepsRow);
-      blocks.appendChild(labelsRow);
+      syncResultsHeight();
     }
-
-    syncResultsHeight();
-    return;
   }
-
-  // Fallback: old single-row legend
-  if (steps && labels) {
-    steps.innerHTML = '';
-    labels.innerHTML = '';
-    steps.style.gridTemplateColumns = 'repeat(5, 1fr)';
-    labels.style.gridTemplateColumns = 'repeat(5, 1fr)';
-
-    for (const item of chips) {
-      const chip = document.createElement('div');
-      chip.className = 'chip slot-cell';
-      chip.dataset.c = String(mapCountToShade(item.raw));
-      steps.appendChild(chip);
-
-      const lab = document.createElement('span');
-      lab.textContent = item.label;
-      labels.appendChild(lab);
-    }
-
-    syncResultsHeight();
-  }
-}
 
   // --- Results panel sizing to grid bottom ---
   function syncResultsHeight() {
