@@ -28,6 +28,9 @@
   let dragStart = null;
   let dragEnd = null;
 
+  // drag hint (floating box that follows cursor)
+  let dragHintEl = null;
+
   let table;
   let grid;
   let gridContent;
@@ -257,6 +260,7 @@
           dragStart = { row: r, col: c };
           dragEnd = { row: r, col: c };
           updatePreview();
+          showDragHint(e);
         });
 
         td.addEventListener('mouseenter', (e) => {
@@ -265,6 +269,7 @@
           if (td.classList.contains('past')) return;
           dragEnd = { row: r, col: c };
           updatePreview();
+          updateDragHint(e);
         });
 
         td.addEventListener('mouseup', () => {
@@ -274,6 +279,7 @@
           dragEnd = { row: r, col: c };
           applyBoxSelection();
           clearPreview();
+          hideDragHint();
           isDragging = false;
           dragStart = dragEnd = null;
         });
@@ -291,6 +297,7 @@
       if (isDragging) {
         applyBoxSelection();
         clearPreview();
+        hideDragHint();
       }
       isDragging = false;
       dragStart = dragEnd = null;
@@ -430,6 +437,12 @@
     document.getElementById('mode-subtract').addEventListener('click', () => { if (!isAuthenticated) return; setMode('subtract'); });
     document.getElementById('save').addEventListener('click', saveWeek);
 
+    // live drag-hint follow
+    document.addEventListener('mousemove', (e) => {
+      if (!isAuthenticated) return;
+      if (isDragging) updateDragHint(e);
+    });
+
     const tt = document.getElementById('signin-tooltip');
     ['mousemove','mouseenter'].forEach(ev => document.addEventListener(ev, (e) => {
       if (!isAuthenticated) {
@@ -448,8 +461,8 @@
         settings = { ...DEFAULT_SETTINGS, ...s };
         tz = resolveTimezone(settings.timezone);
         hour12 = settings.clock === '12';
-        weekStartIdx = settings.weekStart === 'mon' ? 1 : 0;
-        highlightWeekends = !!settings.highlightWeekends;
+        weekStartIdx = s.weekStart === 'mon' ? 1 : 0;
+        highlightWeekends = !!s.highlightWeekends;
         // do not take defaultZoom from settings here; keep current user zoom
         applyZoomStyles();
         buildGrid();
@@ -486,6 +499,58 @@
     /* No scroll listener needed for the now marker:
        it's positioned inside .grid-content so it naturally scrolls with the table. */
   }
+
+  // --- Drag hint helpers ---
+  function ensureDragHint() {
+    if (dragHintEl) return;
+    dragHintEl = document.createElement('div');
+    dragHintEl.className = 'drag-hint';
+    document.body.appendChild(dragHintEl);
+  }
+  function rowToHM(rowIndex) {
+    const hour = Math.floor(rowIndex / SLOTS_PER_HOUR) + HOURS_START;
+    const minute = (rowIndex % SLOTS_PER_HOUR) * (60 / SLOTS_PER_HOUR);
+    return { hour, minute };
+  }
+  function formatTimeLabel(h, m) {
+    if (!hour12) {
+      const hh = String(h).padStart(2, '0');
+      const mm = String(m).padStart(2, '0');
+      return `${hh}:${mm}`;
+    }
+    const ampm = h < 12 ? 'AM' : 'PM';
+    const h12 = (h % 12) || 12;
+    const mm = String(m).padStart(2, '0');
+    return `${h12}:${mm} ${ampm}`;
+  }
+  function currentDragRangeLabel() {
+    if (!dragStart || !dragEnd) return '';
+    const r1 = Math.min(dragStart.row, dragEnd.row);
+    const r2 = Math.max(dragStart.row, dragEnd.row);
+    const start = rowToHM(r1);
+    const end   = rowToHM(r2 + 1); // end is exclusive of last slot
+    return `${formatTimeLabel(start.hour, start.minute)} – ${formatTimeLabel(end.hour, end.minute)}`;
+  }
+  function positionDragHint(e) {
+    if (!dragHintEl) return;
+    dragHintEl.style.left = `${e.clientX}px`;
+    dragHintEl.style.top  = `${e.clientY}px`;
+  }
+  function showDragHint(e) {
+    ensureDragHint();
+    dragHintEl.style.display = 'block';
+    dragHintEl.textContent = currentDragRangeLabel();
+    positionDragHint(e);
+  }
+  function updateDragHint(e) {
+    if (!dragHintEl || dragHintEl.style.display !== 'block') return;
+    dragHintEl.textContent = currentDragRangeLabel();
+    positionDragHint(e);
+  }
+  function hideDragHint() {
+    if (dragHintEl) dragHintEl.style.display = 'none';
+  }
+  // --- /Drag hint helpers ---
 
   // --- NOW MARKER (locked to content layer; no scroll math) ---
   function updateNowMarker() {
