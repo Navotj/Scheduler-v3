@@ -174,7 +174,8 @@ resource "aws_wafv2_web_acl" "backend" {
                   method {}
                 }
                 text_transformation {
-                  priority = 0 type = "NONE"
+                  priority = 0
+                  type = "NONE"
                 }
               }
             }
@@ -186,7 +187,8 @@ resource "aws_wafv2_web_acl" "backend" {
                   method {}
                 }
                 text_transformation {
-                  priority = 0 type = "NONE"
+                  priority = 0
+                  type = "NONE"
                 }
               }
             }
@@ -198,7 +200,8 @@ resource "aws_wafv2_web_acl" "backend" {
                   method {}
                 }
                 text_transformation {
-                  priority = 0 type = "NONE"  
+                  priority = 0
+                  type = "NONE"  
                 }
               }
             }
