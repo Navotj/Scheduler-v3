@@ -170,7 +170,9 @@ resource "aws_wafv2_web_acl" "backend" {
               byte_match_statement {
                 search_string         = "POST"
                 positional_constraint = "EXACTLY"
-                field_to_match { method {} }
+                field_to_match {
+                  method {}
+                }
                 text_transformation { priority = 0 type = "NONE" }
               }
             }
@@ -178,7 +180,9 @@ resource "aws_wafv2_web_acl" "backend" {
               byte_match_statement {
                 search_string         = "PUT"
                 positional_constraint = "EXACTLY"
-                field_to_match { method {} }
+                field_to_match {
+                  method {}
+                }
                 text_transformation { priority = 0 type = "NONE" }
               }
             }
@@ -186,7 +190,9 @@ resource "aws_wafv2_web_acl" "backend" {
               byte_match_statement {
                 search_string         = "PATCH"
                 positional_constraint = "EXACTLY"
-                field_to_match { method {} }
+                field_to_match {
+                  method {}
+                }
                 text_transformation { priority = 0 type = "NONE" }
               }
             }
