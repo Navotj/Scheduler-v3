@@ -12,7 +12,6 @@ resource "aws_instance" "mongodb" {
   associate_public_ip_address = false
 
   tags = { Name = "terraform-mongodb" }
-  role = "mongodb"
 
   lifecycle { create_before_destroy = true }
 }
