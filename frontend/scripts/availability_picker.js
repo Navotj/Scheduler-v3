@@ -16,10 +16,9 @@
   let weekStartIdx = settings.weekStart === 'mon' ? 1 : 0;
   let highlightWeekends = !!settings.highlightWeekends;
 
-  // vertical-only zoom; text size stays constant
   let zoomFactor = 1.0;
   const ZOOM_MIN = 0.6;
-  const ZOOM_MAX = 2.0;
+  const ZOOM_MAX = 2.4;
   const ZOOM_STEP = 0.1;
 
   const selected = new Set();
@@ -32,6 +31,7 @@
   let grid;
   let gridContent;
   let nowMarker;
+  let dragTooltip;
 
   function resolveTimezone(val) {
     if (!val || val === 'auto') return (Intl.DateTimeFormat().resolvedOptions().timeZone) || 'UTC';
@@ -50,54 +50,45 @@
   async function fetchRemoteSettings() {
     try {
       const res = await fetch('/settings', { credentials: 'include', cache: 'no-cache' });
-      if (res.ok) return await res.json();
-    } catch {}
-    return null;
+      if (!res.ok) return null;
+      return await res.json();
+    } catch {
+      return null;
+    }
   }
 
-  function saveLocal(obj) {
-    localStorage.setItem('nat20_settings', JSON.stringify(obj));
-    window.dispatchEvent(new StorageEvent('storage', { key: 'nat20_settings', newValue: JSON.stringify(obj) }));
-  }
-
-  function tzOffsetMinutes(tzName, date) {
-    const parts = new Intl.DateTimeFormat('en-US', {
-      timeZone: tzName,
-      hour12: false,
-      year: 'numeric', month: '2-digit', day: '2-digit',
-      hour: '2-digit', minute: '2-digit', second: '2-digit'
-    }).formatToParts(date);
-    const map = {};
-    for (const p of parts) map[p.type] = p.value;
-    const asUTC = Date.UTC(Number(map.year), Number(map.month) - 1, Number(map.day), Number(map.hour), Number(map.minute), Number(map.second));
-    return Math.round((asUTC - date.getTime()) / 60000);
+  function saveLocal(s) {
+    try { localStorage.setItem('nat20_settings', JSON.stringify(s)); } catch {}
   }
 
   function epochFromZoned(y, m, d, hh, mm, tzName) {
-    const guess = Date.UTC(y, m - 1, d, hh, mm, 0, 0);
-    let off = tzOffsetMinutes(tzName, new Date(guess));
-    let ts = guess - off * 60000;
-    off = tzOffsetMinutes(tzName, new Date(ts));
-    ts = guess - off * 60000;
-    return Math.floor(ts / 1000);
+    const dt = new Date(Date.UTC(y, m - 1, d, hh, mm || 0));
+    const f = new Intl.DateTimeFormat('en-US', {
+      timeZone: tzName,
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', hour12: false,
+    }).formatToParts(dt);
+    const parts = Object.fromEntries(f.map(p => [p.type, p.value]));
+    const y2 = Number(parts.year), m2 = Number(parts.month), d2 = Number(parts.day);
+    const h2 = Number(parts.hour), min2 = Number(parts.minute);
+    return Math.floor(Date.UTC(y2, m2 - 1, d2, h2, min2) / 1000);
   }
 
   function getTodayYMDInTZ(tzName) {
-    const parts = new Intl.DateTimeFormat('en-US', { timeZone: tzName, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
-    const map = {};
-    for (const p of parts) map[p.type] = p.value;
-    return { y: Number(map.year), m: Number(map.month), d: Number(map.day) };
+    const now = new Date();
+    const f = new Intl.DateTimeFormat('en-US', { timeZone: tzName, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(now);
+    const parts = Object.fromEntries(f.map(p => [p.type, p.value]));
+    return { y: Number(parts.year), m: Number(parts.month), d: Number(parts.day) };
   }
 
-  function ymdAddDays(ymd, add) {
-    const tmp = new Date(Date.UTC(ymd.y, ymd.m - 1, ymd.d));
-    tmp.setUTCDate(tmp.getUTCDate() + add);
-    return { y: tmp.getUTCFullYear(), m: tmp.getUTCMonth() + 1, d: tmp.getUTCDate() };
+  function ymdAddDays(ymd, days) {
+    const dt = new Date(Date.UTC(ymd.y, ymd.m - 1, ymd.d + days));
+    return { y: dt.getUTCFullYear(), m: dt.getUTCMonth() + 1, d: dt.getUTCDate() };
   }
 
   function weekdayIndexInTZ(epochSec, tzName) {
-    const wd = new Intl.DateTimeFormat('en-US', { timeZone: tzName, weekday: 'short' }).format(new Date(epochSec * 1000));
-    return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(wd);
+    const f = new Intl.DateTimeFormat('en-US', { timeZone: tzName, weekday: 'short' }).format(new Date(epochSec * 1000));
+    return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(f);
   }
 
   function formatHourLabel(hour) {
@@ -149,29 +140,93 @@
     }
   }
 
-  // Zoom only changes vertical row height; header/body text size remains constant.
-  function applyZoomStyles() {
-    const root = document.documentElement;
-    const baseRow = 18;
-    root.style.setProperty('--row-height', `${(baseRow * zoomFactor).toFixed(2)}px`);
-    requestAnimationFrame(updateNowMarker);
+  function ensureDragTooltip() {
+    if (!dragTooltip) {
+      dragTooltip = document.getElementById('drag-tooltip');
+    }
+    if (!dragTooltip) {
+      dragTooltip = document.createElement('div');
+      dragTooltip.id = 'drag-tooltip';
+      dragTooltip.className = 'drag-tooltip';
+      dragTooltip.style.display = 'none';
+      document.body.appendChild(dragTooltip);
+    }
   }
 
-  // Compute a zoom that fits the full 24h into the visible grid area (like schedule matcher)
-  function initialZoomToFit24h() {
-    const baseRow = 18; // px at zoom 1.0
-    if (!grid || !table) return;
-    const thead = table.querySelector('thead');
-    const contentEl = document.getElementById('grid-content');
-    if (!thead || !contentEl) return;
+  function formatTimeHM(epochSec) {
+    const dt = new Date(epochSec * 1000);
+    const fmt = new Intl.DateTimeFormat(undefined, { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: hour12 });
+    return fmt.format(dt);
+  }
 
-    const available = Math.max(0, contentEl.clientHeight - thead.offsetHeight - 2);
-    const rowsPerDay = (HOURS_END - HOURS_START) * SLOTS_PER_HOUR; // 48
-    const needed = rowsPerDay * baseRow;
-    const zFit = clamp(available / needed, ZOOM_MIN, ZOOM_MAX);
+  function getEpochAt(rc) {
+    if (!rc) return null;
+    const el = table.querySelector(`td.slot-cell[data-row="${rc.row}"][data-col="${rc.col}"]`);
+    return el ? Number(el.dataset.epoch) : null;
+  }
 
-    zoomFactor = zFit >= ZOOM_MIN ? zFit : ZOOM_MIN;
-    applyZoomStyles();
+  function updateDragTooltip(e) {
+    if (!isDragging || !dragStart || !dragEnd) return;
+    ensureDragTooltip();
+    const start = getEpochAt(dragStart);
+    const end = getEpochAt(dragEnd);
+    if (start == null || end == null) return;
+    const lo = Math.min(start, end);
+    const hi = Math.max(start, end) + SLOT_SEC;
+    dragTooltip.textContent = `${formatTimeHM(lo)} - ${formatTimeHM(hi)}`;
+    if (e) {
+      dragTooltip.style.left = (e.clientX + 14) + 'px';
+      dragTooltip.style.top = (e.clientY + 16) + 'px';
+    }
+    dragTooltip.style.display = 'block';
+  }
+
+  function hideDragTooltip() {
+    if (dragTooltip) dragTooltip.style.display = 'none';
+  }
+
+  function updateNowMarker() {
+    ensureNowMarker();
+    if (!nowMarker || !gridContent || !table) return;
+
+    const { baseEpoch, baseYMD } = getWeekStartEpochAndYMD();
+
+    const tzName = tz;
+    const dayOffset = Math.floor((Date.UTC(baseYMD.y, baseYMD.m - 1, baseYMD.d) - Date.UTC(baseYMD.y, baseYMD.m - 1, baseYMD.d)) / 86400000);
+    const todayYMD = getTodayYMDInTZ(tzName);
+    const todayMidEpoch = epochFromZoned(todayYMD.y, todayYMD.m, todayYMD.d, 0, 0, tzName);
+    const todayIdx = weekdayIndexInTZ(todayMidEpoch, tzName);
+    const startOfWeekIdx = weekdayIndexInTZ(epochFromZoned(baseYMD.y, baseYMD.m, baseYMD.d, 0, 0, tzName), tzName);
+    const rel = (todayIdx - weekStartIdx + 7) % 7;
+
+    if (rel < 0 || rel > 6) {
+      nowMarker.style.display = 'none';
+      return;
+    }
+
+    const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour12: false, hour: '2-digit', minute: '2-digit' }).formatToParts(new Date());
+    const hh = Number(parts.find(p => p.type === 'hour').value);
+    const mm = Number(parts.find(p => p.type === 'minute').value);
+
+    const totalRows = (HOURS_END - HOURS_START) * SLOTS_PER_HOUR;
+    const dayCols = table.querySelectorAll('thead th.day');
+    if (dayCols.length !== 7) { nowMarker.style.display = 'none'; return; }
+
+    const dayCol = Array.from(dayCols)[rel];
+    const dayRect = dayCol.getBoundingClientRect();
+    const gridRect = gridContent.getBoundingClientRect();
+
+    const yPerHour = (table.querySelector('tbody tr').getBoundingClientRect().height) * SLOTS_PER_HOUR;
+    const y = ((hh - HOURS_START) * SLOTS_PER_HOUR + (mm >= 30 ? 1 : 0)) * (yPerHour / SLOTS_PER_HOUR);
+
+    nowMarker.style.display = 'block';
+    const headerHeight = table.querySelector('thead').getBoundingClientRect().height;
+    nowMarker.style.left = (dayRect.left - gridRect.left) + 'px';
+    nowMarker.style.width = (dayRect.width) + 'px';
+    nowMarker.style.top = (headerHeight + y) + 'px';
+
+    const bub = nowMarker.querySelector('.bubble');
+    if (bub) bub.textContent = formatTimeHM(Math.floor(Date.now() / 1000));
   }
 
   function buildGrid() {
@@ -190,8 +245,8 @@
     const hr = document.createElement('tr');
 
     const thTime = document.createElement('th');
-    thTime.className = 'time-col';
     thTime.textContent = 'Time';
+    thTime.className = 'time-col';
     hr.appendChild(thTime);
 
     const dayEpochs = [];
@@ -254,9 +309,11 @@
           if (td.classList.contains('past')) return;
           e.preventDefault();
           isDragging = true;
+          ensureDragTooltip();
+          updateDragTooltip(e);
           dragStart = { row: r, col: c };
           dragEnd = { row: r, col: c };
-          updatePreview();
+          updatePreview(e);
         });
 
         td.addEventListener('mouseenter', (e) => {
@@ -264,7 +321,8 @@
           if (!isDragging) return;
           if (td.classList.contains('past')) return;
           dragEnd = { row: r, col: c };
-          updatePreview();
+          updatePreview(e);
+          updateDragTooltip(e);
         });
 
         td.addEventListener('mouseup', () => {
@@ -276,6 +334,7 @@
           clearPreview();
           isDragging = false;
           dragStart = dragEnd = null;
+          hideDragTooltip();
         });
 
         tr.appendChild(td);
@@ -287,13 +346,12 @@
     table.appendChild(tbody);
 
     document.addEventListener('mouseup', () => {
-      if (!isAuthenticated) return;
-      if (isDragging) {
-        applyBoxSelection();
-        clearPreview();
-      }
+      if (!isDragging) return;
+      applyBoxSelection();
+      clearPreview();
       isDragging = false;
       dragStart = dragEnd = null;
+      hideDragTooltip();
     });
 
     setupZoomHandlers();
@@ -305,6 +363,7 @@
 
   function forEachCellInBox(fn) {
     if (!dragStart || !dragEnd) return;
+
     const r1 = Math.min(dragStart.row, dragEnd.row);
     const r2 = Math.max(dragStart.row, dragEnd.row);
     const c1 = Math.min(dragStart.col, dragEnd.col);
@@ -313,17 +372,18 @@
     for (let r = r1; r <= r2; r++) {
       for (let c = c1; c <= c2; c++) {
         const cell = table.querySelector(`td.slot-cell[data-row="${r}"][data-col="${c}"]`);
-        if (cell && !cell.classList.contains('past')) fn(cell);
+        if (cell) fn(cell);
       }
     }
   }
 
-  function updatePreview() {
+  function updatePreview(e) {
     clearPreview();
     forEachCellInBox((cell) => {
       if (paintMode === 'add') cell.classList.add('preview-add');
       else cell.classList.add('preview-sub');
     });
+    updateDragTooltip();
   }
 
   function clearPreview() {
@@ -352,65 +412,125 @@
 
   function compressToIntervals(sortedEpochs) {
     const intervals = [];
-    if (!sortedEpochs.length) return intervals;
-    let curFrom = sortedEpochs[0];
-    let prev = sortedEpochs[0];
+    if (sortedEpochs.length === 0) return intervals;
+
+    let start = sortedEpochs[0];
+    let prev = start;
+
     for (let i = 1; i < sortedEpochs.length; i++) {
-      const t = sortedEpochs[i];
-      if (t === prev + SLOT_SEC) prev = t;
-      else { intervals.push({ from: curFrom, to: prev + SLOT_SEC }); curFrom = t; prev = t; }
+      const cur = sortedEpochs[i];
+      if (cur === prev + SLOT_SEC) {
+        prev = cur;
+      } else {
+        intervals.push([start, prev + SLOT_SEC]);
+        start = prev = cur;
+      }
     }
-    intervals.push({ from: curFrom, to: prev + SLOT_SEC });
+    intervals.push([start, prev + SLOT_SEC]);
     return intervals;
   }
 
   async function saveWeek() {
     if (!isAuthenticated) return;
-    const { baseEpoch, baseYMD } = getWeekStartEpochAndYMD();
-    const endYMD = ymdAddDays(baseYMD, 7);
-    const endEpoch = epochFromZoned(endYMD.y, endYMD.m, endYMD.d, 0, 0, tz);
-
-    const inside = Array.from(selected).filter(t => t >= baseEpoch && t < endEpoch).sort((a, b) => a - b);
-    const intervals = compressToIntervals(inside);
+    const epochs = Array.from(selected).sort((a, b) => a - b);
+    const intervals = compressToIntervals(epochs);
     try {
-      const res = await fetch('/availability/save', {
+      const res = await fetch('/availability', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ from: baseEpoch, to: endEpoch, intervals, sourceTimezone: tz })
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ weekOffset, intervals })
       });
-      if (!res.ok) {
-        const text = await res.text();
-        alert(`Save failed: ${res.status} ${text}`);
-        return;
-      }
-      alert('Saved!');
-    } catch {
-      alert('Connection error while saving');
+      if (!res.ok) throw new Error('Failed');
+    } catch (e) {
+      console.error('saveWeek error', e);
     }
   }
 
   async function loadWeekSelections() {
-    const { baseEpoch, baseYMD } = getWeekStartEpochAndYMD();
-    const endYMD = ymdAddDays(baseYMD, 7);
-    const endEpoch = epochFromZoned(endYMD.y, endYMD.m, endYMD.d, 0, 0, tz);
+    selected.clear();
     try {
-      const res = await fetch(`/availability/get?from=${baseEpoch}&to=${endEpoch}`, {
-        credentials: 'include',
-        cache: 'no-cache'
+      const res = await fetch(`/availability?weekOffset=${encodeURIComponent(weekOffset)}`, { credentials: 'include', cache: 'no-cache' });
+      if (!res.ok) return;
+      const data = await res.json();
+      (data.intervals || []).forEach(([a, b]) => {
+        for (let t = a; t < b; t += SLOT_SEC) selected.add(t);
       });
-      if (res.ok) {
-        const data = await res.json();
-        if (Array.isArray(data.intervals)) {
-          for (const t of Array.from(selected)) if (t >= baseEpoch && t < endEpoch) selected.delete(t);
-          for (const iv of data.intervals) {
-            const from = Number(iv.from);
-            const to = Number(iv.to);
-            for (let t = from; t < to; t += SLOT_SEC) selected.add(t);
-          }
-        }
-      }
     } catch {}
+  }
+
+  function setupZoomHandlers() {
+    const el = document.getElementById('grid-content');
+    el.addEventListener('wheel', (e) => {
+      if (!e.shiftKey) return; // normal vertical panning
+      e.preventDefault();
+      const delta = Math.sign(e.deltaY);
+      zoomFactor = clamp(zoomFactor - delta * ZOOM_STEP, ZOOM_MIN, ZOOM_MAX);
+      applyZoomStyles();
+    }, { passive: false });
+
+    // Optional keyboard zoom with Shift held, vertical-only effect
+    window.addEventListener('keydown', (e) => {
+      if (!e.shiftKey) return;
+      if (e.key === '=' || e.key === '+') { zoomFactor = clamp(zoomFactor + ZOOM_STEP, ZOOM_MIN, ZOOM_MAX); applyZoomStyles(); }
+      else if (e.key === '-' || e.key === '_') { zoomFactor = clamp(zoomFactor - ZOOM_STEP, ZOOM_MIN, ZOOM_MAX); applyZoomStyles(); }
+    });
+
+    /* No scroll listener needed for horizontal; table is fixed-width */
+  }
+
+  function applyZoomStyles() {
+    document.documentElement.style.setProperty('--row-height', `${Math.round(18 * zoomFactor)}px`);
+  }
+
+  function initialZoomToFit24h() {
+    // set to minimum so full 24h fits; rely on CSS to cap text sizes
+    zoomFactor = ZOOM_MIN;
+    applyZoomStyles();
+  }
+
+  async function init() {
+    table = document.getElementById('schedule-table');
+    grid = document.getElementById('grid');
+    gridContent = document.getElementById('grid-content');
+    ensureNowMarker();
+    ensureDragTooltip();
+
+    const remote = await fetchRemoteSettings();
+    const local = loadLocal();
+    const s = remote || local || DEFAULT_SETTINGS;
+    settings = { ...DEFAULT_SETTINGS, ...s };
+    tz = resolveTimezone(settings.timezone);
+    hour12 = settings.clock === '12';
+    weekStartIdx = settings.weekStart === 'mon' ? 1 : 0;
+    highlightWeekends = !!settings.highlightWeekends;
+
+    // start from defaultZoom only for first paint; then we fit to viewport
+    const dz = (typeof settings.defaultZoom === 'number') ? settings.defaultZoom : 1.0;
+    zoomFactor = clamp(dz, ZOOM_MIN, ZOOM_MAX);
+    saveLocal(settings);
+
+    applyZoomStyles();
+    attachEvents();
+    await loadWeekSelections();
+    buildGrid();
+
+    // keep "now" in sync every minute
+    setInterval(updateNowMarker, 60000);
+  }
+
+  function setAuth(authenticated) { isAuthenticated = !!authenticated; }
+
+  function showSigninTooltip(e) {
+    const tt = document.getElementById('signin-tooltip');
+    tt.style.display = 'block';
+    tt.style.left = (e.clientX + 12) + 'px';
+    tt.style.top = (e.clientY + 14) + 'px';
+  }
+  function moveSigninTooltip(e) {
+    const tt = document.getElementById('signin-tooltip');
+    tt.style.left = (e.clientX + 12) + 'px';
+    tt.style.top = (e.clientY + 14) + 'px';
   }
 
   function attachEvents() {
@@ -459,109 +579,9 @@
     // Recompute now marker geometry on window resize
     window.addEventListener('resize', () => {
       requestAnimationFrame(() => {
-        initialZoomToFit24h();
-        updateNowMarker();
+        requestAnimationFrame(updateNowMarker);
       });
     });
-  }
-
-  function setupZoomHandlers() {
-    if (!grid) grid = document.getElementById('grid');
-    grid.addEventListener('wheel', (e) => {
-      if (!e.shiftKey) return; // normal vertical panning
-      e.preventDefault();
-      const delta = Math.sign(e.deltaY);
-      zoomFactor = clamp(zoomFactor - delta * ZOOM_STEP, ZOOM_MIN, ZOOM_MAX);
-      applyZoomStyles();
-    }, { passive: false });
-
-    // Optional keyboard zoom with Shift held, vertical-only effect
-    window.addEventListener('keydown', (e) => {
-      if (!e.shiftKey) return;
-      if (e.key === '=' || e.key === '+') { zoomFactor = clamp(zoomFactor + ZOOM_STEP, ZOOM_MIN, ZOOM_MAX); applyZoomStyles(); }
-      else if (e.key === '-' || e.key === '_') { zoomFactor = clamp(zoomFactor - ZOOM_STEP, ZOOM_MIN, ZOOM_MAX); applyZoomStyles(); }
-      else if (e.key === '0') { initialZoomToFit24h(); }
-    });
-
-    /* No scroll listener needed for the now marker:
-       it's positioned inside .grid-content so it naturally scrolls with the table. */
-  }
-
-  // --- NOW MARKER (locked to content layer; no scroll math) ---
-  function updateNowMarker() {
-    ensureNowMarker();
-    if (!gridContent || !table || !nowMarker) return;
-
-    const { baseYMD } = getWeekStartEpochAndYMD();
-    const todayYMD = getTodayYMDInTZ(tz);
-
-    const dayOffset = Math.round((Date.UTC(todayYMD.y, todayYMD.m - 1, todayYMD.d) - Date.UTC(baseYMD.y, baseYMD.m - 1, baseYMD.d)) / 86400000);
-    if (dayOffset < 0 || dayOffset > 6) {
-      nowMarker.style.display = 'none';
-      return;
-    }
-
-    const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour12: false, hour: '2-digit', minute: '2-digit' }).formatToParts(new Date());
-    const hh = Number(parts.find(p => p.type === 'hour').value);
-    const mm = Number(parts.find(p => p.type === 'minute').value);
-
-    const rowIndex = hh * 2 + (mm >= 30 ? 1 : 0);
-    const frac = (mm % 30) / 30;
-
-    const targetCell = table.querySelector(`td.slot-cell[data-col="${dayOffset}"][data-row="${rowIndex}"]`);
-    const colStartCell = table.querySelector(`td.slot-cell[data-col="${dayOffset}"][data-row="0"]`);
-    if (!targetCell || !colStartCell) {
-      nowMarker.style.display = 'none';
-      return;
-    }
-
-    const contentTop = (table.offsetTop || 0) + targetCell.offsetTop + (targetCell.offsetHeight * frac);
-    const contentLeft = (table.offsetLeft || 0) + colStartCell.offsetLeft;
-    const contentWidth = colStartCell.offsetWidth;
-
-    nowMarker.style.display = 'block';
-    nowMarker.style.top = `${contentTop}px`;
-    nowMarker.style.left = `${contentLeft}px`;
-    nowMarker.style.width = `${contentWidth}px`;
-  }
-  // --- /NOW MARKER ---
-
-  async function init() {
-    const remote = await fetchRemoteSettings();
-    const local = loadLocal();
-    const s = remote || local || DEFAULT_SETTINGS;
-    settings = { ...DEFAULT_SETTINGS, ...s };
-    tz = resolveTimezone(settings.timezone);
-    hour12 = settings.clock === '12';
-    weekStartIdx = settings.weekStart === 'mon' ? 1 : 0;
-    highlightWeekends = !!settings.highlightWeekends;
-
-    // start from defaultZoom only for first paint; then we fit to viewport
-    const dz = (typeof settings.defaultZoom === 'number') ? settings.defaultZoom : 1.0;
-    zoomFactor = clamp(dz, ZOOM_MIN, ZOOM_MAX);
-    saveLocal(settings);
-
-    applyZoomStyles();
-    attachEvents();
-    await loadWeekSelections();
-    buildGrid();
-
-    // keep "now" in sync every minute
-    setInterval(updateNowMarker, 60000);
-  }
-
-  function setAuth(authenticated) { isAuthenticated = !!authenticated; }
-
-  function showSigninTooltip(e) {
-    const tt = document.getElementById('signin-tooltip');
-    tt.style.display = 'block';
-    tt.style.left = (e.clientX + 12) + 'px';
-    tt.style.top = (e.clientY + 14) + 'px';
-  }
-  function moveSigninTooltip(e) {
-    const tt = document.getElementById('signin-tooltip');
-    tt.style.left = (e.clientX + 12) + 'px';
-    tt.style.top = (e.clientY + 14) + 'px';
   }
 
   window.schedule = { init, setAuth };
