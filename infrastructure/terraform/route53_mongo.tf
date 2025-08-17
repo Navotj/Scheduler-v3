@@ -10,7 +10,6 @@
 # Private Hosted Zone for internal records (VPC-only)
 resource "aws_route53_zone" "private" {
   name         = var.domain_name
-  private_zone = true
 
   vpc {
     vpc_id = data.aws_vpc.default.id
