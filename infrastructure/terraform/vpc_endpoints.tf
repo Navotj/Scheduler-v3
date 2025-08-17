@@ -69,4 +69,20 @@ resource "aws_vpc_endpoint" "ec2messages" {
   service_name        = "com.amazonaws.eu-central-1.ec2messages"
   vpc_endpoint_type   = "Interface"
   subnet_ids          = [data.aws_subnet.eu_central_1b.id]
-  security_group_ids  = [aws_security_group.vpc_endpoints_]()
+  security_group_ids  = [aws_security_group.vpc_endpoints.id]
+  private_dns_enabled = true
+
+  tags = { Name = "nat20-ec2messages-endpoint" }
+}
+
+# Optional but recommended if you use CloudWatch Logs agent or SSM Session logging
+resource "aws_vpc_endpoint" "logs" {
+  vpc_id              = data.aws_subnet.eu_central_1b.vpc_id
+  service_name        = "com.amazonaws.eu-central-1.logs"
+  vpc_endpoint_type   = "Interface"
+  subnet_ids          = [data.aws_subnet.eu_central_1b.id]
+  security_group_ids  = [aws_security_group.vpc_endpoints.id]
+  private_dns_enabled = true
+
+  tags = { Name = "nat20-logs-endpoint" }
+}
