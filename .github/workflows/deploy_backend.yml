@@ -68,14 +68,13 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Clean workspace
           rm -rf pack backend.zip
           mkdir -p pack
 
-          # Copy contents of backend/app (so pack/ has app.js, package.json, etc.)
+          # Copy app sources (contains app.js, package.json, routes/, models/, utils/, services/)
           rsync -a --delete backend/app/ pack/
 
-          # Install prod deps in pack/ (package.json is here)
+          # Install prod deps in pack/
           pushd pack >/dev/null
           if [ -f package-lock.json ]; then
             npm ci --omit=dev
@@ -110,7 +109,7 @@ jobs:
           EOS
           chmod +x pack/bin/node pack/bin/node-linux-x64 pack/bin/node-linux-arm64
 
-          # Known-good systemd unit to use vendored Node
+          # Systemd unit using vendored Node
           cat > pack/scheduler.service <<'UNIT'
           [Unit]
           Description=NAT20 Backend (Node.js)
@@ -151,7 +150,6 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Ensure jq exists on runner (used below to build SSM params JSON)
           if ! command -v jq >/dev/null 2>&1; then
             sudo apt-get update -y
             sudo apt-get install -y jq
@@ -182,7 +180,7 @@ jobs:
 
           # Sync into /opt/app (artifact root already contains app.js, node_modules, bin/, scheduler.service)
           SRC="/tmp/installation/unpack"
-          sudo rsync -a --delete "$SRC"/ /opt/app/
+          sudo rsync -a --delete "\$SRC"/ /opt/app/
 
           # Permissions for vendored node binaries
           sudo chmod +x /opt/app/bin/node || true
@@ -216,7 +214,6 @@ jobs:
           rm -rf /tmp/installation
           CMDS
 
-          # Convert to JSON for SSM and execute
           jq -Rs '{commands: (split("\n") | map(select(length>0)))}' /tmp/ssm_commands.txt > /tmp/ssm_params.json
 
           CMD_ID=$(aws ssm send-command \
@@ -228,7 +225,7 @@ jobs:
             --query "Command.CommandId" --output text)
 
           echo "Waiting for SSM command ${CMD_ID} to finish..."
-          for i in $(seq 1, 60); do
+          for i in $(seq 1 60); do
             STATUS=$(aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" --query Status --output text || echo "Pending")
             if [ "$STATUS" = "Success" ]; then
               break
