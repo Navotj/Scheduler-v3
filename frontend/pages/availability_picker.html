@@ -2,55 +2,74 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>My Availability — NAT20</title>
+  <title>My Availability • NAT20 Scheduling</title>
   <link rel="icon" href="/assets/favicon.ico" type="image/x-icon">
-  <link rel="stylesheet" href="/styles/styles.css" />
   <link rel="stylesheet" href="/styles/common.css" />
   <link rel="stylesheet" href="/styles/availability_picker.css" />
+  <style>
+    /* small page-specific tweaks */
+    .page-shell { width: min(var(--container-max), 96vw); margin: 16px auto 40px; padding: 0 var(--gutter); }
+    .breadcrumbs { display:flex; align-items:center; gap:8px; color:#9ecbff; }
+    .breadcrumbs a { color:#9ecbff; text-decoration:none; }
+    .header-row { display:flex; justify-content:space-between; align-items:center; margin: 8px 0 12px; }
+    .title { font-weight:700; }
+    .week-and-help { display:flex; align-items:center; gap:16px; color:#aaa; }
+    .week-and-help #week-label { color:#fff; font-weight:600; }
+  </style>
 </head>
 <body>
+  <!-- Modal host reused by login/register -->
   <div id="modal-overlay" style="display:none;">
     <div id="modal-container"></div>
   </div>
 
-  <div class="top-bar">
+  <!-- Top bar -->
+  <header class="top-bar">
     <div class="top-left">
-      <a href="/index.html">← Home</a>
-      <strong>My Availability</strong>
-      <span class="week-label" id="week-label"></span>
+      <a href="/">&larr; Home</a>
+      <h1 class="title">My Availability</h1>
     </div>
     <div class="user-info">
       <span id="user-label" class="user-label" style="display:none;"></span>
       <button id="auth-button">Login</button>
     </div>
-  </div>
+  </header>
 
-  <main class="container">
-    <div class="controls">
-      <button id="prev-week" disabled>Previous week</button>
-      <button id="next-week" disabled>Next week</button>
-      <button id="mode-add" class="active" disabled>Add</button>
-      <button id="mode-subtract" disabled>Subtract</button>
-      <button id="save" disabled>Save</button>
-      <span class="muted">Shift+Scroll = Vertical Zoom, Scroll = Pan</span>
-    </div>
-
-    <div class="grid" id="grid">
-      <div class="grid-content" id="grid-content">
-        <table class="table" id="schedule-table" aria-label="Weekly availability grid"></table>
-        <div id="now-marker" class="now-marker" style="display:none;">
-          <span class="bubble">NOW</span>
-        </div>
+  <main class="page-shell">
+    <div class="header-row">
+      <div class="week-and-help">
+        <span id="week-label"></span>
+        <span>Shift+Scroll = Vertical Zoom, Scroll = Pan</span>
       </div>
     </div>
 
-    <div id="signin-tooltip" class="signin-tooltip">Sign in required</div>
+    <!-- Controls -->
+    <div class="controls">
+      <button id="prev-week">Previous week</button>
+      <button id="next-week">Next week</button>
+      <button id="mode-add" class="active">Add</button>
+      <button id="mode-subtract">Subtract</button>
+      <button id="save">Save</button>
+    </div>
+
+    <!-- Grid -->
+    <section id="grid" class="grid">
+      <div id="grid-content" class="grid-content">
+        <table id="schedule-table" class="table" aria-label="Weekly availability grid"></table>
+        <!-- NOW marker will be injected here by JS -->
+      </div>
+    </section>
+
+    <!-- Tooltip shown when not signed in -->
+    <div id="signin-tooltip" class="signin-tooltip">Sign in to edit your availability</div>
   </main>
 
-  <script src="/scripts/availability_picker.js"></script>
+  <!-- Scripts -->
   <script src="/scripts/login.js"></script>
   <script src="/scripts/register.js"></script>
+  <script src="/scripts/availability_picker.js"></script>
   <script>
+    // ---- Auth UI (mirrors index.html) ----
     let isAuthenticated = false;
     let currentUsername = null;
 
@@ -83,14 +102,7 @@
         clearTimeout(timeout);
       }
       updateAuthUI();
-      if (window.schedule && typeof window.schedule.setAuth === 'function') {
-        window.schedule.setAuth(isAuthenticated);
-      }
-      document.getElementById('prev-week').disabled = !isAuthenticated;
-      document.getElementById('next-week').disabled = !isAuthenticated;
-      document.getElementById('mode-add').disabled = !isAuthenticated;
-      document.getElementById('mode-subtract').disabled = !isAuthenticated;
-      document.getElementById('save').disabled = !isAuthenticated;
+      if (window.schedule && window.schedule.setAuth) window.schedule.setAuth(isAuthenticated);
     }
 
     function updateAuthUI() {
@@ -111,31 +123,14 @@
       }
     }
 
-    window.setAuthState = function(authenticated, username) {
-      isAuthenticated = !!authenticated;
-      currentUsername = authenticated ? username : null;
-      updateAuthUI();
-      if (window.schedule && typeof window.schedule.setAuth === 'function') {
-        window.schedule.setAuth(isAuthenticated);
-      }
-      document.getElementById('prev-week').disabled = !isAuthenticated;
-      document.getElementById('next-week').disabled = !isAuthenticated;
-      document.getElementById('mode-add').disabled = !isAuthenticated;
-      document.getElementById('mode-subtract').disabled = !isAuthenticated;
-      document.getElementById('save').disabled = !isAuthenticated;
-    };
-
     async function logout() {
       try {
-        await fetch('/auth/logout', {
-          method: 'POST',
-          credentials: 'include'
-        });
+        await fetch('/auth/logout', { method: 'POST', credentials: 'include' });
       } catch {}
       isAuthenticated = false;
       currentUsername = null;
       updateAuthUI();
-      window.location.href = '/index.html';
+      if (window.schedule && window.schedule.setAuth) window.schedule.setAuth(false);
     }
 
     function runModalInit(path) {
@@ -165,6 +160,7 @@
         .then(res => res.text())
         .then(html => {
           container.innerHTML = html;
+          document.body.classList.add('modal-active');
           runModalInit(path);
         });
     }
@@ -181,8 +177,13 @@
     window.swapModal = swapModal;
     window.closeModal = closeModal;
 
-    document.addEventListener('DOMContentLoaded', checkAuth);
+    // ---- Page init ----
+    document.addEventListener('DOMContentLoaded', async () => {
+      await checkAuth();                // sets header + schedule auth gate
+      if (window.schedule && window.schedule.init) {
+        window.schedule.init();         // builds the table/grid
+      }
+    });
   </script>
-
 </body>
 </html>
