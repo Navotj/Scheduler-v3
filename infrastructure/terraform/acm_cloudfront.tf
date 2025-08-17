@@ -188,6 +188,13 @@ resource "aws_cloudfront_distribution" "frontend" {
     error_caching_min_ttl = 0
   }
 
+  # ---------- Restrictions (required block) ----------
+  restrictions {
+    geo_restriction {
+      restriction_type = "none"
+    }
+  }
+
   # ---------- Logging (optional bucket/keys expected elsewhere) ----------
   # logging_config {
   #   bucket = aws_s3_bucket.logs.bucket_domain_name
