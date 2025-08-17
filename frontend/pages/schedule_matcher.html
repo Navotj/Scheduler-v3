@@ -118,7 +118,9 @@
         if (res.status === 200) {
           const data = await res.json();
           isAuthenticated = true;
-          currentUsername = data.username || 'user';
+          const uname = (data && data.user && data.user.username) || data.username || null;
+          isAuthenticated = !!uname;
+          currentUsername = uname;
         } else {
           isAuthenticated = false;
           currentUsername = null;
