@@ -173,7 +173,9 @@
     });
 
     document.getElementById('year').textContent = new Date().getFullYear();
-    document.addEventListener('DOMContentLoaded', checkAuth);
+
+    // moved after checkAuth is defined
+    document.addEventListener('DOMContentLoaded', () => checkAuth());
   </script>
 
 </body>
