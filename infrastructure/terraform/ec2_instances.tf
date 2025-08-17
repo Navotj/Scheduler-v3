@@ -9,6 +9,7 @@ resource "aws_instance" "mongodb" {
   availability_zone      = "eu-central-1b"
   vpc_security_group_ids = [aws_security_group.mongodb_access.id]
   iam_instance_profile   = aws_iam_instance_profile.ssm_ec2_profile.name
+  associate_public_ip_address = false
 
   user_data = templatefile("${path.module}/mongo_install.sh.tmpl", {})
 
@@ -24,6 +25,7 @@ resource "aws_instance" "backend" {
   availability_zone      = "eu-central-1b"
   vpc_security_group_ids = [aws_security_group.backend_access.id]
   iam_instance_profile   = aws_iam_instance_profile.ssm_ec2_profile.name
+  associate_public_ip_address = false
 
   user_data                   = file("${path.module}/backend_install.sh")
   user_data_replace_on_change = true
@@ -32,3 +34,4 @@ resource "aws_instance" "backend" {
 
   lifecycle { create_before_destroy = true }
 }
+
