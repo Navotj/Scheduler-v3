@@ -9,10 +9,42 @@ resource "aws_security_group" "backend_access" {
   vpc_id      = data.aws_vpc.default.id
 
   egress {
-    description = "Allow all egress"
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
+    description     = "MongoDB access"
+    from_port       = 27017
+    to_port         = 27017
+    protocol        = "tcp"
+    security_groups = [aws_security_group.mongodb_access.id]
+  }
+
+  egress {
+    description = "HTTPS outbound for external APIs and package updates"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    description = "HTTP outbound for package repositories"
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    description = "DNS resolution"
+    from_port   = 53
+    to_port     = 53
+    protocol    = "udp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    description = "DNS resolution (TCP)"
+    from_port   = 53
+    to_port     = 53
+    protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
 
@@ -29,7 +61,6 @@ resource "aws_security_group_rule" "backend_ingress_from_alb" {
   protocol                 = "tcp"
 }
 
-# MongoDB security group (only backend can reach 27017)
 resource "aws_security_group" "mongodb_access" {
   name_prefix = "mongodb-access-"
   description = "MongoDB access (only from Backend)"
@@ -38,15 +69,40 @@ resource "aws_security_group" "mongodb_access" {
   lifecycle { create_before_destroy = true }
 
   egress {
-    description = "Allow all egress"
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
+    description = "HTTPS outbound for system updates and patches"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    description = "HTTP outbound for package repositories"
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    description = "DNS resolution"
+    from_port   = 53
+    to_port     = 53
+    protocol    = "udp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    description = "DNS resolution (TCP)"
+    from_port   = 53
+    to_port     = 53
+    protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
 
   tags = { Name = "mongodb-access" }
 }
+
 
 resource "aws_security_group_rule" "mongodb_ingress_from_backend" {
   type                     = "ingress"

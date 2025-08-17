@@ -11,6 +11,7 @@ data "aws_ec2_managed_prefix_list" "cloudfront_origin" {
 }
 
 # Security group for ALB (HTTPS from CloudFront only)
+# Security group for ALB (HTTPS from CloudFront only)
 resource "aws_security_group" "alb" {
   name_prefix            = "nat20-alb-sg-"
   description            = "ALB security group (HTTPS from CloudFront origin fetchers only)"
@@ -30,9 +31,34 @@ resource "aws_security_group" "alb" {
   }
 
   egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
+    description     = "Backend application traffic"
+    from_port       = 3000
+    to_port         = 3000
+    protocol        = "tcp"
+    security_groups = [aws_security_group.backend_access.id]
+  }
+
+  egress {
+    description = "HTTPS for health checks and AWS API calls"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    description = "DNS resolution"
+    from_port   = 53
+    to_port     = 53
+    protocol    = "udp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    description = "DNS resolution (TCP)"
+    from_port   = 53
+    to_port     = 53
+    protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
 
@@ -40,6 +66,7 @@ resource "aws_security_group" "alb" {
     Name = "nat20-backend-alb-sg"
   }
 }
+
 
 # Application Load Balancer
 resource "aws_lb" "api" {
