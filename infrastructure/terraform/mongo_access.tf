@@ -19,11 +19,14 @@ data "aws_instance" "backend" {
 
 # Allow ingress from backend SG to Mongo SG on 27017
 resource "aws_security_group_rule" "mongo_ingress_27017_from_backend" {
-  type                     = "ingress"
-  protocol                 = "tcp"
-  from_port                = 27017
-  to_port                  = 27017
-  security_group_id        = aws_instance.mongodb.vpc_security_group_ids[0]
-  source_security_group_id = data.aws_instance.backend.vpc_security_group_ids[0]
-  description              = "Allow backend to connect to Mongo on 27017"
+  type      = "ingress"
+  protocol  = "tcp"
+  from_port = 27017
+  to_port   = 27017
+
+  # vpc_security_group_ids is a set; convert to list to pick the first SG
+  security_group_id        = tolist(aws_instance.mongodb.vpc_security_group_ids)[0]
+  source_security_group_id = tolist(data.aws_instance.backend.vpc_security_group_ids)[0]
+
+  description = "Allow backend to connect to Mongo on 27017"
 }
