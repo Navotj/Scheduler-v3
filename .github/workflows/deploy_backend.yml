@@ -63,19 +63,19 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Create bundle
+
+      - name: Create bundle from backend/app
         run: |
           set -euo pipefail
-          # Tools
-          if ! command -v jq >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y jq; fi
-          if ! command -v curl >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y curl; fi
 
-          # Prepare staging dir
+          # Clean workspace
           rm -rf pack backend.zip
           mkdir -p pack
-          rsync -a --delete backend/ pack/
 
-          # Install prod deps into pack (no dev deps)
+          # Copy contents of backend/app (so pack/ has app.js, package.json, etc.)
+          rsync -a --delete backend/app/ pack/
+
+          # Install prod deps in pack/ (package.json is here)
           pushd pack >/dev/null
           if [ -f package-lock.json ]; then
             npm ci --omit=dev
@@ -84,12 +84,8 @@ jobs:
           fi
           popd >/dev/null
 
-          # Determine latest Node v22.x and vendor linux binaries (x64 + arm64)
-          set +e
-          NODE_VERSION=$(curl -fsSL https://nodejs.org/dist/index.json | jq -r '[.[] | select(.version | test("^v22\\."))][0].version')
-          set -e
-          : "${NODE_VERSION:=v22.7.0}"
-
+          # Vendor Node binaries (x64 + arm64) inside pack/bin/
+          NODE_VERSION="v22.7.0"
           mkdir -p pack/bin
 
           curl -fsSL "https://nodejs.org/dist/${NODE_VERSION}/node-${NODE_VERSION}-linux-x64.tar.xz" -o /tmp/node-x64.tar.xz
@@ -100,7 +96,7 @@ jobs:
           tar -xJf /tmp/node-arm64.tar.xz --strip-components=2 -C pack/bin "node-${NODE_VERSION}-linux-arm64/bin/node"
           mv pack/bin/node pack/bin/node-linux-arm64
 
-          # Portable launcher that selects the correct binary at runtime
+          # Portable launcher
           cat > pack/bin/node <<'EOS'
           #!/usr/bin/env bash
           set -euo pipefail
@@ -114,7 +110,7 @@ jobs:
           EOS
           chmod +x pack/bin/node pack/bin/node-linux-x64 pack/bin/node-linux-arm64
 
-          # Force a known-good systemd unit that uses the vendored Node
+          # Known-good systemd unit to use vendored Node
           cat > pack/scheduler.service <<'UNIT'
           [Unit]
           Description=NAT20 Backend (Node.js)
@@ -129,8 +125,6 @@ jobs:
           Restart=always
           RestartSec=2
           NoNewPrivileges=true
-
-          # Hardening (tune as needed)
           ProtectSystem=full
           ProtectHome=true
           PrivateTmp=true
@@ -157,27 +151,36 @@ jobs:
         run: |
           set -euo pipefail
 
+          # Ensure jq exists on runner (used below to build SSM params JSON)
+          if ! command -v jq >/dev/null 2>&1; then
+            sudo apt-get update -y
+            sudo apt-get install -y jq
+          fi
+
           cat > /tmp/ssm_commands.txt <<CMDS
           set -euo pipefail
 
-          # Ensure basic tools exist
+          # Ensure basic tools exist on instance
           if ! command -v unzip >/dev/null 2>&1; then
             if command -v dnf >/dev/null 2>&1; then dnf install -y unzip; elif command -v yum >/dev/null 2>&1; then yum install -y unzip; elif command -v apt-get >/dev/null 2>&1; then apt-get update -y && apt-get install -y unzip; fi
           fi
           if ! command -v rsync >/dev/null 2>&1; then
             if command -v dnf >/dev/null 2>&1; then dnf install -y rsync; elif command -v yum >/dev/null 2>&1; then yum install -y rsync; elif command -v apt-get >/dev/null 2>&1; then apt-get update -y && apt-get install -y rsync; fi
           fi
+          if ! command -v curl >/dev/null 2>&1; then
+            if command -v dnf >/dev/null 2>&1; then dnf install -y curl; elif command -v yum >/dev/null 2>&1; then yum install -y curl; elif command -v apt-get >/dev/null 2>&1; then apt-get update -y && apt-get install -y curl; fi
+          fi
 
           sudo mkdir -p /opt/app /tmp/installation
           sudo chown -R root:root /tmp/installation
 
-          # Download and extract artifact (runner expanded bucket/key)
+          # Download and extract artifact (runner expanded bucket/key here)
           aws s3 cp "s3://${ARTIFACT_BUCKET}/${ARTIFACT_KEY}" /tmp/installation/backend.zip
           rm -rf /tmp/installation/unpack
           mkdir -p /tmp/installation/unpack
           unzip -o /tmp/installation/backend.zip -d /tmp/installation/unpack/
 
-          # Sync into /opt/app
+          # Sync into /opt/app (artifact root already contains app.js, node_modules, bin/, scheduler.service)
           SRC="/tmp/installation/unpack"
           sudo rsync -a --delete "$SRC"/ /opt/app/
 
@@ -201,7 +204,7 @@ jobs:
             echo COOKIE_SECURE=true
           } | sudo tee /opt/app/.env >/dev/null
 
-          # Install our known-good service unit (always overwrite)
+          # Install service unit (from artifact)
           sudo cp -f /opt/app/scheduler.service /etc/systemd/system/scheduler.service
 
           sudo systemctl daemon-reload
@@ -225,7 +228,7 @@ jobs:
             --query "Command.CommandId" --output text)
 
           echo "Waiting for SSM command ${CMD_ID} to finish..."
-          for i in $(seq 1 60); do
+          for i in $(seq 1, 60); do
             STATUS=$(aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" --query Status --output text || echo "Pending")
             if [ "$STATUS" = "Success" ]; then
               break
