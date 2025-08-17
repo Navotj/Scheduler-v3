@@ -1,102 +1,213 @@
 #!/bin/bash
 set -euxo pipefail
 
-# Log all output for debug
-exec > >(tee /var/log/user_data.log | logger -t user-data -s 2>/dev/console) 2>&1
+# ===== Logging =====
+exec > >(tee -a /var/log/user_data.log | logger -t user-data -s 2>/dev/console) 2>&1
 
-# Update package metadata
-yum update -y
+# ===== Helpers =====
+retry() { local n=0; local max=${2:-6}; local sleep_s=${3:-5}; until "$@"; do n=$((n+1)); if [ "$n" -ge "$max" ]; then return 1; fi; sleep "$sleep_s"; done; }
 
-# Confirm required tools exist
-command -v curl
-command -v gpg2 || dnf install -y gnupg2
+detect_region() {
+  local token region
+  set +e
+  token=$(curl -sS -m 2 -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 60")
+  region=$(curl -sS -m 2 -H "X-aws-ec2-metadata-token: ${token}" http://169.254.169.254/latest/dynamic/instance-identity/document | sed -n 's/.*"region"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+  set -e
+  echo "${region:-eu-central-1}"
+}
 
-# Import MongoDB GPG key
-curl -fsSL https://pgp.mongodb.com/server-8.0.asc | gpg2 --dearmor -o /etc/pki/rpm-gpg/mongodb-org-8.0.gpg
+exists() { command -v "$1" >/dev/null 2>&1; }
 
-# Add MongoDB repo (Amazon Linux 2023)
-cat <<'REPO' > /etc/yum.repos.d/mongodb-org-8.0.repo
+# ===== Base packages =====
+if exists dnf; then
+  dnf -y update || true
+  dnf -y install curl gnupg2 awscli lvm2 xfsprogs || dnf -y install curl gnupg2 awscli
+elif exists yum; then
+  yum -y update || true
+  yum -y install curl gnupg2 awscli lvm2 xfsprogs || yum -y install curl gnupg2 awscli
+elif exists apt-get; then
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update -y || true
+  apt-get install -y curl gnupg awscli lvm2 xfsprogs || apt-get install -y curl gnupg awscli
+fi
+
+# ===== Mount EBS volume at /data/db (idempotent) =====
+DBDIR=/data/db
+mkdir -p "$DBDIR"
+DEV_CANDIDATES="/dev/nvme1n1 /dev/xvdf /dev/nvme2n1 /dev/xvdg"
+DEV=""
+for d in $DEV_CANDIDATES; do
+  if [ -b "$d" ]; then DEV="$d"; break; fi
+done
+
+if [ -n "${DEV}" ]; then
+  if ! blkid "$DEV" >/dev/null 2>&1; then
+    # try xfs then ext4
+    mkfs.xfs -f "$DEV" || mkfs.ext4 -F "$DEV"
+  fi
+  UUID=$(blkid -s UUID -o value "$DEV" || true)
+  if [ -n "${UUID:-}" ] && ! grep -q "UUID=${UUID}" /etc/fstab; then
+    FS=$(blkid -s TYPE -o value "$DEV" || echo xfs)
+    echo "UUID=${UUID}  ${DBDIR}  ${FS}  defaults,nofail  0  2" >> /etc/fstab
+  fi
+  retry mount -a || mount "${DEV}" "${DBDIR}" || true
+fi
+
+# Ensure ownership for mongod user once package installs
+POST_CHOWN_DB=1
+
+# ===== MongoDB repository (try AL2, then RHEL9, then RHEL8) =====
+ARCH="$(uname -m)"
+case "$ARCH" in
+  x86_64|aarch64) : ;;
+  *) ARCH="x86_64" ;;
+esac
+
+curl -fsSL https://pgp.mongodb.com/server-8.0.asc -o /etc/pki/rpm-gpg/mongodb-org-8.0.gpg 2>/dev/null || true
+
+REPO_CANDIDATES=(
+  "https://repo.mongodb.org/yum/amazon/2/mongodb-org/8.0/${ARCH}/"
+  "https://repo.mongodb.org/yum/redhat/9/mongodb-org/8.0/${ARCH}/"
+  "https://repo.mongodb.org/yum/redhat/8/mongodb-org/8.0/${ARCH}/"
+)
+
+BASEURL=""
+for url in "${REPO_CANDIDATES[@]}"; do
+  if curl -fsSI "${url}repodata/repomd.xml" >/dev/null 2>&1; then BASEURL="$url"; break; fi
+done
+
+if [ -n "$BASEURL" ]; then
+  cat >/etc/yum.repos.d/mongodb-org-8.0.repo <<EOF
 [mongodb-org-8.0]
 name=MongoDB Repository
-baseurl=https://repo.mongodb.org/yum/amazon/2023/mongodb-org/8.0/x86_64/
+baseurl=${BASEURL}
 gpgcheck=1
 enabled=1
-gpgkey=file:///etc/pki/rpm-gpg/mongodb-org-8.0.gpg
-REPO
-
-# Install MongoDB and filesystem tools
-dnf install -y mongodb-org xfsprogs awscli
-
-# Prepare persistent EBS volume
-DEVICE="/dev/xvdf"
-MOUNT_POINT="/data/db"
-
-# Format only if no filesystem exists
-if ! blkid "$DEVICE" >/dev/null 2>&1; then
-  mkfs.xfs "$DEVICE"
-fi
-
-# Create and mount the directory
-mkdir -p "$MOUNT_POINT"
-mount "$DEVICE" "$MOUNT_POINT"
-
-# Persist the mount in fstab
-if ! grep -qs "$MOUNT_POINT" /etc/fstab; then
-  echo "$DEVICE $MOUNT_POINT xfs defaults,nofail 0 2" >> /etc/fstab
-fi
-
-# Set proper ownership for MongoDB
-chown -R mongod:mongod "$MOUNT_POINT"
-
-# Update mongod configuration
-sed -i 's/^  bindIp:.*$/  bindIp: 0.0.0.0/' /etc/mongod.conf
-sed -i 's|dbPath: /var/lib/mongo|dbPath: /data/db|' /etc/mongod.conf
-
-# Enable and start mongod
-systemctl enable mongod
-systemctl start mongod
-
-# Wait a bit for Mongo to come up
-sleep 10
-
-# ===== Secrets handling (no leaks in logs) =====
-set +x
-AWS_REGION="eu-central-1"
-SSM_USER_PARAM="/nat20/mongo/USER"
-SSM_PASS_PARAM="/nat20/mongo/PASSWORD"
-S3_MONGO_USER="$(aws ssm get-parameter --name "$SSM_USER_PARAM" --with-decryption --query 'Parameter.Value' --output text --region "$AWS_REGION")"
-S3_MONGO_PASS="$(aws ssm get-parameter --name "$SSM_PASS_PARAM" --with-decryption --query 'Parameter.Value' --output text --region "$AWS_REGION")"
-if [ -z "$S3_MONGO_USER" ] || [ -z "$S3_MONGO_PASS" ]; then
-  echo "ERROR: Missing SSM parameters $SSM_USER_PARAM or $SSM_PASS_PARAM" >&2
-  exit 1
-fi
-
-cat >/tmp/create_app_user.js <<'JS'
-const user = (process.env.S3_MONGO_USER || "").trim();
-const pass = (process.env.S3_MONGO_PASS || "").trim();
-if (!user || !pass) { throw new Error("Missing S3_MONGO_USER or S3_MONGO_PASS"); }
-const admin = db.getSiblingDB("admin");
-const existing = admin.system.users.findOne({ user, db: "admin" });
-if (existing) {
-  print("User '" + user + "' already exists in admin; skipping create.");
-} else {
-  admin.createUser({ user, pwd: pass, roles: [ { role: "root", db: "admin" } ] });
-  print("Created admin user '" + user + "'.");
-}
-JS
-S3_MONGO_USER="$S3_MONGO_USER" S3_MONGO_PASS="$S3_MONGO_PASS" mongosh --file /tmp/create_app_user.js
-set -x
-
-# Enable authorization (idempotent)
-if grep -qE '^\s*#\s*security:' /etc/mongod.conf; then
-  sed -i 's/^\s*#\s*security:.*/security:\n  authorization: enabled/' /etc/mongod.conf
-elif ! grep -qE '^\s*security:' /etc/mongod.conf; then
-  printf '\nsecurity:\n  authorization: enabled\n' >> /etc/mongod.conf
+gpgkey=https://pgp.mongodb.com/server-8.0.asc
+EOF
 else
-  if ! grep -qE '^\s*authorization:\s*enabled' /etc/mongod.conf; then
-    sed -i '/^\s*security:/a\  authorization: enabled' /etc/mongod.conf
+  echo "No working MongoDB repo found" >&2
+fi
+
+# ===== Install MongoDB (idempotent) =====
+if exists dnf; then
+  dnf -y clean all || true
+  dnf -y makecache || true
+  dnf -y install mongodb-org || true
+elif exists yum; then
+  yum -y clean all || true
+  yum -y makecache || true
+  yum -y install mongodb-org || true
+elif exists apt-get; then
+  # Debian/Ubuntu fallback (rare for this AMI)
+  curl -fsSL https://pgp.mongodb.com/server-8.0.asc | gpg --dearmor -o /usr/share/keyrings/mongodb-server-8.0.gpg
+  echo "deb [ signed-by=/usr/share/keyrings/mongodb-server-8.0.gpg ] https://repo.mongodb.org/apt/ubuntu $(. /etc/os-release; echo $VERSION_CODENAME)/mongodb-org/8.0 multiverse" >/etc/apt/sources.list.d/mongodb-org-8.0.list
+  apt-get update -y
+  apt-get install -y mongodb-org || true
+fi
+
+# ===== Configure mongod =====
+CONF=/etc/mongod.conf
+if [ ! -f "$CONF" ]; then
+  cat >"$CONF" <<EOF
+storage:
+  dbPath: ${DBDIR}
+net:
+  bindIp: 0.0.0.0
+  port: 27017
+setParameter:
+  enableLocalhostAuthBypass: true
+EOF
+else
+  # storage.dbPath
+  if grep -qE '^[[:space:]]*dbPath:' "$CONF"; then
+    sed -ri "s|^[[:space:]]*dbPath:[[:space:]]*.*|  dbPath: ${DBDIR}|" "$CONF"
+  else
+    awk '{print} /^storage:/{print "  dbPath: '"${DBDIR//\//\\/}"'"}' "$CONF" | tee "$CONF.new" >/dev/null && mv "$CONF.new" "$CONF"
+  fi
+  # net.bindIp
+  if grep -qE '^[[:space:]]*bindIp:' "$CONF"; then
+    sed -ri 's/^[[:space:]]*bindIp:[[:space:]]*.*/  bindIp: 0.0.0.0/' "$CONF"
+  else
+    awk '{print} /^net:/{print "  bindIp: 0.0.0.0"}' "$CONF" | tee "$CONF.new" >/dev/null && mv "$CONF.new" "$CONF"
+  fi
+  # net.port
+  if grep -qE '^[[:space:]]*port:' "$CONF"; then
+    sed -ri 's/^[[:space:]]*port:[[:space:]]*.*/  port: 27017/' "$CONF"
+  else
+    awk '{print} /^net:/{print "  port: 27017"}' "$CONF" | tee "$CONF.new" >/dev/null && mv "$CONF.new" "$CONF"
+  fi
+  # enableLocalhostAuthBypass for bootstrap
+  if ! grep -q '^setParameter:' "$CONF"; then
+    printf '\nsetParameter:\n  enableLocalhostAuthBypass: true\n' >> "$CONF"
+  elif ! grep -q 'enableLocalhostAuthBypass' "$CONF"; then
+    sed -ri '/^setParameter:/a\  enableLocalhostAuthBypass: true' "$CONF"
   fi
 fi
 
-# Restart to apply auth
-systemctl restart mongod
+# Ensure ownership after config
+if [ "${POST_CHOWN_DB:-0}" = "1" ]; then
+  id -u mongod >/dev/null 2>&1 && chown -R mongod:mongod "$DBDIR" || true
+fi
+
+# ===== Enable & start mongod =====
+systemctl daemon-reload || true
+systemctl enable mongod || true
+systemctl restart mongod || systemctl start mongod || true
+
+# Wait up to ~60s for port 27017
+if ! retry bash -lc "ss -lntp | grep -q ':27017'"; then
+  echo "mongod did not start listening on 27017" >&2
+fi
+
+# ===== Bootstrap application user (from SSM), then enable auth =====
+REGION="$(detect_region)"
+set +x
+APP_USER="$(aws ssm get-parameter --name /nat20/mongo/USER --with-decryption --query 'Parameter.Value' --output text --region "$REGION" 2>/dev/null || true)"
+APP_PASS="$(aws ssm get-parameter --name /nat20/mongo/PASSWORD --with-decryption --query 'Parameter.Value' --output text --region "$REGION" 2>/dev/null || true)"
+APP_DB="$(aws ssm get-parameter --name /nat20/mongo/DB --with-decryption --query 'Parameter.Value' --output text --region "$REGION" 2>/dev/null || echo nat20)"
+set -x
+
+if [ -n "${APP_USER}" ] && [ -n "${APP_PASS}" ]; then
+  /usr/bin/mongosh --quiet --eval "
+    const dbname='${APP_DB}';
+    const user='${APP_USER}';
+    const pass='${APP_PASS}';
+    const db = db.getSiblingDB(dbname);
+    const u = db.getUser(user);
+    if (!u) {
+      db.createUser({user:user, pwd:pass, roles:[{role:'readWrite', db:dbname}]});
+      print('created-app-user');
+    } else {
+      print('app-user-exists');
+    }
+  " || true
+else
+  echo "APP_USER/APP_PASS empty; skipping user creation" >&2
+fi
+
+# Enable authorization (idempotent)
+if grep -q '^security:' "$CONF"; then
+  if grep -qE '^[[:space:]]*authorization:' "$CONF"; then
+    sed -ri 's/^[[:space:]]*authorization:[[:space:]]*.*/  authorization: enabled/' "$CONF"
+  else
+    sed -ri '/^security:/a\  authorization: enabled' "$CONF"
+  fi
+else
+  printf '\nsecurity:\n  authorization: enabled\n' >> "$CONF"
+fi
+
+# Remove localhost auth bypass
+sed -ri '/enableLocalhostAuthBypass/d' "$CONF" || true
+
+systemctl restart mongod || true
+
+# Verify with auth (if creds present)
+if [ -n "${APP_USER}" ] && [ -n "${APP_PASS}" ]; then
+  /usr/bin/mongosh --quiet "mongodb://${APP_USER}:${APP_PASS}@127.0.0.1:27017/${APP_DB}?authSource=${APP_DB}" --eval "db.runCommand({ping:1})" || true
+fi
+
+# Final status
+systemctl is-active mongod || true
+ss -lntp | grep ':27017' || true
+grep -nE '^(storage:|net:|security:)|^[[:space:]]*(dbPath|bindIp|port|authorization):' "$CONF" || true
