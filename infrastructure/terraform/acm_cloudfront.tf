@@ -101,11 +101,11 @@ resource "aws_cloudfront_distribution" "frontend" {
     origin_id   = "alb-origin"
 
     custom_origin_config {
-      http_port              = 80
-      https_port             = 443
-      origin_protocol_policy = "https-only"   # was http-only -> caused 504 when ALB had no :80 listener
-      origin_ssl_protocols   = ["TLSv1.2"]
-      origin_read_timeout    = 30
+      http_port                = 80
+      https_port               = 443
+      origin_protocol_policy   = "https-only"   # was http-only -> caused 504 when ALB had no :80 listener
+      origin_ssl_protocols     = ["TLSv1.2"]
+      origin_read_timeout      = 30
       origin_keepalive_timeout = 5
     }
   }
@@ -127,6 +127,42 @@ resource "aws_cloudfront_distribution" "frontend" {
   # ---------- Ordered behaviors (API -> ALB) ----------
   ordered_cache_behavior {
     path_pattern           = "/auth/*"
+    target_origin_id       = "alb-origin"
+    viewer_protocol_policy = "redirect-to-https"
+
+    allowed_methods = ["GET","HEAD","OPTIONS","PUT","POST","PATCH","DELETE"]
+    cached_methods  = ["GET","HEAD","OPTIONS"]
+
+    cache_policy_id          = data.aws_cloudfront_cache_policy.managed_caching_disabled.id
+    origin_request_policy_id = data.aws_cloudfront_origin_request_policy.managed_all_viewer.id
+  }
+
+  ordered_cache_behavior {
+    path_pattern           = "/availability/*"
+    target_origin_id       = "alb-origin"
+    viewer_protocol_policy = "redirect-to-https"
+
+    allowed_methods = ["GET","HEAD","OPTIONS","PUT","POST","PATCH","DELETE"]
+    cached_methods  = ["GET","HEAD","OPTIONS"]
+
+    cache_policy_id          = data.aws_cloudfront_cache_policy.managed_caching_disabled.id
+    origin_request_policy_id = data.aws_cloudfront_origin_request_policy.managed_all_viewer.id
+  }
+
+  ordered_cache_behavior {
+    path_pattern           = "/settings*"
+    target_origin_id       = "alb-origin"
+    viewer_protocol_policy = "redirect-to-https"
+
+    allowed_methods = ["GET","HEAD","OPTIONS","PUT","POST","PATCH","DELETE"]
+    cached_methods  = ["GET","HEAD","OPTIONS"]
+
+    cache_policy_id          = data.aws_cloudfront_cache_policy.managed_caching_disabled.id
+    origin_request_policy_id = data.aws_cloudfront_origin_request_policy.managed_all_viewer.id
+  }
+
+  ordered_cache_behavior {
+    path_pattern           = "/users/*"
     target_origin_id       = "alb-origin"
     viewer_protocol_policy = "redirect-to-https"
 
