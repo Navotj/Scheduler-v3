@@ -1,55 +1,23 @@
 ############################################################
 # WAFv2 for ALB (Backend API)
-# - Managed rules (conservative)
-# - Explicit allows for ALB health checks and CORS preflight
+# - Conservative managed rules
+# - Explicit allow for CORS preflight
 # - Per-IP rate limiting
+# NOTE: REGIONAL scope (same region as ALB)
 ############################################################
 
 resource "aws_wafv2_web_acl" "backend" {
   name        = "backend-acl"
   scope       = "REGIONAL"
-  description = "Backend WAF: managed rule groups + healthcheck/OPTIONS allow + rate limit"
+  description = "Backend WAF: managed rule groups + OPTIONS allow + rate limit"
 
   default_action {
     allow {}
   }
 
-  # 0 - Allow ALB health checks (User-Agent contains ELB-HealthChecker)
-  rule {
-    name     = "AllowALBHealthChecks"
-    priority = 0
-
-    action {
-      allow {}
-    }
-
-    statement {
-      byte_match_statement {
-        search_string         = "ELB-HealthChecker"
-        positional_constraint = "CONTAINS"
-        field_to_match {
-          single_header {
-            name = "user-agent"
-          }
-        }
-        text_transformations {
-          priority = 0
-          type     = "NONE"
-        }
-      }
-    }
-
-    visibility_config {
-      cloudwatch_metrics_enabled = true
-      metric_name                = "AllowALBHealthChecks"
-      sampled_requests_enabled   = true
-    }
-  }
-
-  # 1 - Always allow CORS preflight requests
   rule {
     name     = "AllowCORSPreflight"
-    priority = 1
+    priority = 0
 
     action {
       allow {}
@@ -59,9 +27,11 @@ resource "aws_wafv2_web_acl" "backend" {
       byte_match_statement {
         search_string         = "OPTIONS"
         positional_constraint = "EXACTLY"
+
         field_to_match {
           method {}
         }
+
         text_transformations {
           priority = 0
           type     = "NONE"
@@ -76,7 +46,6 @@ resource "aws_wafv2_web_acl" "backend" {
     }
   }
 
-  # 5 - IP rate limiting (API-safe baseline)
   rule {
     name     = "RateLimitPerIP"
     priority = 5
@@ -87,7 +56,7 @@ resource "aws_wafv2_web_acl" "backend" {
 
     statement {
       rate_based_statement {
-        limit              = 2000 # requests per 5 minutes per IP
+        limit              = 2000
         aggregate_key_type = "IP"
       }
     }
@@ -99,7 +68,6 @@ resource "aws_wafv2_web_acl" "backend" {
     }
   }
 
-  # 10 - Core protections
   rule {
     name     = "AWS-AWSManagedRulesCommonRuleSet"
     priority = 10
@@ -122,7 +90,6 @@ resource "aws_wafv2_web_acl" "backend" {
     }
   }
 
-  # 20 - Known bad inputs
   rule {
     name     = "AWS-AWSManagedRulesKnownBadInputsRuleSet"
     priority = 20
@@ -145,7 +112,6 @@ resource "aws_wafv2_web_acl" "backend" {
     }
   }
 
-  # 30 - IP reputation
   rule {
     name     = "AWS-AWSManagedRulesAmazonIpReputationList"
     priority = 30
@@ -168,7 +134,6 @@ resource "aws_wafv2_web_acl" "backend" {
     }
   }
 
-  # 40 - SQL injection detection
   rule {
     name     = "AWS-AWSManagedRulesSQLiRuleSet"
     priority = 40

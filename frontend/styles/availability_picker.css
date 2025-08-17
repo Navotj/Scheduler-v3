@@ -232,3 +232,23 @@ header + *, nav + *, .navbar + *, .topbar + *, .header + * { margin-top: 0 !impo
   .controls button { padding: 5px 8px; }
   .week-and-help { gap: 10px; font-size: 12px; }
 }
+
+/* --- Drag selection hint (follows cursor) --- */
+.drag-hint {
+  position: fixed;
+  top: 0;
+  left: 0;
+  transform: translate(12px, 14px);
+  z-index: 6000;
+  display: none;
+  pointer-events: none;
+  background: #1b1b1b;
+  color: #e2e2e2;
+  border: 1px solid #2f2f2f;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.45);
+  white-space: nowrap;
+}

@@ -58,6 +58,7 @@ jobs:
 
       #-------------------- Backend bootstrap --------------------
       - name: Bootstrap remote state (S3+DDB)
+        timeout-minutes: 8
         env:
           AWS_REGION: eu-central-1
         run: |
@@ -101,8 +102,9 @@ jobs:
             echo "DynamoDB lock table exists; continuing."
           fi
 
-      #-------------------- Terraform init with retries (no heredocs) --------------------
-      - name: Terraform Init (resilient)
+      #-------------------- Terraform init (1 retry, then fail) --------------------
+      - name: Terraform Init (1 retry)
+        timeout-minutes: 8
         run: |
           set -euo pipefail
 
@@ -110,46 +112,24 @@ jobs:
             'provider_installation {' \
             '  direct {}' \
             '}' > "$HOME/.tfrc.direct"
+          cp "$HOME/.tfrc.direct" "$HOME/.terraformrc"
+          echo "Using TF CLI config: $HOME/.tfrc.direct"
 
-          printf '%s\n' \
-            'provider_installation {' \
-            '  network_mirror {' \
-            '    url = "https://releases.hashicorp.com"' \
-            '    include = ["hashicorp/*"]' \
-            '  }' \
-            '}' > "$HOME/.tfrc.mirror"
-
-          printf '%s\n' \
-            'provider_installation {' \
-            '  direct {}' \
-            '  network_mirror {' \
-            '    url = "https://releases.hashicorp.com"' \
-            '    include = ["hashicorp/*"]' \
-            '  }' \
-            '}' > "$HOME/.tfrc.both"
-
-          attempt_init() {
-            mode="$1"
-            cp "$HOME/.tfrc.${mode}" "$HOME/.terraformrc"
-            echo "Using TF CLI config: $HOME/.tfrc.${mode}"
-            n=0
-            until [ $n -ge 5 ]; do
-              if terraform init -reconfigure -lock-timeout=5m; then
-                return 0
-              fi
-              n=$((n+1))
-              delay=$(( n * 10 ))
-              echo "terraform init failed (mode=${mode}, attempt ${n}). Retrying in ${delay}s ..."
-              sleep "${delay}"
-            done
-            return 1
-          }
-
-          attempt_init direct || attempt_init both || attempt_init mirror
+          attempt=0
+          until [ "$attempt" -ge 2 ]; do
+            if terraform init -reconfigure -lock-timeout=2m; then
+              exit 0
+            fi
+            attempt=$((attempt+1))
+            [ "$attempt" -lt 2 ] && echo "terraform init failed. retrying once in 10s..." && sleep 10
+          done
+          echo "terraform init failed twice. aborting."
+          exit 1
 
       #-------------------- Optional import of existing artifacts bucket --------------------
       - name: Import deploy artifacts bucket (if exists)
         id: import_artifacts_bucket
+        timeout-minutes: 4
         env:
           TF_IN_AUTOMATION: "true"
         run: |
@@ -169,31 +149,55 @@ jobs:
           fi
 
       - name: Terraform Validate
+        timeout-minutes: 5
         env:
           TF_IN_AUTOMATION: "true"
         run: terraform validate
 
-      - name: Terraform Plan
+      - name: Terraform Plan (1 retry)
+        timeout-minutes: 10
         env:
           TF_IN_AUTOMATION: "true"
         run: |
-          terraform plan -input=false -lock-timeout=5m \
-            -var "frontend_waf_name=${{ vars.FRONTEND_WAF_NAME }}" \
-            -var "attach_frontend_waf=${{ env.TF_VAR_attach_frontend_waf }}" \
-            -var "backend_health_check_path=${{ env.TF_VAR_backend_health_check_path }}"
+          set -euo pipefail
+          attempt=0
+          until [ "$attempt" -ge 2 ]; do
+            if terraform plan -input=false -lock-timeout=2m \
+              -var "frontend_waf_name=${{ vars.FRONTEND_WAF_NAME }}" \
+              -var "attach_frontend_waf=${{ env.TF_VAR_attach_frontend_waf }}" \
+              -var "backend_health_check_path=${{ env.TF_VAR_backend_health_check_path }}"; then
+              exit 0
+            fi
+            attempt=$((attempt+1))
+            [ "$attempt" -lt 2 ] && echo "plan failed. retrying once in 10s..." && sleep 10
+          done
+          echo "plan failed twice. aborting."
+          exit 1
 
-      - name: Terraform Apply
+      - name: Terraform Apply (1 retry)
         if: github.ref == 'refs/heads/main'
+        timeout-minutes: 15
         env:
           TF_IN_AUTOMATION: "true"
         run: |
-          terraform apply -auto-approve -input=false -lock-timeout=5m \
-            -var "frontend_waf_name=${{ vars.FRONTEND_WAF_NAME }}" \
-            -var "attach_frontend_waf=${{ env.TF_VAR_attach_frontend_waf }}" \
-            -var "backend_health_check_path=${{ env.TF_VAR_backend_health_check_path }}"
+          set -euo pipefail
+          attempt=0
+          until [ "$attempt" -ge 2 ]; do
+            if terraform apply -auto-approve -input=false -lock-timeout=2m \
+              -var "frontend_waf_name=${{ vars.FRONTEND_WAF_NAME }}" \
+              -var "attach_frontend_waf=${{ env.TF_VAR_attach_frontend_waf }}" \
+              -var "backend_health_check_path=${{ env.TF_VAR_backend_health_check_path }}"; then
+              exit 0
+            fi
+            attempt=$((attempt+1))
+            [ "$attempt" -lt 2 ] && echo "apply failed. retrying once in 15s..." && sleep 15
+          done
+          echo "apply failed twice. aborting."
+          exit 1
 
       #-------------------- CloudFront invalidation to pick up /auth behavior immediately --------------------
       - name: CloudFront Invalidation (/auth/* and index.html)
+        timeout-minutes: 4
         run: |
           set -euo pipefail
           DOMAIN="$(terraform output -raw frontend_dns || echo 'nat20scheduling.com')"
@@ -209,6 +213,7 @@ jobs:
 
       #-------------------- Quick origin health check (logs only) --------------------
       - name: Check API origin health quickly
+        timeout-minutes: 3
         run: |
           set -euo pipefail
           DOMAIN="$(terraform output -raw backend_dns || echo 'api.nat20scheduling.com')"
