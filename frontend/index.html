@@ -59,24 +59,22 @@
 
     async function checkAuth() {
       const controller = new AbortController();
-      const t = setTimeout(() => controller.abort(), 3000);
+      const timeout = setTimeout(() => controller.abort(), 3000);
       try {
-        // Always use /auth/* so CloudFront sends to backend
         const res = await fetch('/auth/check', {
           credentials: 'include',
           cache: 'no-cache',
           signal: controller.signal
         });
-
-        let data = null;
         if (res.ok) {
-          data = await res.json().catch(() => null);
-        }
-
-        const ok = !!(data && (data.success === true || data.username || (data.user && data.user.username)));
-        if (ok) {
-          isAuthenticated = true;
-          currentUsername = (data.user && data.user.username) || data.username || '';
+          const data = await res.json().catch(() => ({}));
+          const uname =
+            (data && data.user && data.user.username) ||
+            data.username ||
+            data.name ||
+            null;
+          isAuthenticated = !!uname;
+          currentUsername = uname;
         } else {
           isAuthenticated = false;
           currentUsername = null;
@@ -85,7 +83,7 @@
         isAuthenticated = false;
         currentUsername = null;
       } finally {
-        clearTimeout(t);
+        clearTimeout(timeout);
       }
       updateAuthUI();
     }
@@ -93,6 +91,7 @@
     function updateAuthUI() {
       const userLabel = document.getElementById('user-label');
       const authButton = document.getElementById('auth-button');
+      if (!userLabel || !authButton) return;
 
       if (isAuthenticated) {
         userLabel.textContent = `Signed in as ${currentUsername}`;
@@ -101,6 +100,7 @@
         authButton.onclick = logout;
       } else {
         userLabel.style.display = 'none';
+        userLabel.textContent = '';
         authButton.textContent = 'Login';
         authButton.onclick = () => openModal('/pages/login.html');
       }
@@ -158,12 +158,10 @@
       container.innerHTML = '';
     }
 
-    // expose for login/register modals
     window.openModal = openModal;
     window.swapModal = swapModal;
     window.closeModal = closeModal;
 
-    // let login.js update this page after successful sign-in
     window.setAuthState = function(authenticated, username) {
       isAuthenticated = !!authenticated;
       currentUsername = authenticated ? username : null;
@@ -171,12 +169,12 @@
     };
 
     document.getElementById('open-auth').addEventListener('click', () => {
-      if (isAuthenticated) return;
-      openModal('/pages/login.html');
+      if (!isAuthenticated) openModal('/pages/login.html');
     });
 
     document.getElementById('year').textContent = new Date().getFullYear();
     document.addEventListener('DOMContentLoaded', checkAuth);
   </script>
+
 </body>
 </html>

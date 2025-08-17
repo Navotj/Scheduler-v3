@@ -56,17 +56,20 @@
 
     async function checkAuth() {
       const controller = new AbortController();
-      setTimeout(() => controller.abort(), 3000);
+      const timeout = setTimeout(() => controller.abort(), 3000);
       try {
         const res = await fetch('/auth/check', {
           credentials: 'include',
           cache: 'no-cache',
           signal: controller.signal
         });
-        if (res.status === 200) {
-          const data = await res.json();
-          isAuthenticated = true;
-          const uname = (data && data.user && data.user.username) || data.username || null;
+        if (res.ok) {
+          const data = await res.json().catch(() => ({}));
+          const uname =
+            (data && data.user && data.user.username) ||
+            data.username ||
+            data.name ||
+            null;
           isAuthenticated = !!uname;
           currentUsername = uname;
         } else {
@@ -76,6 +79,8 @@
       } catch {
         isAuthenticated = false;
         currentUsername = null;
+      } finally {
+        clearTimeout(timeout);
       }
       updateAuthUI();
       if (window.schedule && typeof window.schedule.setAuth === 'function') {
@@ -91,6 +96,8 @@
     function updateAuthUI() {
       const userLabel = document.getElementById('user-label');
       const authButton = document.getElementById('auth-button');
+      if (!userLabel || !authButton) return;
+
       if (isAuthenticated) {
         userLabel.textContent = `Signed in as ${currentUsername}`;
         userLabel.style.display = 'inline';
@@ -98,6 +105,7 @@
         authButton.onclick = logout;
       } else {
         userLabel.style.display = 'none';
+        userLabel.textContent = '';
         authButton.textContent = 'Login';
         authButton.onclick = () => openModal('/pages/login.html');
       }
@@ -141,7 +149,7 @@
     function openModal(path) {
       const overlay = document.getElementById('modal-overlay');
       const container = document.getElementById('modal-container');
-      fetch(path)
+      fetch(path, { cache: 'no-cache' })
         .then(res => res.text())
         .then(html => {
           container.innerHTML = html;
@@ -153,7 +161,7 @@
 
     function swapModal(path) {
       const container = document.getElementById('modal-container');
-      fetch(path)
+      fetch(path, { cache: 'no-cache' })
         .then(res => res.text())
         .then(html => {
           container.innerHTML = html;
@@ -175,5 +183,6 @@
 
     document.addEventListener('DOMContentLoaded', checkAuth);
   </script>
+
 </body>
 </html>
