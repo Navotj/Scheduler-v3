@@ -1,34 +1,23 @@
-/* citations: :contentReference[oaicite:0]{index=0} :contentReference[oaicite:1]{index=1} :contentReference[oaicite:2]{index=2} :contentReference[oaicite:3]{index=3} :contentReference[oaicite:4]{index=4} :contentReference[oaicite:5]{index=5} */
-
-/* ───────────────────── Root variables ───────────────────── */
 :root {
-  --row-height: 18px;            /* half-hour slot height; JS scales this vertically only */
-  --font-size: 12px;             /* keep text constant; zoom must not change this */
-  --line: #2b2b2b;               /* table grid line */
-  --line-strong: #3a3a3a;        /* strong separators (full hours) */
-  --control-height: 32px;        /* compact but readable controls */
-  --timecol-width: 76px;         /* fixed time column width */
-  --grid-pad: 8px;               /* padding around the scrollable grid */
-  --topbar-height: 40px;         /* compact top bar */
-
-  /* Viewport-aware unit (resizes with browser UI changes) */
+  --row-height: 18px;
+  --font-size: 12px;
+  --line: #2b2b2b;
+  --line-strong: #3a3a3a;
+  --control-height: 32px;
+  --timecol-width: 76px;
+  --grid-pad: 8px;
+  --topbar-height: 40px;
   --vh: 100vh;
 }
-
-/* Prefer dynamic viewport units when supported */
 @supports (height: 100dvh) { :root { --vh: 100dvh; } }
 @supports (height: 100svh) { :root { --vh: 100svh; } }
-
-/* Unified height used by the schedule grid (below top bar & header) */
 :root { --grid-height: calc(var(--vh) - var(--topbar-height) - 96px); }
 
-/* ───────────────────── Page shell tweaks (match SM spacing) ───────────────────── */
 .page-shell { width: min(var(--container-max, 1200px), 96vw); margin: 12px auto 32px; padding: 0 12px; }
 .header-row { display:flex; justify-content:space-between; align-items:center; margin: 6px 0 8px; }
 .week-and-help { display:flex; align-items:center; gap:14px; color:#9aa0a6; }
 .week-and-help #week-label { color:#fff; font-weight:600; }
 
-/* ───────────────────── Controls row (compact, dark) ───────────────────── */
 .controls {
   display: flex;
   gap: 8px;
@@ -49,7 +38,6 @@
 .controls button.active { outline: 2px solid #2d6cdf; }
 .controls button:disabled { opacity: 0.5; cursor: not-allowed; }
 
-/* ───────────────────── Top bar: non-sticky & tight ───────────────────── */
 header, nav, .navbar, .topbar, .top-bar, .header, .page-header {
   position: static !important;
   top: auto !important;
@@ -60,32 +48,27 @@ header, nav, .navbar, .topbar, .top-bar, .header, .page-header {
 }
 header + *, nav + *, .navbar + *, .topbar + *, .header + * { margin-top: 0 !important; }
 
-/* ───────────────────── Grid outer shell (padded box like schedule matcher) ───────────────────── */
 .grid {
   position: relative;
-  background: #101010;                 /* solid background: no transparency */
-  border: 1px solid var(--line);       /* visible grey outline */
+  background: #101010;
+  border: 1px solid var(--line);
   border-radius: 12px;
-  padding: var(--grid-pad);            /* padded box feel */
-  height: var(--grid-height);          /* matches schedule matcher height behavior */
+  padding: var(--grid-pad);
+  height: var(--grid-height);
   box-sizing: border-box;
-  isolation: isolate;                  /* new stacking context; sticky children don't bleed */
+  isolation: isolate;
 }
-
-/* The actual scroller sits inside the padded box */
 .grid-content {
   position: relative;
-  overflow-y: auto;                    /* vertical scroll only */
-  overflow-x: hidden;                  /* never allow horizontal scrolling */
+  overflow-y: auto;
+  overflow-x: hidden;
   height: 100%;
   width: 100%;
-  background: #101010;                 /* solid to hide anything beneath on scroll */
+  background: #101010;
   border-radius: 8px;
   backface-visibility: hidden;
   transform: translateZ(0);
 }
-
-/* Scrollbar styling (dark) */
 .grid-content { scrollbar-width: thin; scrollbar-color: #3a3a3a #101010; }
 .grid-content::-webkit-scrollbar { width: 10px; height: 10px; }
 .grid-content::-webkit-scrollbar-track { background: #101010; }
@@ -93,29 +76,23 @@ header + *, nav + *, .navbar + *, .topbar + *, .header + * { margin-top: 0 !impo
 .grid-content::-webkit-scrollbar-thumb:hover { background: #4a4a4a; }
 .grid-content::-webkit-scrollbar-corner { background: #101010; }
 
-/* ───────────────────── Table core ───────────────────── */
-/* Use separate borders and paint solid backgrounds to avoid transparent seams */
 .table {
   width: 100%;
   min-width: 0;
-  table-layout: fixed;                 /* distribute evenly; prevent layout shift on zoom */
-  border-collapse: separate;           /* prevent collapsed-border bleed-through */
-  border-spacing: 0;                   /* keep cells flush */
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 0;
   user-select: none;
-  font-size: var(--font-size);         /* constant text size; zoom changes --row-height only */
-  background: #101010;                 /* ensure no transparency anywhere */
+  font-size: var(--font-size);
+  background: #101010;
 }
-
-/* Headers & cells */
 .table th,
 .table td {
   border: 1px solid var(--line);
   text-align: center;
-  background: #101010;                 /* SOLID background so nothing can shine through */
-  background-clip: border-box;         /* paint under border to avoid 1px gaps on scroll */
+  background: #101010;
+  background-clip: border-box;
 }
-
-/* Sticky header (top row only) — add subtle inner shadow line like SM */
 .table thead th {
   position: sticky;
   top: 0;
@@ -124,10 +101,8 @@ header + *, nav + *, .navbar + *, .topbar + *, .header + * { margin-top: 0 !impo
   font-weight: 600;
   padding: 6px 6px;
   box-shadow: inset 0 -1px 0 var(--line);
-  font-size: 13px;                     /* fixed size regardless of zoom */
+  font-size: 13px;
 }
-
-/* Day headers — visible grey outline on ALL days */
 .table thead th.day {
   font-size: clamp(10px, 1.05vw, 13px);
   white-space: nowrap;
@@ -136,8 +111,6 @@ header + *, nav + *, .navbar + *, .topbar + *, .header + * { margin-top: 0 !impo
   border: 1px solid var(--line);
   background-clip: padding-box;
 }
-
-/* Time column — NOT sticky-left; scrolls with the grid like schedule matcher */
 .table tbody tr > th.time-col {
   position: static;
   left: auto;
@@ -145,16 +118,12 @@ header + *, nav + *, .navbar + *, .topbar + *, .header + * { margin-top: 0 !impo
   background: #151515;
   border-right: 1px solid var(--line);
 }
-
-/* Row sizing (zoom adjusts --row-height only) */
 .table tbody td,
 .table tbody th {
   height: var(--row-height);
   line-height: var(--row-height);
   padding: 0;
 }
-
-/* Time column width and alignment */
 .time-col {
   width: var(--timecol-width);
   min-width: var(--timecol-width);
@@ -167,39 +136,27 @@ header + *, nav + *, .navbar + *, .topbar + *, .header + * { margin-top: 0 !impo
 }
 .time-col.hour {
   font-size: calc(var(--font-size) * 1.15);
-  line-height: normal;                 /* label centered by rowspan behavior */
+  line-height: normal;
 }
-
-/* Distribute 7 day columns evenly (prevents horizontal scroll) */
 .table thead th.day,
 .table tbody td.slot-cell {
   width: calc((100% - var(--timecol-width)) / 7);
   min-width: 0;
 }
-
-/* Slot cells */
 .slot-cell {
   position: relative;
   box-sizing: border-box;
   height: var(--row-height);
   cursor: crosshair;
-  background: #101010;                 /* solid to block any bleed from left edge */
+  background: #101010;
   background-clip: border-box;
 }
-
-/* Reinforce horizontal separators to avoid any gaps on scroll */
 .table tbody tr td.slot-cell {
   box-shadow: inset 0 1px 0 var(--line), inset 0 -1px 0 var(--line);
 }
 
-/* Thicker separators at each full hour */
-tr.row-hour > td,
-tr.row-hour > th {
-  border-top-width: 2px;
-  border-top-color: var(--line-strong);
-}
+/* Removed thicker full-hour lines — identical to schedule matcher */
 
-/* Weekend shading (if JS toggles .col-weekend), but keep selection visible */
 .slot-cell.col-weekend:not(.selected) {
   background-image: repeating-linear-gradient(
     135deg,
@@ -212,13 +169,9 @@ tr.row-hour > th {
 .slot-cell.col-weekend.selected {
   box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06);
 }
-
-/* Selection & drag-preview (availability picker specific) */
-.slot-cell.selected { background-color: #234b1f; }   /* subtle green fill */
+.slot-cell.selected { background-color: #234b1f; }
 .slot-cell.preview-add { background-color: #1f3e7a; }
 .slot-cell.preview-sub { background-color: #6b1e1e; }
-
-/* Past slots overlay (subtle grey, non-interactive) */
 .slot-cell.past { cursor: not-allowed; }
 .slot-cell.past::after {
   content: "";
@@ -227,12 +180,8 @@ tr.row-hour > th {
   background: rgba(255,255,255,0.16);
   pointer-events: none;
 }
-
-/* ───────────────────── Dimming (shared behavior if reused) ───────────────────── */
 .slot-cell.dim { filter: grayscale(40%) brightness(0.85); opacity: 0.45; }
 
-/* ───────────────────── NOW marker (horizontal line confined to today's column) ───────────────────── */
-/* Positioned inside .grid-content so it scrolls with table content (no parallax). */
 .now-marker {
   position: absolute;
   height: 0;
@@ -241,12 +190,11 @@ tr.row-hour > th {
   display: none;
   pointer-events: none;
 }
-/* Centered bubble on the line (middle of the column width) */
 .now-marker .bubble {
   position: absolute;
   top: 0;
   left: 50%;
-  transform: translate(-50%, -50%); /* perfectly centered on the line */
+  transform: translate(-50%, -50%);
   background: #0f0f0f;
   color: #e53935;
   border: 1px solid #e53935;
@@ -262,7 +210,6 @@ tr.row-hour > th {
 .now-marker .bubble::before,
 .now-marker .bubble::after { display: none; content: none; }
 
-/* ───────────────────── Sign-in tooltip (unchanged) ───────────────────── */
 .signin-tooltip {
   position: fixed;
   top: 0;
@@ -279,19 +226,9 @@ tr.row-hour > th {
   box-shadow: 0 4px 14px rgba(0,0,0,0.4);
 }
 
-/* ───────────────────── Small screens ───────────────────── */
 @media (max-width: 720px) {
   :root { --timecol-width: 64px; --font-size: 11px; }
   .controls { gap: 6px; }
   .controls button { padding: 5px 8px; }
   .week-and-help { gap: 10px; font-size: 12px; }
 }
-
-/* ───────────────────── Notes ─────────────────────
-- This stylesheet aligns availability picker visuals with schedule matcher:
-  • Padded grid box with solid background and visible grey outline.
-  • Non-transparent headers/cells with background-clip to eliminate seams.
-  • Extra padding area (the .grid wrapper) hides table edges while scrolling.
-  • Time column scrolls with content (not sticky-left), matching schedule matcher.
-  • Vertical-only zoom: text sizes remain constant; JS updates --row-height.
--------------------------------------------------------------------------- */
