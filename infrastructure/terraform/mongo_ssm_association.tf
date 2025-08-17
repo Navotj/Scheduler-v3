@@ -11,8 +11,10 @@ resource "aws_ssm_association" "mongo_enable_remote_auth" {
     values = ["terraform-mongo"]
   }
 
+  # Some provider versions expect a map(string) instead of map(list(string)).
+  # Use a single heredoc string for "commands".
   parameters = {
-    "commands" = [<<EOT
+    commands = <<EOT
 #!/usr/bin/env bash
 set -euo pipefail
 CONF=/etc/mongod.conf
@@ -51,7 +53,6 @@ sudo systemctl restart mongod
 sleep 1
 ss -lntp | grep ':27017' || true
 EOT
-    ]
   }
 
   depends_on = [aws_instance.mongodb]
