@@ -173,7 +173,9 @@ resource "aws_wafv2_web_acl" "backend" {
                 field_to_match {
                   method {}
                 }
-                text_transformation { priority = 0 type = "NONE" }
+                text_transformation {
+                  priority = 0 type = "NONE"
+                }
               }
             }
             statements {
@@ -183,7 +185,9 @@ resource "aws_wafv2_web_acl" "backend" {
                 field_to_match {
                   method {}
                 }
-                text_transformation { priority = 0 type = "NONE" }
+                text_transformation {
+                  priority = 0 type = "NONE"
+                }
               }
             }
             statements {
@@ -193,7 +197,9 @@ resource "aws_wafv2_web_acl" "backend" {
                 field_to_match {
                   method {}
                 }
-                text_transformation { priority = 0 type = "NONE" }
+                text_transformation {
+                  priority = 0 type = "NONE"  
+                }
               }
             }
           }
