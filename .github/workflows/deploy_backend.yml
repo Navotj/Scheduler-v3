@@ -59,12 +59,88 @@ jobs:
           echo "INSTANCE_ID=$INSTANCE_ID" >> $GITHUB_ENV
           echo "instance_id=$INSTANCE_ID" >> $GITHUB_OUTPUT
 
-      - name: Zip backend files (code only, no secrets)
+      - name: Build production bundle (vendor node_modules + Node binaries)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Create bundle
         run: |
           set -euo pipefail
-          cd backend
-          zip -r ../backend.zip .
-          cd ..
+          # Tools
+          if ! command -v jq >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y jq; fi
+          if ! command -v curl >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y curl; fi
+
+          # Prepare staging dir
+          rm -rf pack backend.zip
+          mkdir -p pack
+          rsync -a --delete backend/ pack/
+
+          # Install prod deps into pack (no dev deps)
+          pushd pack >/dev/null
+          if [ -f package-lock.json ]; then
+            npm ci --omit=dev
+          else
+            npm install --omit=dev
+          fi
+          popd >/dev/null
+
+          # Determine latest Node v22.x and vendor linux binaries (x64 + arm64)
+          set +e
+          NODE_VERSION=$(curl -fsSL https://nodejs.org/dist/index.json | jq -r '[.[] | select(.version | test("^v22\\."))][0].version')
+          set -e
+          : "${NODE_VERSION:=v22.7.0}"
+
+          mkdir -p pack/bin
+
+          curl -fsSL "https://nodejs.org/dist/${NODE_VERSION}/node-${NODE_VERSION}-linux-x64.tar.xz" -o /tmp/node-x64.tar.xz
+          tar -xJf /tmp/node-x64.tar.xz --strip-components=2 -C pack/bin "node-${NODE_VERSION}-linux-x64/bin/node"
+          mv pack/bin/node pack/bin/node-linux-x64
+
+          curl -fsSL "https://nodejs.org/dist/${NODE_VERSION}/node-${NODE_VERSION}-linux-arm64.tar.xz" -o /tmp/node-arm64.tar.xz
+          tar -xJf /tmp/node-arm64.tar.xz --strip-components=2 -C pack/bin "node-${NODE_VERSION}-linux-arm64/bin/node"
+          mv pack/bin/node pack/bin/node-linux-arm64
+
+          # Portable launcher that selects the correct binary at runtime
+          cat > pack/bin/node <<'EOS'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          ARCH="$(uname -m)"
+          DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+          case "$ARCH" in
+            x86_64) exec "$DIR/node-linux-x64" "$@" ;;
+            aarch64|arm64) exec "$DIR/node-linux-arm64" "$@" ;;
+            *) echo "Unsupported architecture: $ARCH" >&2; exit 1 ;;
+          esac
+          EOS
+          chmod +x pack/bin/node pack/bin/node-linux-x64 pack/bin/node-linux-arm64
+
+          # Force a known-good systemd unit that uses the vendored Node
+          cat > pack/scheduler.service <<'UNIT'
+          [Unit]
+          Description=NAT20 Backend (Node.js)
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          Type=simple
+          WorkingDirectory=/opt/app
+          EnvironmentFile=/opt/app/.env
+          ExecStart=/opt/app/bin/node /opt/app/app.js
+          Restart=always
+          RestartSec=2
+          NoNewPrivileges=true
+
+          # Hardening (tune as needed)
+          ProtectSystem=full
+          ProtectHome=true
+          PrivateTmp=true
+
+          [Install]
+          WantedBy=multi-user.target
+          UNIT
+
+          # Zip the pack dir as backend.zip at repo root
+          (cd pack && zip -r ../backend.zip .)
 
       - name: Upload artifact to private S3 (encrypted)
         run: |
@@ -73,7 +149,7 @@ jobs:
           echo "ARTIFACT_KEY=$KEY" >> $GITHUB_ENV
           aws s3 cp backend.zip "s3://$ARTIFACT_BUCKET/$KEY" --sse AES256
 
-      - name: Deploy on instance via SSM (download from S3, render .env from SSM)
+      - name: Deploy on instance via SSM (download from S3, write .env, install unit)
         env:
           INSTANCE_ID: ${{ env.INSTANCE_ID }}
           ARTIFACT_BUCKET: ${{ env.ARTIFACT_BUCKET }}
@@ -91,36 +167,25 @@ jobs:
           if ! command -v rsync >/dev/null 2>&1; then
             if command -v dnf >/dev/null 2>&1; then dnf install -y rsync; elif command -v yum >/dev/null 2>&1; then yum install -y rsync; elif command -v apt-get >/dev/null 2>&1; then apt-get update -y && apt-get install -y rsync; fi
           fi
-          if ! command -v curl >/dev/null 2>&1; then
-            if command -v dnf >/dev/null 2>&1; then dnf install -y curl; elif command -v yum >/dev/null 2>&1; then yum install -y curl; elif command -v apt-get >/dev/null 2>&1; then apt-get update -y && apt-get install -y curl; fi
-          fi
 
           sudo mkdir -p /opt/app /tmp/installation
           sudo chown -R root:root /tmp/installation
 
-          # Download and extract artifact (into a clean unpack dir)
-          aws s3 cp "s3://$ARTIFACT_BUCKET/$ARTIFACT_KEY" /tmp/installation/backend.zip
+          # Download and extract artifact (runner expanded bucket/key)
+          aws s3 cp "s3://${ARTIFACT_BUCKET}/${ARTIFACT_KEY}" /tmp/installation/backend.zip
           rm -rf /tmp/installation/unpack
           mkdir -p /tmp/installation/unpack
           unzip -o /tmp/installation/backend.zip -d /tmp/installation/unpack/
 
-          # Choose source dir (handles archives that contain an /app folder)
+          # Sync into /opt/app
           SRC="/tmp/installation/unpack"
-          if [ -d "/tmp/installation/unpack/app" ]; then SRC="/tmp/installation/unpack/app"; fi
+          sudo rsync -a --delete "$SRC"/ /opt/app/
 
-          # Ensure destination exists, then sync (idempotent; removes stale files)
-          sudo mkdir -p /opt/app
-          sudo rsync -a --delete "\$SRC"/ /opt/app/
+          # Permissions for vendored node binaries
+          sudo chmod +x /opt/app/bin/node || true
+          sudo chmod +x /opt/app/bin/node-linux-* || true
 
-          # Move unit file if present (top-level or inside app)
-          if [ -f /tmp/installation/unpack/scheduler.service ]; then
-            sudo cp -f /tmp/installation/unpack/scheduler.service /etc/systemd/system/scheduler.service
-          fi
-          if [ -f /opt/app/scheduler.service ]; then
-            sudo cp -f /opt/app/scheduler.service /etc/systemd/system/scheduler.service
-          fi
-
-          # Fetch secrets from SSM (evaluated on the instance)
+          # Fetch secrets from SSM
           JWT_SECRET=\$(aws ssm get-parameter --name /nat20/backend/JWT_SECRET --with-decryption --query Parameter.Value --output text)
           MONGO_USER=\$(aws ssm get-parameter --name /nat20/mongo/USER --with-decryption --query Parameter.Value --output text)
           MONGO_PASS=\$(aws ssm get-parameter --name /nat20/mongo/PASSWORD --with-decryption --query Parameter.Value --output text)
@@ -128,37 +193,16 @@ jobs:
           MONGO_DB=\$(aws ssm get-parameter --name /nat20/mongo/DB --with-decryption --query Parameter.Value --output text)
 
           # Write .env
-          echo JWT_SECRET=\$JWT_SECRET | sudo tee /opt/app/.env >/dev/null
-          echo MONGO_URI=mongodb://\$MONGO_USER:\$MONGO_PASS@\$MONGO_HOST:27017/\$MONGO_DB?authSource=admin | sudo tee -a /opt/app/.env >/dev/null
-          echo MONGO_DB_NAME=\$MONGO_DB | sudo tee -a /opt/app/.env >/dev/null
-          echo PORT=3000 | sudo tee -a /opt/app/.env >/dev/null
-          echo COOKIE_SECURE=true | sudo tee -a /opt/app/.env >/dev/null
+          {
+            echo JWT_SECRET=\$JWT_SECRET
+            echo MONGO_URI=mongodb://\$MONGO_USER:\$MONGO_PASS@\$MONGO_HOST:27017/\$MONGO_DB?authSource=admin
+            echo MONGO_DB_NAME=\$MONGO_DB
+            echo PORT=3000
+            echo COOKIE_SECURE=true
+          } | sudo tee /opt/app/.env >/dev/null
 
-          # Ensure Node.js/npm is available for the root session used by SSM
-          if ! command -v npm >/dev/null 2>&1; then
-            if command -v dnf >/dev/null 2>&1; then
-              curl -fsSL https://rpm.nodesource.com/setup_22.x | bash -
-              dnf install -y nodejs
-            elif command -v yum >/dev/null 2>&1; then
-              curl -fsSL https://rpm.nodesource.com/setup_22.x | bash -
-              yum install -y nodejs
-            elif command -v apt-get >/dev/null 2>&1; then
-              curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
-              apt-get update -y
-              apt-get install -y nodejs
-            else
-              echo "Unsupported package manager: cannot install Node.js" >&2
-              exit 1
-            fi
-          fi
-
-          # Install deps (prefer lockfile if present)
-          cd /opt/app
-          if [ -f package-lock.json ]; then
-            npm ci --omit=dev
-          else
-            npm install --omit=dev
-          fi
+          # Install our known-good service unit (always overwrite)
+          sudo cp -f /opt/app/scheduler.service /etc/systemd/system/scheduler.service
 
           sudo systemctl daemon-reload
           sudo systemctl enable scheduler || true
@@ -169,13 +213,14 @@ jobs:
           rm -rf /tmp/installation
           CMDS
 
+          # Convert to JSON for SSM and execute
           jq -Rs '{commands: (split("\n") | map(select(length>0)))}' /tmp/ssm_commands.txt > /tmp/ssm_params.json
 
           CMD_ID=$(aws ssm send-command \
             --document-name "AWS-RunShellScript" \
             --instance-ids "$INSTANCE_ID" \
             --region eu-central-1 \
-            --comment "Deploy backend app from private S3 artifact; secrets from SSM" \
+            --comment "Deploy backend (vendored node + node_modules; secrets from SSM)" \
             --parameters file:///tmp/ssm_params.json \
             --query "Command.CommandId" --output text)
 
