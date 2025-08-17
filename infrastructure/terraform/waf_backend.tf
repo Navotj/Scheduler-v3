@@ -1,9 +1,8 @@
 ############################################################
 # WAFv2 for ALB (Backend API)
-# - Conservative managed rules
+# - Managed rules (conservative)
 # - Explicit allows for ALB health checks and CORS preflight
 # - Per-IP rate limiting
-# - Associate this ACL to the ALB (keep your existing association)
 ############################################################
 
 resource "aws_wafv2_web_acl" "backend" {
@@ -19,14 +18,24 @@ resource "aws_wafv2_web_acl" "backend" {
   rule {
     name     = "AllowALBHealthChecks"
     priority = 0
-    action { allow {} }
+
+    action {
+      allow {}
+    }
 
     statement {
       byte_match_statement {
         search_string         = "ELB-HealthChecker"
         positional_constraint = "CONTAINS"
-        field_to_match { single_header { name = "user-agent" } }
-        text_transformations { priority = 0 type = "NONE" }
+        field_to_match {
+          single_header {
+            name = "user-agent"
+          }
+        }
+        text_transformations {
+          priority = 0
+          type     = "NONE"
+        }
       }
     }
 
@@ -41,14 +50,22 @@ resource "aws_wafv2_web_acl" "backend" {
   rule {
     name     = "AllowCORSPreflight"
     priority = 1
-    action { allow {} }
+
+    action {
+      allow {}
+    }
 
     statement {
       byte_match_statement {
         search_string         = "OPTIONS"
         positional_constraint = "EXACTLY"
-        field_to_match { method {} }
-        text_transformations { priority = 0 type = "NONE" }
+        field_to_match {
+          method {}
+        }
+        text_transformations {
+          priority = 0
+          type     = "NONE"
+        }
       }
     }
 
@@ -63,11 +80,14 @@ resource "aws_wafv2_web_acl" "backend" {
   rule {
     name     = "RateLimitPerIP"
     priority = 5
-    action { block {} }
+
+    action {
+      block {}
+    }
 
     statement {
       rate_based_statement {
-        limit              = 2000   # requests per 5 minutes per IP
+        limit              = 2000 # requests per 5 minutes per IP
         aggregate_key_type = "IP"
       }
     }
@@ -83,7 +103,10 @@ resource "aws_wafv2_web_acl" "backend" {
   rule {
     name     = "AWS-AWSManagedRulesCommonRuleSet"
     priority = 10
-    override_action { none {} }
+
+    override_action {
+      none {}
+    }
 
     statement {
       managed_rule_group_statement {
@@ -103,7 +126,10 @@ resource "aws_wafv2_web_acl" "backend" {
   rule {
     name     = "AWS-AWSManagedRulesKnownBadInputsRuleSet"
     priority = 20
-    override_action { none {} }
+
+    override_action {
+      none {}
+    }
 
     statement {
       managed_rule_group_statement {
@@ -123,7 +149,10 @@ resource "aws_wafv2_web_acl" "backend" {
   rule {
     name     = "AWS-AWSManagedRulesAmazonIpReputationList"
     priority = 30
-    override_action { none {} }
+
+    override_action {
+      none {}
+    }
 
     statement {
       managed_rule_group_statement {
@@ -143,7 +172,10 @@ resource "aws_wafv2_web_acl" "backend" {
   rule {
     name     = "AWS-AWSManagedRulesSQLiRuleSet"
     priority = 40
-    override_action { none {} }
+
+    override_action {
+      none {}
+    }
 
     statement {
       managed_rule_group_statement {
