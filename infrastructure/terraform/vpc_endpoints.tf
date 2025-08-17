@@ -87,25 +87,25 @@ resource "aws_vpc_endpoint" "logs" {
   tags = { Name = "nat20-logs-endpoint" }
 }
 
-# Look up the route table actually associated with that subnet
-data "aws_route_table" "private_1b" {
-  filter {
-    name   = "association.subnet-id"
-    values = [data.aws_subnet.eu_central_1b.id]
-  }
-  filter {
-    name   = "vpc-id"
-    values = [data.aws_subnet.eu_central_1b.vpc_id]
-  }
+# 1) Dedicated private route table
+resource "aws_route_table" "private_1b" {
+  vpc_id = data.aws_subnet.eu_central_1b.vpc_id
+  tags   = { Name = "nat20-private-rt-1b" }
 }
 
-# Create the S3 Gateway Endpoint and attach it to the private route table
+# 2) Associate it to your private subnet (eu-central-1b)
+resource "aws_route_table_association" "private_1b_assoc" {
+  subnet_id      = data.aws_subnet.eu_central_1b.id
+  route_table_id = aws_route_table.private_1b.id
+}
+
+# 3) S3 Gateway VPC Endpoint attached to that route table
 resource "aws_vpc_endpoint" "s3_gateway" {
   vpc_id            = data.aws_subnet.eu_central_1b.vpc_id
   service_name      = "com.amazonaws.eu-central-1.s3"
   vpc_endpoint_type = "Gateway"
 
-  route_table_ids = [data.aws_route_table.private_1b.id]
+  route_table_ids = [aws_route_table.private_1b.id]
 
   tags = { Name = "nat20-s3-gateway-endpoint" }
 }
