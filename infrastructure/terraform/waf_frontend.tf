@@ -1,20 +1,22 @@
 ############################################################
-# WAFv2 for ALB (Backend API)
-# - Conservative managed rules
-# - Explicit allow for CORS preflight
-# - Per-IP rate limiting
-# NOTE: REGIONAL scope (same region as ALB)
+# WAFv2 for CloudFront (Frontend)
+# - Managed rules (conservative)
+# - Explicit allow for CORS preflight (OPTIONS)
+# - Global rate limiting
+# NOTE: CloudFront-scoped WAF must use us-east-1 provider alias already defined elsewhere.
 ############################################################
 
-resource "aws_wafv2_web_acl" "backend" {
-  name        = "backend-acl"
-  scope       = "REGIONAL"
-  description = "Backend WAF: managed rule groups + OPTIONS allow + rate limit"
+resource "aws_wafv2_web_acl" "frontend" {
+  provider    = aws.us_east_1
+  name        = "frontend-acl"
+  scope       = "CLOUDFRONT"
+  description = "Frontend WAF: managed rule groups + OPTIONS allow + rate limit"
 
   default_action {
     allow {}
   }
 
+  # 0 - Always allow CORS preflight requests
   rule {
     name     = "AllowCORSPreflight"
     priority = 0
@@ -32,7 +34,7 @@ resource "aws_wafv2_web_acl" "backend" {
           method {}
         }
 
-        text_transformations {
+        text_transformation {
           priority = 0
           type     = "NONE"
         }
@@ -46,6 +48,7 @@ resource "aws_wafv2_web_acl" "backend" {
     }
   }
 
+  # 5 - IP rate limiting (safe baseline)
   rule {
     name     = "RateLimitPerIP"
     priority = 5
@@ -56,7 +59,7 @@ resource "aws_wafv2_web_acl" "backend" {
 
     statement {
       rate_based_statement {
-        limit              = 2000
+        limit              = 1500 # requests per 5 minutes per IP
         aggregate_key_type = "IP"
       }
     }
@@ -68,6 +71,7 @@ resource "aws_wafv2_web_acl" "backend" {
     }
   }
 
+  # 10 - Core protections (low FP)
   rule {
     name     = "AWS-AWSManagedRulesCommonRuleSet"
     priority = 10
@@ -90,6 +94,7 @@ resource "aws_wafv2_web_acl" "backend" {
     }
   }
 
+  # 20 - Known bad inputs
   rule {
     name     = "AWS-AWSManagedRulesKnownBadInputsRuleSet"
     priority = 20
@@ -112,6 +117,7 @@ resource "aws_wafv2_web_acl" "backend" {
     }
   }
 
+  # 30 - IP reputation
   rule {
     name     = "AWS-AWSManagedRulesAmazonIpReputationList"
     priority = 30
@@ -134,6 +140,7 @@ resource "aws_wafv2_web_acl" "backend" {
     }
   }
 
+  # 40 - SQL injection detection
   rule {
     name     = "AWS-AWSManagedRulesSQLiRuleSet"
     priority = 40
@@ -158,7 +165,7 @@ resource "aws_wafv2_web_acl" "backend" {
 
   visibility_config {
     cloudwatch_metrics_enabled = true
-    metric_name                = "backend-acl"
+    metric_name                = "frontend-acl"
     sampled_requests_enabled   = true
   }
 }
