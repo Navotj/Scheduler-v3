@@ -16,7 +16,8 @@
   let weekStartIdx = settings.weekStart === 'mon' ? 1 : 0;
   let highlightWeekends = !!settings.highlightWeekends;
 
-  let zoomFactor = clamp(typeof settings.defaultZoom === 'number' ? settings.defaultZoom : 1.0, 0.6, 2.0);
+  // vertical-only zoom; text size stays constant
+  let zoomFactor = 1.0;
   const ZOOM_MIN = 0.6;
   const ZOOM_MAX = 2.0;
   const ZOOM_STEP = 0.1;
@@ -113,7 +114,8 @@
     const startYear = new Intl.DateTimeFormat('en-US', { timeZone: tz, year: 'numeric' }).format(startDate);
     const endYear = new Intl.DateTimeFormat('en-US', { timeZone: tz, year: 'numeric' }).format(endDate);
     const year = startYear === endYear ? startYear : `${startYear}–${endYear}`;
-    document.getElementById('week-label').textContent = `${fmt(startDate)} – ${fmt(endDate)}, ${year}`;
+    const el = document.getElementById('week-label');
+    if (el) el.textContent = `${fmt(startDate)} – ${fmt(endDate)}, ${year}`;
   }
 
   function getWeekStartEpochAndYMD() {
@@ -147,21 +149,29 @@
     }
   }
 
+  // Zoom only changes vertical row height; header/body text size remains constant.
   function applyZoomStyles() {
     const root = document.documentElement;
     const baseRow = 18;
-    const baseFont = 12;
-
     root.style.setProperty('--row-height', `${(baseRow * zoomFactor).toFixed(2)}px`);
-    root.style.setProperty('--font-size', `${(baseFont * zoomFactor).toFixed(2)}px`);
-
-    const body = document.body;
-    body.classList.remove('zoom-dense', 'zoom-medium', 'zoom-large');
-    if (zoomFactor < 1.1) body.classList.add('zoom-dense');
-    else if (zoomFactor < 1.5) body.classList.add('zoom-medium');
-    else body.classList.add('zoom-large');
-
     requestAnimationFrame(updateNowMarker);
+  }
+
+  // Compute a zoom that fits the full 24h into the visible grid area (like schedule matcher)
+  function initialZoomToFit24h() {
+    const baseRow = 18; // px at zoom 1.0
+    if (!grid || !table) return;
+    const thead = table.querySelector('thead');
+    const contentEl = document.getElementById('grid-content');
+    if (!thead || !contentEl) return;
+
+    const available = Math.max(0, contentEl.clientHeight - thead.offsetHeight - 2);
+    const rowsPerDay = (HOURS_END - HOURS_START) * SLOTS_PER_HOUR; // 48
+    const needed = rowsPerDay * baseRow;
+    const zFit = clamp(available / needed, ZOOM_MIN, ZOOM_MAX);
+
+    zoomFactor = zFit >= ZOOM_MIN ? zFit : ZOOM_MIN;
+    applyZoomStyles();
   }
 
   function buildGrid() {
@@ -288,6 +298,8 @@
 
     setupZoomHandlers();
 
+    // start zoomed-out to fit 24h (like schedule matcher)
+    requestAnimationFrame(() => requestAnimationFrame(initialZoomToFit24h));
     requestAnimationFrame(updateNowMarker);
   }
 
@@ -438,14 +450,19 @@
         hour12 = settings.clock === '12';
         weekStartIdx = settings.weekStart === 'mon' ? 1 : 0;
         highlightWeekends = !!settings.highlightWeekends;
-        zoomFactor = clamp(typeof settings.defaultZoom === 'number' ? settings.defaultZoom : zoomFactor, ZOOM_MIN, ZOOM_MAX);
+        // do not take defaultZoom from settings here; keep current user zoom
         applyZoomStyles();
         buildGrid();
       }
     });
 
-    // Update marker layout on window resize (column widths may change).
-    window.addEventListener('resize', () => requestAnimationFrame(updateNowMarker));
+    // Recompute now marker geometry on window resize
+    window.addEventListener('resize', () => {
+      requestAnimationFrame(() => {
+        initialZoomToFit24h();
+        updateNowMarker();
+      });
+    });
   }
 
   function setupZoomHandlers() {
@@ -458,11 +475,12 @@
       applyZoomStyles();
     }, { passive: false });
 
+    // Optional keyboard zoom with Shift held, vertical-only effect
     window.addEventListener('keydown', (e) => {
       if (!e.shiftKey) return;
       if (e.key === '=' || e.key === '+') { zoomFactor = clamp(zoomFactor + ZOOM_STEP, ZOOM_MIN, ZOOM_MAX); applyZoomStyles(); }
       else if (e.key === '-' || e.key === '_') { zoomFactor = clamp(zoomFactor - ZOOM_STEP, ZOOM_MIN, ZOOM_MAX); applyZoomStyles(); }
-      else if (e.key === '0') { zoomFactor = 1.0; applyZoomStyles(); }
+      else if (e.key === '0') { initialZoomToFit24h(); }
     });
 
     /* No scroll listener needed for the now marker:
@@ -517,7 +535,10 @@
     hour12 = settings.clock === '12';
     weekStartIdx = settings.weekStart === 'mon' ? 1 : 0;
     highlightWeekends = !!settings.highlightWeekends;
-    zoomFactor = clamp(typeof settings.defaultZoom === 'number' ? settings.defaultZoom : 1.0, ZOOM_MIN, ZOOM_MAX);
+
+    // start from defaultZoom only for first paint; then we fit to viewport
+    const dz = (typeof settings.defaultZoom === 'number') ? settings.defaultZoom : 1.0;
+    zoomFactor = clamp(dz, ZOOM_MIN, ZOOM_MAX);
     saveLocal(settings);
 
     applyZoomStyles();
