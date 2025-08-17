@@ -277,6 +277,14 @@
     findCandidates();
   }
 
+    // Map raw available count -> normalized shade 0..7, so max players is always brightest
+  function mapCountToShade(count) {
+    if (totalMembers <= 0) return 0;
+    const idx = Math.round((count / totalMembers) * 7);
+    return clamp(idx, 0, 7);
+  }
+
+
   // --- Paint counts into cells (0..7+) and build week arrays ---
   function slotCount(epoch) {
     let count = 0;
@@ -287,20 +295,30 @@
     return count;
   }
 
-  function paintCounts() {
+    function paintCounts() {
     counts = [];
     sets = [];
     const tds = table.querySelectorAll('.slot-cell');
     for (const td of tds) {
       const epoch = Number(td.dataset.epoch);
-      const c = Math.min(7, slotCount(epoch));
-      td.dataset.c = String(c);
+
+      // raw count for logic
+      const raw = slotCount(epoch);
+
+      // normalized shade for color (0..7, 7 is always "max players" green)
+      const shade = mapCountToShade(raw);
+
+      td.dataset.c = String(shade);
       td.classList.remove('dim', 'highlight');
 
       const day = Number(td.dataset.day);
       const row = Number(td.dataset.row);
       const g = day * ROWS_PER_DAY + row;
-      counts[g] = slotCount(epoch);
+
+      // keep raw counts for filters/candidate search
+      counts[g] = raw;
+
+      // who is available in this slot
       const who = new Set();
       for (const u of members) {
         const set = userSlotSets.get(u);
@@ -587,7 +605,6 @@
   }
 
 function updateLegend() {
-  // Prefer the alternating rows container if present
   const blocks = document.getElementById('legend-blocks');
   const steps = document.getElementById('legend-steps');
   const labels = document.getElementById('legend-labels');
@@ -595,22 +612,18 @@ function updateLegend() {
   const n = members.length;
   const chips = [];
 
-  // Toggle compress-low styling when there are many members
+  // Toggle compress-low when many members
   document.documentElement.classList.toggle('compress-low', n >= 11);
 
   if (n >= 11) {
     const threshold = Math.max(0, n - 10); // participants ≤ threshold => merged to black
-    chips.push({ c: 0, label: `≤${threshold}` });
-    for (let i = threshold + 1; i <= n; i++) {
-      chips.push({ c: Math.min(i, 7), label: String(i) });
-    }
+    chips.push({ raw: 0, label: `≤${threshold}` });
+    for (let i = threshold + 1; i <= n; i++) chips.push({ raw: i, label: String(i) });
   } else {
-    for (let i = 0; i <= n; i++) {
-      chips.push({ c: Math.min(i, 7), label: String(i) });
-    }
+    for (let i = 0; i <= n; i++) chips.push({ raw: i, label: String(i) });
   }
 
-  // New alternating layout: fixed 5 columns per row; use spacers to keep widths identical
+  // Alternating layout (preferred)
   if (blocks) {
     blocks.innerHTML = '';
     const COLS = 5;
@@ -627,7 +640,8 @@ function updateLegend() {
       for (const item of group) {
         const chip = document.createElement('div');
         chip.className = 'chip slot-cell';
-        chip.dataset.c = String(item.c);
+        // Normalize color scale to current totalMembers
+        chip.dataset.c = String(mapCountToShade(item.raw));
         stepsRow.appendChild(chip);
 
         const lab = document.createElement('span');
@@ -635,7 +649,7 @@ function updateLegend() {
         labelsRow.appendChild(lab);
       }
 
-      // Fill to 5 columns so the last line items are NOT wider
+      // Fillers so last row doesn't stretch
       for (let f = group.length; f < COLS; f++) {
         const spacerChip = document.createElement('div');
         spacerChip.className = 'chip spacer';
@@ -655,7 +669,7 @@ function updateLegend() {
     return;
   }
 
-  // Fallback: old single-rows layout
+  // Fallback: old single-row legend
   if (steps && labels) {
     steps.innerHTML = '';
     labels.innerHTML = '';
@@ -665,7 +679,7 @@ function updateLegend() {
     for (const item of chips) {
       const chip = document.createElement('div');
       chip.className = 'chip slot-cell';
-      chip.dataset.c = String(item.c);
+      chip.dataset.c = String(mapCountToShade(item.raw));
       steps.appendChild(chip);
 
       const lab = document.createElement('span');
