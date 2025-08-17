@@ -18,12 +18,8 @@ data "aws_cloudfront_origin_request_policy" "managed_all_viewer" {
   id = "216adef6-5c7f-47e4-b989-5492eafa07d3" # AllViewer
 }
 
-# ---------- ACM certificate in us-east-1 (for CloudFront) ----------
-# Requires provider alias aws.us_east_1 to be configured elsewhere in the module.
-
 # ---------- ACM certificate for CloudFront (us-east-1) ----------
-# We create and validate the cert instead of reading an existing one,
-# so Terraform can recover if the cert was deleted.
+# Requires provider alias aws.us_east_1 to be configured elsewhere.
 resource "aws_acm_certificate" "frontend" {
   provider                  = aws.us_east_1
   domain_name               = var.domain_name
@@ -98,16 +94,19 @@ resource "aws_cloudfront_distribution" "frontend" {
     origin_access_control_id = aws_cloudfront_origin_access_control.frontend.id
   }
 
+  # IMPORTANT: Use HTTPS to the API origin and target the custom DNS name
+  # so the ALB's ACM cert (eu-central-1) matches the SNI hostname.
   origin {
-    domain_name = data.aws_lb.backend.dns_name
+    domain_name = "api.${var.domain_name}"  # was data.aws_lb.backend.dns_name
     origin_id   = "alb-origin"
 
     custom_origin_config {
       http_port              = 80
       https_port             = 443
-      # Use http-only unless the ALB listener/cert matches the origin hostname
-      origin_protocol_policy = "http-only"
+      origin_protocol_policy = "https-only"   # was http-only -> caused 504 when ALB had no :80 listener
       origin_ssl_protocols   = ["TLSv1.2"]
+      origin_read_timeout    = 30
+      origin_keepalive_timeout = 5
     }
   }
 
@@ -194,13 +193,6 @@ resource "aws_cloudfront_distribution" "frontend" {
       restriction_type = "none"
     }
   }
-
-  # ---------- Logging (optional bucket/keys expected elsewhere) ----------
-  # logging_config {
-  #   bucket = aws_s3_bucket.logs.bucket_domain_name
-  #   prefix = "cloudfront/"
-  #   include_cookies = false
-  # }
 
   # ---------- TLS ----------
   viewer_certificate {
