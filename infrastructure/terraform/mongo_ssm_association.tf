@@ -1,7 +1,12 @@
-###############################################
-# Ensure mongod listens on 0.0.0.0:27017 and auth is enabled (permanent)
-# Runs on instances tagged Name=terraform-mongo via SSM Association
-###############################################
+############################################################
+# Ensure mongod listens on 0.0.0.0:27017 and auth is enabled
+# Runs continuously via SSM Association on instances tagged
+# Name=terraform-mongo. Permanent and applies to replacements.
+#
+# Requirements:
+#   - The Mongo EC2 has SSM Agent + IAM role for SSM
+#   - aws_instance.mongodb exists (for dependency)
+############################################################
 
 resource "aws_ssm_association" "mongo_enable_remote_auth" {
   name = "AWS-RunShellScript"
@@ -12,7 +17,7 @@ resource "aws_ssm_association" "mongo_enable_remote_auth" {
   }
 
   parameters = {
-    commands = [<<-EOT
+    commands = [<<-'SCRIPT'
       #!/usr/bin/env bash
       set -euo pipefail
       CONF=/etc/mongod.conf
@@ -50,6 +55,9 @@ resource "aws_ssm_association" "mongo_enable_remote_auth" {
       sudo systemctl restart mongod
       sleep 1
       ss -lntp | grep ':27017' || true
-    EOT]
+    SCRIPT]
   }
+
+  # Ensure association is created after the Mongo instance exists
+  depends_on = [aws_instance.mongodb]
 }
