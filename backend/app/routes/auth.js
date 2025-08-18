@@ -11,7 +11,6 @@ router.use((req, res, next) => {
   next();
 });
 
-
 function isSecure() {
   return String(process.env.COOKIE_SECURE).toLowerCase() === 'true';
 }
@@ -72,6 +71,9 @@ router.post(
         return res.status(401).json({ error: 'invalid credentials' });
       }
 
+      // MISSING BEFORE — generate the JWT
+      const token = generateToken(user);
+
       res.cookie('token', token, {
         httpOnly: true,
         sameSite: 'Lax',
@@ -80,6 +82,7 @@ router.post(
         domain: process.env.COOKIE_DOMAIN || '.nat20scheduling.com',
         maxAge: 7 * 24 * 60 * 60 * 1000
       });
+
       console.log(`[AUTH][${reqId}] login success`, { username, id: String(user._id) });
       return res.json({
         success: true,
@@ -91,7 +94,6 @@ router.post(
     }
   }
 );
-
 
 // CHECK
 router.get('/check', async (req, res) => {
@@ -139,6 +141,5 @@ router.post('/logout', (req, res) => {
     return res.status(500).json({ error: 'internal server error' });
   }
 });
-
 
 module.exports = router;
