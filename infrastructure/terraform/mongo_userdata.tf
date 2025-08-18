@@ -49,17 +49,17 @@ locals {
     echo "== Find attached data device (wait up to 120s) =="
     DEVICE=""
     for i in $(seq 1 120); do
-    if   [ -e /dev/xvdf ]; then DEVICE=/dev/xvdf
-    elif [ -e /dev/nvme1n1 ]; then DEVICE=/dev/nvme1n1
-    fi
-    [ -n "$DEVICE" ] && break
-    sleep 1
+      if   [ -e /dev/xvdf ]; then DEVICE=/dev/xvdf
+      elif [ -e /dev/nvme1n1 ]; then DEVICE=/dev/nvme1n1
+      fi
+      [ -n "$DEVICE" ] && break
+      sleep 1
     done
     if [ -z "$DEVICE" ]; then
-    for d in $(lsblk -ndo NAME,TYPE | awk '$2=="disk"{print "/dev/"$1}'); do
+      for d in $(lsblk -ndo NAME,TYPE | awk '$2=="disk"{print "/dev/"$1}'); do
         if lsblk -nro MOUNTPOINT "$d" | grep -q '/'; then continue; fi
         DEVICE="$d"; break
-    done
+      done
     fi
     [ -n "$DEVICE" ] || { echo "FATAL: No data EBS device found" >&2; exit 1; }
     echo "Using data device: $DEVICE"
@@ -80,10 +80,10 @@ locals {
     cp -an "$CONF" "$CONF.bak.$(date +%s)" || true
     cat >"$CONF" <<'CFG'
     storage:
-    dbPath: /data/db
+      dbPath: /data/db
     net:
-    bindIp: 0.0.0.0
-    port: 27017
+      bindIp: 0.0.0.0
+      port: 27017
     # security will be enabled after admin user is created
     CFG
 
@@ -94,30 +94,31 @@ locals {
 
     echo "== Wait for mongod to listen on 27017 =="
     for i in $(seq 1 90); do
-    if ss -lntp | grep -q ':27017'; then break; fi
-    sleep 1
+      if ss -lntp | grep -q ':27017'; then break; fi
+      sleep 1
     done
 
     echo "== Fetch SSM admin creds and create user =="
     set +x  # hide secrets
     TOKEN=$(curl -sS -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 60" || true)
-    AWS_REGION_CMD=$(curl -sS -H "X-aws-ec2-metadata-token: $TOKEN" \
-    http://169.254.169.254/latest/dynamic/instance-identity/document | awk -F\" '/"region":/ {print $4}')
-    AWS_REGION="${AWS_REGION_CMD:-eu-central-1}"
+    AWS_REGION_CMD=$(curl -sS -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/dynamic/instance-identity/document | awk -F"\\\"" '/"region":/ {print $4}')
+    AWS_REGION="$${AWS_REGION_CMD:-eu-central-1}"
 
     SSM_USER_PARAM="/nat20/mongo/USER"
     SSM_PASS_PARAM="/nat20/mongo/PASSWORD"
 
     MONGO_USER=""; MONGO_PASS=""
     for i in $(seq 1 150); do
-    MONGO_USER=$(aws ssm get-parameter --name "$SSM_USER_PARAM" --with-decryption --query 'Parameter.Value' --output text --region "$AWS_REGION" 2>/dev/null || true)
-    MONGO_PASS=$(aws ssm get-parameter --name "$SSM_PASS_PARAM" --with-decryption --query 'Parameter.Value' --output text --region "$AWS_REGION" 2>/dev/null || true)
-    if [ -n "$MONGO_USER" ] && [ "$MONGO_USER" != "None" ] && [ -n "$MONGO_PASS" ] && [ "$MONGO_PASS" != "None" ]; then break; fi
-    sleep 2
+      MONGO_USER=$(aws ssm get-parameter --name "$SSM_USER_PARAM" --with-decryption --query 'Parameter.Value' --output text --region "$AWS_REGION" 2>/dev/null || true)
+      MONGO_PASS=$(aws ssm get-parameter --name "$SSM_PASS_PARAM" --with-decryption --query 'Parameter.Value' --output text --region "$AWS_REGION" 2>/dev/null || true)
+      if [ -n "$MONGO_USER" ] && [ "$MONGO_USER" != "None" ] && [ -n "$MONGO_PASS" ] && [ "$MONGO_PASS" != "None" ]; then break; fi
+      sleep 2
     done
+    set -x
+
     if [ -z "$MONGO_USER" ] || [ -z "$MONGO_PASS" ] || [ "$MONGO_USER" = "None" ] || [ "$MONGO_PASS" = "None" ]; then
-    echo "FATAL: Missing SSM parameters ($SSM_USER_PARAM / $SSM_PASS_PARAM); refusing to enable auth with no admin." >&2
-    exit 1
+      echo "FATAL: Missing SSM parameters ($SSM_USER_PARAM / $SSM_PASS_PARAM); refusing to enable auth with no admin." >&2
+      exit 1
     fi
 
     umask 077
@@ -128,24 +129,21 @@ locals {
     const admin = db.getSiblingDB("admin");
     const existing = admin.system.users.findOne({ user, db: "admin" });
     if (existing) {
-    print("User '" + user + "' already exists; skipping.");
+      print("User '" + user + "' already exists; skipping.");
     } else {
-    admin.createUser({ user, pwd: pass, roles: [ { role: "root", db: "admin" } ] });
-    print("Created admin user '" + user + "'.");
+      admin.createUser({ user, pwd: pass, roles: [ { role: "root", db: "admin" } ] });
+      print("Created admin user '" + user + "'.");
     }
     JS
     MONGO_USER="$MONGO_USER" MONGO_PASS="$MONGO_PASS" mongosh --quiet --file /root/create_admin.js >/root/mongo_user_setup.log 2>&1 || true
     shred -u /root/create_admin.js
     unset MONGO_PASS
-    set -x
 
     echo "== Enable authorization and restart =="
-    # append (or ensure) security.authorization: enabled
     if ! grep -qE '^[[:space:]]*security:' "$CONF"; then
-    printf '\nsecurity:\n  authorization: enabled\n' >> "$CONF"
+      printf '\\nsecurity:\\n  authorization: enabled\\n' >> "$CONF"
     elif ! grep -qE '^[[:space:]]*authorization:[[:space:]]*enabled' "$CONF"; then
-    # in case a security: block exists but has no authorization
-    awk '1; /^security:$/ {print "  authorization: enabled"}' "$CONF" > "$CONF.new" && mv "$CONF.new" "$CONF"
+      awk '1; /^security:$/ {print "  authorization: enabled"}' "$CONF" > "$CONF.new" && mv "$CONF.new" "$CONF"
     fi
 
     systemctl restart mongod
