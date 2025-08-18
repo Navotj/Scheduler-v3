@@ -13,32 +13,37 @@
 # - aws_security_group.backend_access
 # - aws_security_group.alb
 # - aws_instance.backend
+# - var.backend_port
 
 resource "aws_lb" "api" {
   name               = "nat20-backend-alb"
   internal           = false
   load_balancer_type = "application"
   security_groups    = [aws_security_group.alb.id]
-  subnets            = [
-    data.aws_subnet.eu_central_1a.id,
-    data.aws_subnet.eu_central_1c.id
-  ]
-  idle_timeout       = 120
 
-  tags = {
-    Name = "nat20-backend-alb"
-  }
+  # REQUIRED: at least two subnets in different AZs
+  subnets = [
+    data.aws_subnet.eu_central_1a.id,
+    data.aws_subnet.eu_central_1b.id
+  ]
+
+  # Match backend keep-alives (Node server keepAliveTimeout = 65s)
+  idle_timeout = 120
+
+  tags = { Name = "nat20-backend-alb" }
 }
 
 resource "aws_lb_target_group" "api" {
-  name     = "nat20-backend-tg"
-  port     = var.backend_port
-  protocol = "HTTP"
-  vpc_id   = data.aws_vpc.default.id
+  name        = "nat20-backend-tg"
+  port        = var.backend_port
+  protocol    = "HTTP"
+  target_type = "instance"
+  vpc_id      = data.aws_vpc.default.id
 
   # PERSISTENT health check on /health
   health_check {
-    path                = "/health"
+    enabled             = true
+    path                = "/health"    # <- stays /health
     protocol            = "HTTP"
     matcher             = "200"
     interval            = 30
@@ -47,9 +52,7 @@ resource "aws_lb_target_group" "api" {
     unhealthy_threshold = 2
   }
 
-  tags = {
-    Name = "nat20-backend-tg"
-  }
+  tags = { Name = "nat20-backend-tg" }
 }
 
 resource "aws_lb_target_group_attachment" "backend_instance" {
