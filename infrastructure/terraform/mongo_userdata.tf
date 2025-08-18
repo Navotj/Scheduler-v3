@@ -1,19 +1,3 @@
-############################################################
-# MongoDB 8.0 install via EC2 user_data (idempotent)
-# - Installs MongoDB 8.0 on Amazon Linux 2023 (dnf/yum)
-# - Mounts attached EBS at /data/db (XFS, by UUID; waits for the device)
-# - Updates mongod.conf (dbPath=/data/db, bindIp=0.0.0.0)
-# - Enables & starts mongod
-# - Creates admin user from SSM params:
-#       /nat20/mongo/USER and /nat20/mongo/PASSWORD
-# - Enables authorization and restarts mongod
-#
-# Assumes in your stack:
-# - aws_instance.mongodb exists
-# - EBS volume + aws_volume_attachment.mongo_data_attachment exist
-# - Instance profile already has SSM Parameter Store read perms
-############################################################
-
 locals {
   mongo_user_data = <<-EOT
     #!/usr/bin/env bash
@@ -75,7 +59,7 @@ locals {
     mount "$MOUNT_POINT" || mount -a || true
     chown -R mongod:mongod "$MOUNT_POINT"
 
-    echo "== Write a minimal mongod.conf (no auth yet) =="
+    echo "== Write minimal mongod.conf (no auth yet) =="
     CONF="/etc/mongod.conf"
     cp -an "$CONF" "$CONF.bak.$(date +%s)" || true
     cat >"$CONF" <<'CFG'
@@ -101,8 +85,13 @@ locals {
     echo "== Fetch SSM admin creds and create user =="
     set +x  # hide secrets
     TOKEN=$(curl -sS -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 60" || true)
-    AWS_REGION_CMD=$(curl -sS -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/dynamic/instance-identity/document | awk -F"\\\"" '/"region":/ {print $4}')
-    AWS_REGION="$${AWS_REGION_CMD:-eu-central-1}"
+    AWS_REGION_CMD=$(
+      curl -sS -H "X-aws-ec2-metadata-token: $TOKEN" \
+        http://169.254.169.254/latest/dynamic/instance-identity/document \
+      | sed -n 's/.*"region"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p'
+    )
+    AWS_REGION="$AWS_REGION_CMD"
+    if [ -z "$AWS_REGION" ]; then AWS_REGION="eu-central-1"; fi
 
     SSM_USER_PARAM="/nat20/mongo/USER"
     SSM_PASS_PARAM="/nat20/mongo/PASSWORD"
@@ -140,16 +129,19 @@ locals {
     unset MONGO_PASS
 
     echo "== Enable authorization and restart =="
-    if ! grep -qE '^[[:space:]]*security:' "$CONF"; then
-      printf '\\nsecurity:\\n  authorization: enabled\\n' >> "$CONF"
-    elif ! grep -qE '^[[:space:]]*authorization:[[:space:]]*enabled' "$CONF"; then
-      awk '1; /^security:$/ {print "  authorization: enabled"}' "$CONF" > "$CONF.new" && mv "$CONF.new" "$CONF"
+    if grep -qE '^[[:space:]]*security:' "$CONF"; then
+      if ! grep -qE '^[[:space:]]*authorization:[[:space:]]*enabled' "$CONF"; then
+        sed -ri '/^[[:space:]]*security:/a\\  authorization: enabled' "$CONF"
+      fi
+    else
+      cat >>"$CONF" <<'SEC'
+    security:
+      authorization: enabled
+    SEC
     fi
 
     systemctl restart mongod
 
     echo "== Done. Quick health =="
     systemctl is-active mongod || true
-    ss -lntp | grep ':27017' || true
-  EOT
-}
+    ss -lntp | grep ':27017' || tr
