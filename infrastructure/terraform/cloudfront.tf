@@ -1,9 +1,28 @@
 ############################################################
 # CloudFront (Frontend + API routing)
 # - Default origin: S3 static site (via OAC)
-# - API paths -> ALB origin with cookies/headers/query forwarded
+# - API paths -> ALB origin with AllViewerExceptHostHeader
 # - SPA fallback handled by CF Function on S3 ONLY (no API rewrite)
 ############################################################
+
+# ---------- Managed policies ----------
+data "aws_cloudfront_cache_policy" "managed_caching_optimized" {
+  id = "658327ea-f89d-4fab-a63d-7e88639e58f6" # CachingOptimized
+}
+
+data "aws_cloudfront_cache_policy" "managed_caching_disabled" {
+  id = "4135ea2d-6df8-44a3-9df3-4b5a84be39ad" # CachingDisabled
+}
+
+# For default S3 behavior (forwards all viewer headers)
+data "aws_cloudfront_origin_request_policy" "managed_all_viewer" {
+  id = "216adef6-5c7f-47e4-b989-5492eafa07d3" # AllViewer
+}
+
+# For API behaviors — forwards all viewer headers EXCEPT Host (and allows Authorization)
+data "aws_cloudfront_origin_request_policy" "managed_all_viewer_except_host" {
+  id = "b689b0a8-53d0-40ab-baf2-68738e2966ac" # AllViewerExceptHostHeader
+}
 
 # ---------- ACM certificate for CloudFront (us-east-1) ----------
 resource "aws_acm_certificate" "frontend" {
@@ -50,37 +69,6 @@ resource "aws_cloudfront_origin_access_control" "frontend" {
   signing_protocol                  = "sigv4"
 }
 
-# ---------- Custom Origin Request Policy for API ----------
-# Forwards ALL cookies and ALL query strings, and needed headers (includes Authorization).
-resource "aws_cloudfront_origin_request_policy" "api_all_cookies" {
-  name = "api-all-cookies-all-qs-headers"
-
-  cookies_config {
-    cookie_behavior = "all"
-  }
-
-  headers_config {
-    header_behavior = "whitelist"
-    headers {
-      items = [
-        "Accept",
-        "Accept-Language",
-        "Content-Type",
-        "Origin",
-        "Referer",
-        "User-Agent",
-        "Access-Control-Request-Headers",
-        "Access-Control-Request-Method",
-        "Authorization"
-      ]
-    }
-  }
-
-  query_strings_config {
-    query_string_behavior = "all"
-  }
-}
-
 # ---------- CloudFront Function for SPA rewrite on S3 ONLY ----------
 resource "aws_cloudfront_function" "spa_rewrite" {
   name    = "spa-rewrite-index"
@@ -111,12 +99,6 @@ function handler(event) {
 EOF
 }
 
-# ---------- LEGACY OAI (kept during OAC migration to prevent downtime) ----------
-resource "aws_cloudfront_origin_access_identity" "frontend" {
-  comment = "LEGACY: kept to avoid downtime while migrating to OAC"
-  lifecycle { prevent_destroy = true }
-}
-
 # ---------- CloudFront Distribution ----------
 resource "aws_cloudfront_distribution" "frontend" {
   enabled             = true
@@ -125,21 +107,24 @@ resource "aws_cloudfront_distribution" "frontend" {
   default_root_object = "index.html"
   price_class         = "PriceClass_100"
 
-  aliases = [ var.domain_name ]
+  aliases = [var.domain_name]
 
+  # S3 origin (via OAC)
   origin {
-    domain_name                  = aws_s3_bucket.frontend.bucket_regional_domain_name
-    origin_id                    = "s3-frontend"
-    origin_access_control_id     = aws_cloudfront_origin_access_control.frontend.id
-    connection_attempts          = 3
-    connection_timeout           = 10
-  }
-
-  origin {
-    domain_name              = "${var.api_subdomain}.${var.domain_name}" # SNI must match ALB cert
-    origin_id                = "alb-origin"
+    domain_name              = aws_s3_bucket.frontend.bucket_regional_domain_name
+    origin_id                = "s3-frontend"
+    origin_access_control_id = aws_cloudfront_origin_access_control.frontend.id
     connection_attempts      = 3
     connection_timeout       = 10
+  }
+
+  # ALB origin by DNS (api.<domain>)
+  origin {
+    domain_name         = "api.${var.domain_name}"
+    origin_id           = "alb-origin"
+    connection_attempts = 3
+    connection_timeout  = 10
+
     custom_origin_config {
       http_port                = 80
       https_port               = 443
@@ -150,14 +135,17 @@ resource "aws_cloudfront_distribution" "frontend" {
     }
   }
 
-  # Default behavior (S3)
+  # ---------- Default behavior (S3) ----------
   default_cache_behavior {
     target_origin_id       = "s3-frontend"
     viewer_protocol_policy = "redirect-to-https"
-    allowed_methods        = ["GET", "HEAD", "OPTIONS"]
-    cached_methods         = ["GET", "HEAD", "OPTIONS"]
+
+    allowed_methods  = ["GET", "HEAD", "OPTIONS"]
+    cached_methods   = ["GET", "HEAD", "OPTIONS"]
+
     cache_policy_id          = data.aws_cloudfront_cache_policy.managed_caching_optimized.id
     origin_request_policy_id = data.aws_cloudfront_origin_request_policy.managed_all_viewer.id
+
     compress = true
 
     function_association {
@@ -166,7 +154,9 @@ resource "aws_cloudfront_distribution" "frontend" {
     }
   }
 
-  # Ordered behaviors (API -> ALB)
+  # ---------- Ordered behaviors (API -> ALB) ----------
+  # Exact paths before prefixes for deterministic matching.
+
   ordered_cache_behavior {
     path_pattern           = "/auth/check"
     target_origin_id       = "alb-origin"
@@ -174,7 +164,7 @@ resource "aws_cloudfront_distribution" "frontend" {
     allowed_methods        = ["GET","HEAD","OPTIONS","PUT","POST","PATCH","DELETE"]
     cached_methods         = ["GET","HEAD","OPTIONS"]
     cache_policy_id          = data.aws_cloudfront_cache_policy.managed_caching_disabled.id
-    origin_request_policy_id = aws_cloudfront_origin_request_policy.api_all_cookies.id
+    origin_request_policy_id = data.aws_cloudfront_origin_request_policy.managed_all_viewer_except_host.id
     compress = true
   }
 
@@ -185,7 +175,7 @@ resource "aws_cloudfront_distribution" "frontend" {
     allowed_methods        = ["GET","HEAD","OPTIONS","PUT","POST","PATCH","DELETE"]
     cached_methods         = ["GET","HEAD","OPTIONS"]
     cache_policy_id          = data.aws_cloudfront_cache_policy.managed_caching_disabled.id
-    origin_request_policy_id = aws_cloudfront_origin_request_policy.api_all_cookies.id
+    origin_request_policy_id = data.aws_cloudfront_origin_request_policy.managed_all_viewer_except_host.id
     compress = true
   }
 
@@ -196,7 +186,7 @@ resource "aws_cloudfront_distribution" "frontend" {
     allowed_methods        = ["GET","HEAD","OPTIONS","PUT","POST","PATCH","DELETE"]
     cached_methods         = ["GET","HEAD","OPTIONS"]
     cache_policy_id          = data.aws_cloudfront_cache_policy.managed_caching_disabled.id
-    origin_request_policy_id = aws_cloudfront_origin_request_policy.api_all_cookies.id
+    origin_request_policy_id = data.aws_cloudfront_origin_request_policy.managed_all_viewer_except_host.id
     compress = true
   }
 
@@ -207,7 +197,7 @@ resource "aws_cloudfront_distribution" "frontend" {
     allowed_methods        = ["GET","HEAD","OPTIONS","PUT","POST","PATCH","DELETE"]
     cached_methods         = ["GET","HEAD","OPTIONS"]
     cache_policy_id          = data.aws_cloudfront_cache_policy.managed_caching_disabled.id
-    origin_request_policy_id = aws_cloudfront_origin_request_policy.api_all_cookies.id
+    origin_request_policy_id = data.aws_cloudfront_origin_request_policy.managed_all_viewer_except_host.id
     compress = true
   }
 
@@ -218,7 +208,7 @@ resource "aws_cloudfront_distribution" "frontend" {
     allowed_methods        = ["GET","HEAD","OPTIONS","PUT","POST","PATCH","DELETE"]
     cached_methods         = ["GET","HEAD","OPTIONS"]
     cache_policy_id          = data.aws_cloudfront_cache_policy.managed_caching_disabled.id
-    origin_request_policy_id = aws_cloudfront_origin_request_policy.api_all_cookies.id
+    origin_request_policy_id = data.aws_cloudfront_origin_request_policy.managed_all_viewer_except_host.id
     compress = true
   }
 
@@ -229,7 +219,7 @@ resource "aws_cloudfront_distribution" "frontend" {
     allowed_methods        = ["GET","HEAD","OPTIONS","PUT","POST","PATCH","DELETE"]
     cached_methods         = ["GET","HEAD","OPTIONS"]
     cache_policy_id          = data.aws_cloudfront_cache_policy.managed_caching_disabled.id
-    origin_request_policy_id = aws_cloudfront_origin_request_policy.api_all_cookies.id
+    origin_request_policy_id = data.aws_cloudfront_origin_request_policy.managed_all_viewer_except_host.id
     compress = true
   }
 
@@ -240,7 +230,7 @@ resource "aws_cloudfront_distribution" "frontend" {
     allowed_methods        = ["GET","HEAD","OPTIONS","PUT","POST","PATCH","DELETE"]
     cached_methods         = ["GET","HEAD","OPTIONS"]
     cache_policy_id          = data.aws_cloudfront_cache_policy.managed_caching_disabled.id
-    origin_request_policy_id = aws_cloudfront_origin_request_policy.api_all_cookies.id
+    origin_request_policy_id = data.aws_cloudfront_origin_request_policy.managed_all_viewer_except_host.id
     compress = true
   }
 
@@ -251,16 +241,18 @@ resource "aws_cloudfront_distribution" "frontend" {
     allowed_methods        = ["GET","HEAD","OPTIONS","PUT","POST","PATCH","DELETE"]
     cached_methods         = ["GET","HEAD","OPTIONS"]
     cache_policy_id          = data.aws_cloudfront_cache_policy.managed_caching_disabled.id
-    origin_request_policy_id = aws_cloudfront_origin_request_policy.api_all_cookies.id
+    origin_request_policy_id = data.aws_cloudfront_origin_request_policy.managed_all_viewer_except_host.id
     compress = true
   }
 
-  # Restrictions
+  # ---------- Restrictions ----------
   restrictions {
-    geo_restriction { restriction_type = "none" }
+    geo_restriction {
+      restriction_type = "none"
+    }
   }
 
-  # TLS
+  # ---------- TLS ----------
   viewer_certificate {
     acm_certificate_arn      = aws_acm_certificate.frontend.arn
     ssl_support_method       = "sni-only"
@@ -268,66 +260,4 @@ resource "aws_cloudfront_distribution" "frontend" {
   }
 
   tags = { Name = "nat20-frontend-cf" }
-}
-
-# S3 bucket policy for frontend (OAC + LEGACY OAI + TLS-only)
-data "aws_iam_policy_document" "frontend_bucket_policy" {
-  # Allow CloudFront via OAC
-  statement {
-    sid     = "AllowCloudFrontReadViaOAC"
-    effect  = "Allow"
-    actions = ["s3:GetObject"]
-    resources = ["${aws_s3_bucket.frontend.arn}/*"]
-
-    principals {
-      type        = "Service"
-      identifiers = ["cloudfront.amazonaws.com"]
-    }
-
-    condition {
-      test     = "StringEquals"
-      variable = "AWS:SourceArn"
-      values   = [aws_cloudfront_distribution.frontend.arn]
-    }
-  }
-
-  # Allow legacy OAI (until fully cut over)
-  statement {
-    sid     = "AllowCloudFrontReadViaOAI"
-    effect  = "Allow"
-    actions = ["s3:GetObject"]
-    resources = ["${aws_s3_bucket.frontend.arn}/*"]
-
-    principals {
-      type        = "CanonicalUser"
-      identifiers = [aws_cloudfront_origin_access_identity.frontend.s3_canonical_user_id]
-    }
-  }
-
-  # Defense-in-depth: require TLS
-  statement {
-    sid     = "DenyInsecureTransport"
-    effect  = "Deny"
-    actions = ["s3:*"]
-    resources = [
-      aws_s3_bucket.frontend.arn,
-      "${aws_s3_bucket.frontend.arn}/*"
-    ]
-
-    principals {
-      type        = "*"
-      identifiers = ["*"]
-    }
-
-    condition {
-      test     = "Bool"
-      variable = "aws:SecureTransport"
-      values   = ["false"]
-    }
-  }
-}
-
-resource "aws_s3_bucket_policy" "frontend_oai" {
-  bucket = aws_s3_bucket.frontend.id
-  policy = data.aws_iam_policy_document.frontend_bucket_policy.json
 }
