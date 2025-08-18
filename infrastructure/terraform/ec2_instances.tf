@@ -11,10 +11,10 @@ resource "aws_instance" "mongodb" {
   iam_instance_profile   = aws_iam_instance_profile.ssm_ec2_profile.name
   associate_public_ip_address = false
 
-  tags = {
-    Name = "terraform-mongodb"
-    role = "mongodb"
-  }
+  user_data                   = local.mongo_user_data
+  user_data_replace_on_change = true
+
+  tags = { Name = "terraform-mongodb" }
   
 
   lifecycle { create_before_destroy = true }
