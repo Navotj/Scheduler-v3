@@ -166,16 +166,10 @@ resource "aws_wafv2_web_acl" "frontend" {
   }
 }
 
-# Conditional association to CloudFront distribution
+# Conditional association to CloudFront distribution (no precondition failure)
 resource "aws_wafv2_web_acl_association" "frontend_cf_assoc" {
   provider     = aws.us_east_1
+  count        = var.attach_frontend_waf ? 1 : 0
   resource_arn = aws_cloudfront_distribution.frontend.arn
   web_acl_arn  = aws_wafv2_web_acl.frontend.arn
-
-  lifecycle {
-    precondition {
-      condition     = var.attach_frontend_waf
-      error_message = "attach_frontend_waf=false prevents attaching WAF to CloudFront"
-    }
-  }
 }
