@@ -5,6 +5,13 @@ const { body } = require('express-validator');
 const userModel = require('../models/user');
 const { generateToken, verifyToken } = require('../utils/jwt');
 
+// make all /auth/* responses non-cacheable
+router.use((req, res, next) => {
+  res.set('Cache-Control', 'no-store');
+  next();
+});
+
+
 function isSecure() {
   return String(process.env.COOKIE_SECURE).toLowerCase() === 'true';
 }
@@ -65,15 +72,14 @@ router.post(
         return res.status(401).json({ error: 'invalid credentials' });
       }
 
-      const token = generateToken(user);
       res.cookie('token', token, {
         httpOnly: true,
         sameSite: 'Lax',
         secure: isSecure(),
         path: '/',
+        domain: process.env.COOKIE_DOMAIN || '.nat20scheduling.com',
         maxAge: 7 * 24 * 60 * 60 * 1000
       });
-
       console.log(`[AUTH][${reqId}] login success`, { username, id: String(user._id) });
       return res.json({
         success: true,
@@ -119,12 +125,12 @@ router.post('/logout', (req, res) => {
   try {
     res.set('Cache-Control', 'no-store');
 
-    console.log(`[AUTH][${reqId}] logout attempt`);
     res.clearCookie('token', {
       httpOnly: true,
       sameSite: 'Lax',
       secure: isSecure(),
-      path: '/'
+      path: '/',
+      domain: process.env.COOKIE_DOMAIN || '.nat20scheduling.com'
     });
     console.log(`[AUTH][${reqId}] logout success`);
     return res.json({ success: true });
