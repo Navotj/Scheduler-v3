@@ -60,7 +60,6 @@ resource "aws_acm_certificate_validation" "frontend" {
 }
 
 # ---------- Lookup the existing ALB by name ----------
-# Name derived from AWS console/ARN: nat20-backend-alb
 data "aws_lb" "backend" {
   name = "nat20-backend-alb"
 }
@@ -148,16 +147,19 @@ resource "aws_cloudfront_distribution" "frontend" {
   ]
 
   origin {
-    domain_name              = aws_s3_bucket.frontend.bucket_regional_domain_name
-    origin_id                = "s3-frontend"
-    origin_access_control_id = aws_cloudfront_origin_access_control.frontend.id
+    domain_name                  = aws_s3_bucket.frontend.bucket_regional_domain_name
+    origin_id                    = "s3-frontend"
+    origin_access_control_id     = aws_cloudfront_origin_access_control.frontend.id
+    connection_attempts          = 3
+    connection_timeout           = 10
   }
 
-  # IMPORTANT: Use HTTPS to the API origin and target the custom DNS name
-  # so the ALB's ACM cert (eu-central-1) matches the SNI hostname.
+  # Use HTTPS to the API origin and target the custom DNS name so the ALB cert matches SNI.
   origin {
-    domain_name = "api.${var.domain_name}"  # must resolve to the ALB
-    origin_id   = "alb-origin"
+    domain_name                  = "api.${var.domain_name}"  # must resolve to the ALB
+    origin_id                    = "alb-origin"
+    connection_attempts          = 3
+    connection_timeout           = 10
 
     custom_origin_config {
       http_port                = 80
@@ -165,7 +167,7 @@ resource "aws_cloudfront_distribution" "frontend" {
       origin_protocol_policy   = "https-only"
       origin_ssl_protocols     = ["TLSv1.2"]
       origin_read_timeout      = 60
-      origin_keepalive_timeout = 15
+      origin_keepalive_timeout = 60
     }
   }
 
@@ -174,8 +176,8 @@ resource "aws_cloudfront_distribution" "frontend" {
     target_origin_id       = "s3-frontend"
     viewer_protocol_policy = "redirect-to-https"
 
-    allowed_methods = ["GET", "HEAD", "OPTIONS"]
-    cached_methods  = ["GET", "HEAD", "OPTIONS"]
+    allowed_methods        = ["GET", "HEAD", "OPTIONS"]
+    cached_methods         = ["GET", "HEAD", "OPTIONS"]
 
     cache_policy_id          = data.aws_cloudfront_cache_policy.managed_caching_optimized.id
     origin_request_policy_id = data.aws_cloudfront_origin_request_policy.managed_all_viewer.id
@@ -188,8 +190,9 @@ resource "aws_cloudfront_distribution" "frontend" {
     }
   }
 
-  # ---------- Ordered behaviors (API -> ALB) ----------
-  # Exact paths before prefixes to ensure deterministic matching.
+  # ---------- Ordered behaviors (API -> ALB)
+  # Exact paths before prefixes for deterministic matching.
+
   ordered_cache_behavior {
     path_pattern           = "/auth/check"
     target_origin_id       = "alb-origin"
