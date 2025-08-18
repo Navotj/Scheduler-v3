@@ -32,21 +32,6 @@ data "aws_subnet" "eu_central_1b" {
   }
 }
 
-# Default VPC + default public subnet in eu-central-1c
-data "aws_subnet" "eu_central_1c" {
-  vpc_id = data.aws_vpc.default.id
-  filter {
-    name   = "availability-zone"
-    values = ["eu-central-1c"]
-  }
-  # Helps ensure we pick the default/public subnet for that AZ
-  filter {
-    name   = "default-for-az"
-    values = ["true"]
-  }
-}
-
-
 # Current region
 data "aws_region" "current" {}
 

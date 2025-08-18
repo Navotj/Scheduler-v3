@@ -21,7 +21,7 @@ resource "aws_lb" "api" {
   security_groups    = [aws_security_group.alb.id]
   subnets            = [
     data.aws_subnet.eu_central_1a.id,
-    data.aws_subnet.eu_central_1c.id
+    data.aws_subnet.eu_central_1b.id
   ]
   idle_timeout       = 120
 
