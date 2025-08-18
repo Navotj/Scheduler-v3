@@ -19,16 +19,22 @@ data "aws_cloudfront_origin_request_policy" "managed_all_viewer" {
 }
 
 # ---------- ACM certificate for CloudFront (us-east-1) ----------
+# Requires provider alias aws.us_east_1 to be configured elsewhere.
 resource "aws_acm_certificate" "frontend" {
   provider          = aws.us_east_1
   domain_name       = var.domain_name
   validation_method = "DNS"
 
-  lifecycle { create_before_destroy = true }
+  lifecycle {
+    create_before_destroy = true
+  }
 
-  tags = { Name = "frontend-cert-${var.domain_name}" }
+  tags = {
+    Name = "frontend-cert-${var.domain_name}"
+  }
 }
 
+# DNS validation records for the ACM cert
 resource "aws_route53_record" "frontend_cert_validation" {
   for_each = {
     for dvo in aws_acm_certificate.frontend.domain_validation_options :
@@ -38,6 +44,7 @@ resource "aws_route53_record" "frontend_cert_validation" {
       record = dvo.resource_record_value
     }
   }
+
   zone_id = aws_route53_zone.main.zone_id
   name    = each.value.name
   type    = each.value.type
@@ -45,6 +52,7 @@ resource "aws_route53_record" "frontend_cert_validation" {
   records = [each.value.record]
 }
 
+# Validate the certificate
 resource "aws_acm_certificate_validation" "frontend" {
   provider                = aws.us_east_1
   certificate_arn         = aws_acm_certificate.frontend.arn
@@ -52,7 +60,10 @@ resource "aws_acm_certificate_validation" "frontend" {
 }
 
 # ---------- Lookup the existing ALB by name ----------
-data "aws_lb" "backend" { name = "nat20-backend-alb" }
+# Name derived from AWS console/ARN: nat20-backend-alb
+data "aws_lb" "backend" {
+  name = "nat20-backend-alb"
+}
 
 # ---------- Origin Access Control for S3 (OAC) ----------
 resource "aws_cloudfront_origin_access_control" "frontend" {
@@ -64,10 +75,14 @@ resource "aws_cloudfront_origin_access_control" "frontend" {
 }
 
 # ---------- Custom Origin Request Policy for API ----------
+# Forwards ALL cookies and ALL query strings, and only needed headers.
+# (Avoids forwarding Host; does NOT include Authorization which CF rejects.)
 resource "aws_cloudfront_origin_request_policy" "api_all_cookies" {
   name = "api-all-cookies-all-qs-no-host"
 
-  cookies_config { cookie_behavior = "all" }
+  cookies_config {
+    cookie_behavior = "all"
+  }
 
   headers_config {
     header_behavior = "whitelist"
@@ -85,7 +100,9 @@ resource "aws_cloudfront_origin_request_policy" "api_all_cookies" {
     }
   }
 
-  query_strings_config { query_string_behavior = "all" }
+  query_strings_config {
+    query_string_behavior = "all"
+  }
 }
 
 # ---------- CloudFront Function for SPA rewrite on S3 ONLY ----------
@@ -126,7 +143,9 @@ resource "aws_cloudfront_distribution" "frontend" {
   default_root_object = "index.html"
   price_class         = "PriceClass_100"
 
-  aliases = [ var.domain_name ]
+  aliases = [
+    var.domain_name,
+  ]
 
   origin {
     domain_name              = aws_s3_bucket.frontend.bucket_regional_domain_name
@@ -134,9 +153,10 @@ resource "aws_cloudfront_distribution" "frontend" {
     origin_access_control_id = aws_cloudfront_origin_access_control.frontend.id
   }
 
-  # Use HTTPS to the API origin and target the custom DNS name so SNI matches the ALB cert.
+  # IMPORTANT: Use HTTPS to the API origin and target the custom DNS name
+  # so the ALB's ACM cert (eu-central-1) matches the SNI hostname.
   origin {
-    domain_name = "api.${var.domain_name}"
+    domain_name = "api.${var.domain_name}"  # must resolve to the ALB
     origin_id   = "alb-origin"
 
     custom_origin_config {
@@ -153,10 +173,13 @@ resource "aws_cloudfront_distribution" "frontend" {
   default_cache_behavior {
     target_origin_id       = "s3-frontend"
     viewer_protocol_policy = "redirect-to-https"
-    allowed_methods        = ["GET", "HEAD", "OPTIONS"]
-    cached_methods         = ["GET", "HEAD", "OPTIONS"]
+
+    allowed_methods = ["GET", "HEAD", "OPTIONS"]
+    cached_methods  = ["GET", "HEAD", "OPTIONS"]
+
     cache_policy_id          = data.aws_cloudfront_cache_policy.managed_caching_optimized.id
     origin_request_policy_id = data.aws_cloudfront_origin_request_policy.managed_all_viewer.id
+
     compress = true
 
     function_association {
@@ -165,10 +188,8 @@ resource "aws_cloudfront_distribution" "frontend" {
     }
   }
 
-  # ---------- Ordered behaviors (API -> ALB)
-  # Put exact paths before prefixes to ensure deterministic matching.
-
-  # Checks
+  # ---------- Ordered behaviors (API -> ALB) ----------
+  # Exact paths before prefixes to ensure deterministic matching.
   ordered_cache_behavior {
     path_pattern           = "/auth/check"
     target_origin_id       = "alb-origin"
@@ -179,6 +200,7 @@ resource "aws_cloudfront_distribution" "frontend" {
     origin_request_policy_id = aws_cloudfront_origin_request_policy.api_all_cookies.id
     compress = true
   }
+
   ordered_cache_behavior {
     path_pattern           = "/check"
     target_origin_id       = "alb-origin"
@@ -190,59 +212,6 @@ resource "aws_cloudfront_distribution" "frontend" {
     compress = true
   }
 
-  # Exact roots for each API group
-  ordered_cache_behavior {
-    path_pattern           = "/auth"
-    target_origin_id       = "alb-origin"
-    viewer_protocol_policy = "redirect-to-https"
-    allowed_methods        = ["GET","HEAD","OPTIONS","PUT","POST","PATCH","DELETE"]
-    cached_methods         = ["GET","HEAD","OPTIONS"]
-    cache_policy_id          = data.aws_cloudfront_cache_policy.managed_caching_disabled.id
-    origin_request_policy_id = aws_cloudfront_origin_request_policy.api_all_cookies.id
-    compress = true
-  }
-  ordered_cache_behavior {
-    path_pattern           = "/settings"
-    target_origin_id       = "alb-origin"
-    viewer_protocol_policy = "redirect-to-https"
-    allowed_methods        = ["GET","HEAD","OPTIONS","PUT","POST","PATCH","DELETE"]
-    cached_methods         = ["GET","HEAD","OPTIONS"]
-    cache_policy_id          = data.aws_cloudfront_cache_policy.managed_caching_disabled.id
-    origin_request_policy_id = aws_cloudfront_origin_request_policy.api_all_cookies.id
-    compress = true
-  }
-  ordered_cache_behavior {
-    path_pattern           = "/availability"
-    target_origin_id       = "alb-origin"
-    viewer_protocol_policy = "redirect-to-https"
-    allowed_methods        = ["GET","HEAD","OPTIONS","PUT","POST","PATCH","DELETE"]
-    cached_methods         = ["GET","HEAD","OPTIONS"]
-    cache_policy_id          = data.aws_cloudfront_cache_policy.managed_caching_disabled.id
-    origin_request_policy_id = aws_cloudfront_origin_request_policy.api_all_cookies.id
-    compress = true
-  }
-  ordered_cache_behavior {
-    path_pattern           = "/users"
-    target_origin_id       = "alb-origin"
-    viewer_protocol_policy = "redirect-to-https"
-    allowed_methods        = ["GET","HEAD","OPTIONS","PUT","POST","PATCH","DELETE"]
-    cached_methods         = ["GET","HEAD","OPTIONS"]
-    cache_policy_id          = data.aws_cloudfront_cache_policy.managed_caching_disabled.id
-    origin_request_policy_id = aws_cloudfront_origin_request_policy.api_all_cookies.id
-    compress = true
-  }
-  ordered_cache_behavior {
-    path_pattern           = "/api"
-    target_origin_id       = "alb-origin"
-    viewer_protocol_policy = "redirect-to-https"
-    allowed_methods        = ["GET","HEAD","OPTIONS","PUT","POST","PATCH","DELETE"]
-    cached_methods         = ["GET","HEAD","OPTIONS"]
-    cache_policy_id          = data.aws_cloudfront_cache_policy.managed_caching_disabled.id
-    origin_request_policy_id = aws_cloudfront_origin_request_policy.api_all_cookies.id
-    compress = true
-  }
-
-  # Wildcards
   ordered_cache_behavior {
     path_pattern           = "/auth/*"
     target_origin_id       = "alb-origin"
@@ -253,16 +222,7 @@ resource "aws_cloudfront_distribution" "frontend" {
     origin_request_policy_id = aws_cloudfront_origin_request_policy.api_all_cookies.id
     compress = true
   }
-  ordered_cache_behavior {
-    path_pattern           = "/settings/*"
-    target_origin_id       = "alb-origin"
-    viewer_protocol_policy = "redirect-to-https"
-    allowed_methods        = ["GET","HEAD","OPTIONS","PUT","POST","PATCH","DELETE"]
-    cached_methods         = ["GET","HEAD","OPTIONS"]
-    cache_policy_id          = data.aws_cloudfront_cache_policy.managed_caching_disabled.id
-    origin_request_policy_id = aws_cloudfront_origin_request_policy.api_all_cookies.id
-    compress = true
-  }
+
   ordered_cache_behavior {
     path_pattern           = "/availability/*"
     target_origin_id       = "alb-origin"
@@ -273,6 +233,29 @@ resource "aws_cloudfront_distribution" "frontend" {
     origin_request_policy_id = aws_cloudfront_origin_request_policy.api_all_cookies.id
     compress = true
   }
+
+  ordered_cache_behavior {
+    path_pattern           = "/settings"
+    target_origin_id       = "alb-origin"
+    viewer_protocol_policy = "redirect-to-https"
+    allowed_methods        = ["GET","HEAD","OPTIONS","PUT","POST","PATCH","DELETE"]
+    cached_methods         = ["GET","HEAD","OPTIONS"]
+    cache_policy_id          = data.aws_cloudfront_cache_policy.managed_caching_disabled.id
+    origin_request_policy_id = aws_cloudfront_origin_request_policy.api_all_cookies.id
+    compress = true
+  }
+
+  ordered_cache_behavior {
+    path_pattern           = "/settings/*"
+    target_origin_id       = "alb-origin"
+    viewer_protocol_policy = "redirect-to-https"
+    allowed_methods        = ["GET","HEAD","OPTIONS","PUT","POST","PATCH","DELETE"]
+    cached_methods         = ["GET","HEAD","OPTIONS"]
+    cache_policy_id          = data.aws_cloudfront_cache_policy.managed_caching_disabled.id
+    origin_request_policy_id = aws_cloudfront_origin_request_policy.api_all_cookies.id
+    compress = true
+  }
+
   ordered_cache_behavior {
     path_pattern           = "/users/*"
     target_origin_id       = "alb-origin"
@@ -283,6 +266,7 @@ resource "aws_cloudfront_distribution" "frontend" {
     origin_request_policy_id = aws_cloudfront_origin_request_policy.api_all_cookies.id
     compress = true
   }
+
   ordered_cache_behavior {
     path_pattern           = "/api/*"
     target_origin_id       = "alb-origin"
@@ -295,7 +279,11 @@ resource "aws_cloudfront_distribution" "frontend" {
   }
 
   # ---------- Restrictions ----------
-  restrictions { geo_restriction { restriction_type = "none" } }
+  restrictions {
+    geo_restriction {
+      restriction_type = "none"
+    }
+  }
 
   # ---------- TLS ----------
   viewer_certificate {
@@ -304,5 +292,7 @@ resource "aws_cloudfront_distribution" "frontend" {
     minimum_protocol_version = "TLSv1.2_2021"
   }
 
-  tags = { Name = "nat20-frontend-cf" }
+  tags = {
+    Name = "nat20-frontend-cf"
+  }
 }
