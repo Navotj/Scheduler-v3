@@ -5,15 +5,20 @@ const { body, validationResult } = require('express-validator');
 const UserSettings = require('../models/user_settings');
 
 function requireAuth(req, res, next) {
-  try {
-    const token = req.cookies.token;
-    const payload = verifyToken(token);
-    req.user = { id: payload.id };
-    next();
-  } catch {
-    res.sendStatus(401);
+  const reqId = req.__reqId || '-';
+  const token = req.cookies?.token || null;
+  const payload = token ? verifyToken(token) : null;
+
+  if (!payload) {
+    console.warn(`[AUTH][${reqId}] requireAuth: no/invalid token`);
+    return res.status(401).json({ error: 'unauthorized' });
   }
+
+  req.user = { id: String(payload.id), email: payload.email, username: payload.username };
+  res.set('Cache-Control', 'no-store');
+  return next();
 }
+
 
 const DEFAULTS = {
   timezone: 'auto',

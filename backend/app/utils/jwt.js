@@ -11,8 +11,13 @@ function generateToken(user) {
 }
 
 function verifyToken(token) {
-  return jwt.verify(token, secret);
+  try { 
+    return jwt.verify(token, secret);
+  } catch {
+    return null;
+  }
 }
+
 
 module.exports = {
   generateToken,

@@ -48,6 +48,8 @@ router.post(
   async (req, res) => {
     const reqId = req.__reqId || '-';
     try {
+      res.set('Cache-Control', 'no-store');
+
       const { username } = req.body;
       console.log(`[AUTH][${reqId}] login attempt`, { username });
 
@@ -84,10 +86,13 @@ router.post(
   }
 );
 
+
 // CHECK
 router.get('/check', async (req, res) => {
   const reqId = req.__reqId || '-';
   try {
+    res.set('Cache-Control', 'no-store');
+
     const token = req.cookies.token;
     if (!token) {
       console.warn(`[AUTH][${reqId}] check: no cookie`);
@@ -112,13 +117,14 @@ router.get('/check', async (req, res) => {
 router.post('/logout', (req, res) => {
   const reqId = req.__reqId || '-';
   try {
+    res.set('Cache-Control', 'no-store');
+
     console.log(`[AUTH][${reqId}] logout attempt`);
     res.clearCookie('token', {
       httpOnly: true,
       sameSite: 'Lax',
       secure: isSecure(),
-      path: '/',
-      domain: COOKIE_DOMAIN
+      path: '/'
     });
     console.log(`[AUTH][${reqId}] logout success`);
     return res.json({ success: true });
@@ -127,5 +133,6 @@ router.post('/logout', (req, res) => {
     return res.status(500).json({ error: 'internal server error' });
   }
 });
+
 
 module.exports = router;
