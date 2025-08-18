@@ -1,22 +1,21 @@
 (function () {
   'use strict';
 
-  // Utility: create an AbortController with timeout
+  // ---- utilities ----
   function withAbort(ms) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), ms);
     return { controller, timer };
   }
 
-  // Utility: safe auth state setter
   function setAuthStateSafe(isAuthed, username) {
     if (typeof window.setAuthState === 'function') {
       window.setAuthState(!!isAuthed, username || null);
     }
   }
 
-  // Initial page-load auth check (short, bounded; abort === "not logged in")
-  function runInitialAuthCheck(timeoutMs = 3000) {
+  // ---- initial page-load auth check (longer timeout + single retry) ----
+  function runInitialAuthCheck(timeoutMs = 8000, didRetry = false) {
     const { controller, timer } = withAbort(timeoutMs);
     fetch('/auth/check', {
       credentials: 'include',
@@ -37,7 +36,6 @@
       })
       .then((data) => {
         if (!data) {
-          // treat as not logged in
           setAuthStateSafe(false, null);
           return;
         }
@@ -48,13 +46,17 @@
         if (name) setAuthStateSafe(true, name);
         else setAuthStateSafe(false, null);
       })
-      .catch(() => {
-        // AbortError / network -> treat as not logged in, no noise
-        setAuthStateSafe(false, null);
+      .catch((err) => {
+        // Retry once with a slightly longer timeout if the first attempt aborted/failed
+        if (!didRetry) {
+          runInitialAuthCheck(Math.max(timeoutMs, 12000), true);
+        } else {
+          setAuthStateSafe(false, null);
+        }
       });
   }
 
-  // Exposed initializer for the login form modal/page
+  // ---- login form handler (more generous timeouts) ----
   window.initLoginForm = function () {
     const form = document.getElementById('login-form');
     const errorDisplay = document.getElementById('error');
@@ -77,9 +79,9 @@
       errorDisplay.textContent = '';
 
       try {
-        // 1) Login (short, bounded timeout)
+        // 1) Login (20s hard cap)
         {
-          const { controller, timer } = withAbort(10000); // 10s
+          const { controller, timer } = withAbort(20000);
           const res = await fetch('/auth/login', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -100,10 +102,10 @@
           }
         }
 
-        // 2) Verify session (short, bounded timeout)
+        // 2) Verify session (10s hard cap)
         let verifiedUsername = '';
         {
-          const { controller, timer } = withAbort(8000); // 8s
+          const { controller, timer } = withAbort(10000);
           const check = await fetch('/auth/check', {
             credentials: 'include',
             cache: 'no-cache',
@@ -139,12 +141,12 @@
     });
   };
 
-  // Kick off initial session check on load
+  // kick off initial session check on load
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () =>
-      runInitialAuthCheck(3000)
+      runInitialAuthCheck(8000)
     );
   } else {
-    runInitialAuthCheck(3000);
+    runInitialAuthCheck(8000);
   }
 })();
