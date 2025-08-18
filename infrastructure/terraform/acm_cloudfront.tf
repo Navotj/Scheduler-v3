@@ -23,7 +23,6 @@ data "aws_cloudfront_origin_request_policy" "managed_all_viewer" {
 resource "aws_acm_certificate" "frontend" {
   provider                  = aws.us_east_1
   domain_name               = var.domain_name
-  subject_alternative_names = ["www.${var.domain_name}"]
   validation_method         = "DNS"
 
   lifecycle {
@@ -85,7 +84,6 @@ resource "aws_cloudfront_distribution" "frontend" {
 
   aliases = [
     var.domain_name,
-    "www.${var.domain_name}",
   ]
 
   origin {

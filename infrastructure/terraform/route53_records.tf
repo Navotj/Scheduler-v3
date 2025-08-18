@@ -19,21 +19,6 @@ resource "aws_route53_record" "apex_a" {
   allow_overwrite = true
 }
 
-# www -> CloudFront
-resource "aws_route53_record" "www_a" {
-  zone_id = aws_route53_zone.main.zone_id
-  name    = "www.${var.domain_name}"
-  type    = "A"
-
-  alias {
-    name                   = aws_cloudfront_distribution.frontend.domain_name
-    zone_id                = "Z2FDTNDATAQYW2"
-    evaluate_target_health = false
-  }
-
-  allow_overwrite = true
-}
-
 # api -> ALB (backend origin)
 resource "aws_route53_record" "api_a" {
   zone_id = aws_route53_zone.main.zone_id
