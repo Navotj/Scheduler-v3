@@ -4,55 +4,85 @@ window.initLoginForm = function () {
 
   if (!form) return;
 
+  function withAbort(ms) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), ms);
+    return { controller, timer };
+  }
+
+  let pending = false;
+
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
+    if (pending) return;
+
     const username = (document.getElementById('username').value || '').trim();
     const password = document.getElementById('password').value || '';
 
-    errorDisplay.textContent = '';
+    const submitBtn = form.querySelector('button[type="submit"]');
+    pending = true;
+    if (submitBtn) submitBtn.disabled = true;
     errorDisplay.style.color = '#f55';
+    errorDisplay.textContent = '';
 
     try {
-      // 1) attempt login (same-origin; CloudFront routes to backend)
-      const res = await fetch('/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ username, password })
-      });
+      // 1) Login (short, bounded timeout)
+      {
+        const { controller, timer } = withAbort(10000); // 10s
+        const res = await fetch('/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          cache: 'no-store',
+          signal: controller.signal,
+          body: JSON.stringify({ username, password })
+        });
+        clearTimeout(timer);
 
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        errorDisplay.textContent = data.error || 'Login failed';
-        return;
+        if (!res.ok) {
+          let message = 'Login failed';
+          try {
+            const data = await res.json();
+            if (data && data.error) message = data.error;
+          } catch {}
+          throw new Error(message);
+        }
       }
 
-      // 2) confirm the session cookie exists
-      const check = await fetch('/auth/check', { credentials: 'include', cache: 'no-cache' });
-      if (!check.ok) {
-        errorDisplay.textContent = 'Login failed (no session)';
-        return;
+      // 2) Verify session (short, bounded timeout)
+      let verifiedUsername = '';
+      {
+        const { controller, timer } = withAbort(8000); // 8s
+        const check = await fetch('/auth/check', {
+          credentials: 'include',
+          cache: 'no-cache',
+          signal: controller.signal
+        });
+        clearTimeout(timer);
+
+        if (!check.ok) throw new Error('Login failed (no session)');
+
+        const data = await check.json().catch(() => ({}));
+        verifiedUsername =
+          (data && data.user && data.user.username) ||
+          data.username ||
+          '';
+        if (!verifiedUsername) throw new Error('Login failed (invalid session)');
       }
 
-      const data = await check.json().catch(() => null);
-      const verifiedUsername =
-        (data && data.user && data.user.username) ||
-        (data && data.username) ||
-        '';
-
-      if (!verifiedUsername) {
-        errorDisplay.textContent = 'Login failed (invalid session)';
-        return;
-      }
-
+      // 3) Success UI
       errorDisplay.style.color = '#0f0';
       errorDisplay.textContent = '✅ Sign-in successful';
       setTimeout(() => {
         if (window.closeModal) window.closeModal();
         if (window.setAuthState) window.setAuthState(true, verifiedUsername);
-      }, 400);
+      }, 300);
     } catch (err) {
-      errorDisplay.textContent = 'Connection error';
+      errorDisplay.textContent =
+        (err && err.message) ? err.message : 'Connection error';
+    } finally {
+      pending = false;
+      if (submitBtn) submitBtn.disabled = false;
     }
   });
 };
