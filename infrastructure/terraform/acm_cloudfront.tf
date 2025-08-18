@@ -126,7 +126,7 @@ resource "aws_cloudfront_distribution" "frontend" {
   # IMPORTANT: Use HTTPS to the API origin and target the custom DNS name
   # so the ALB's ACM cert (eu-central-1) matches the SNI hostname.
   origin {
-    domain_name = "api.${var.domain_name}"  # do NOT point to CloudFront/apex; this must resolve to the ALB
+    domain_name = "api.${var.domain_name}"  # must resolve to the ALB
     origin_id   = "alb-origin"
 
     custom_origin_config {
@@ -154,6 +154,7 @@ resource "aws_cloudfront_distribution" "frontend" {
   }
 
   # ---------- Ordered behaviors (API -> ALB) ----------
+  # Put exact paths before prefixes to make matching deterministic.
   ordered_cache_behavior {
     path_pattern           = "/auth/check"
     target_origin_id       = "alb-origin"
@@ -162,6 +163,7 @@ resource "aws_cloudfront_distribution" "frontend" {
     cached_methods         = ["GET","HEAD","OPTIONS"]
     cache_policy_id          = data.aws_cloudfront_cache_policy.managed_caching_disabled.id
     origin_request_policy_id = aws_cloudfront_origin_request_policy.api_all_cookies.id
+    compress = true
   }
 
   ordered_cache_behavior {
@@ -172,6 +174,7 @@ resource "aws_cloudfront_distribution" "frontend" {
     cached_methods         = ["GET","HEAD","OPTIONS"]
     cache_policy_id          = data.aws_cloudfront_cache_policy.managed_caching_disabled.id
     origin_request_policy_id = aws_cloudfront_origin_request_policy.api_all_cookies.id
+    compress = true
   }
 
   ordered_cache_behavior {
@@ -182,6 +185,7 @@ resource "aws_cloudfront_distribution" "frontend" {
     cached_methods         = ["GET","HEAD","OPTIONS"]
     cache_policy_id          = data.aws_cloudfront_cache_policy.managed_caching_disabled.id
     origin_request_policy_id = aws_cloudfront_origin_request_policy.api_all_cookies.id
+    compress = true
   }
 
   ordered_cache_behavior {
@@ -192,6 +196,7 @@ resource "aws_cloudfront_distribution" "frontend" {
     cached_methods         = ["GET","HEAD","OPTIONS"]
     cache_policy_id          = data.aws_cloudfront_cache_policy.managed_caching_disabled.id
     origin_request_policy_id = aws_cloudfront_origin_request_policy.api_all_cookies.id
+    compress = true
   }
 
   # API exact path /settings -> ALB
@@ -203,6 +208,7 @@ resource "aws_cloudfront_distribution" "frontend" {
     cached_methods         = ["GET","HEAD","OPTIONS"]
     cache_policy_id          = data.aws_cloudfront_cache_policy.managed_caching_disabled.id
     origin_request_policy_id = aws_cloudfront_origin_request_policy.api_all_cookies.id
+    compress = true
   }
 
   # API prefix /settings/* -> ALB
@@ -214,6 +220,7 @@ resource "aws_cloudfront_distribution" "frontend" {
     cached_methods         = ["GET","HEAD","OPTIONS"]
     cache_policy_id          = data.aws_cloudfront_cache_policy.managed_caching_disabled.id
     origin_request_policy_id = aws_cloudfront_origin_request_policy.api_all_cookies.id
+    compress = true
   }
 
   ordered_cache_behavior {
@@ -224,6 +231,7 @@ resource "aws_cloudfront_distribution" "frontend" {
     cached_methods         = ["GET","HEAD","OPTIONS"]
     cache_policy_id          = data.aws_cloudfront_cache_policy.managed_caching_disabled.id
     origin_request_policy_id = aws_cloudfront_origin_request_policy.api_all_cookies.id
+    compress = true
   }
 
   ordered_cache_behavior {
@@ -234,6 +242,7 @@ resource "aws_cloudfront_distribution" "frontend" {
     cached_methods         = ["GET","HEAD","OPTIONS"]
     cache_policy_id          = data.aws_cloudfront_cache_policy.managed_caching_disabled.id
     origin_request_policy_id = aws_cloudfront_origin_request_policy.api_all_cookies.id
+    compress = true
   }
 
   # ---------- Error responses (SPA fallback) ----------

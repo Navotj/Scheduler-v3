@@ -5,26 +5,21 @@
   // Helpers
   // =========================
 
-  // Abort-based timeout (used for non-deduped requests like POST /auth/login)
+  // Abort-based timeout (used only for POST /auth/login)
   function withAbort(ms) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), ms);
     return { controller, timer };
   }
 
-  // Promise timeout without aborting the underlying request (safe with deduped fetch)
+  // Promise timeout that does NOT abort the request (prevents "(canceled)")
   function withTimeoutPromise(promise, ms) {
     return new Promise((resolve, reject) => {
       const t = setTimeout(() => reject(new Error('timeout')), ms);
-      promise
-        .then((v) => {
-          clearTimeout(t);
-          resolve(v);
-        })
-        .catch((e) => {
-          clearTimeout(t);
-          reject(e);
-        });
+      promise.then(
+        (v) => { clearTimeout(t); resolve(v); },
+        (e) => { clearTimeout(t); reject(e); }
+      );
     });
   }
 
@@ -35,25 +30,19 @@
   }
 
   // =========================
-  // Global fetch de-duplication for auth/settings endpoints
-  // - Prevents duplicate concurrent requests that cause "(canceled)" noise.
-  // - Ignores caller-provided AbortSignals so one caller can't cancel others.
+  // Global fetch de-duplication (auth/settings)
+  // - Prevents races & "(canceled)" from concurrent checks.
+  // - No AbortSignals are honored for these endpoints.
   // =========================
-
   if (!window.__dedupeFetchInstalled) {
     const origFetch = window.fetch.bind(window);
-    const inflight = new Map();
+    const inflight = (window.__dedupeInflight = new Map());
 
-    // Treat /auth/check and /check as a single logical key to avoid double-hitting both.
     function canonicalKey(url) {
       const u = new URL(url, window.location.origin);
       const p = u.pathname;
-      if (p === '/auth/check' || p === '/check') {
-        return `${u.origin}/__authcheck__`;
-      }
-      if (p === '/settings') {
-        return `${u.origin}/__settings__${u.search}`;
-      }
+      if (p === '/auth/check' || p === '/check') return `${u.origin}/__authcheck__`;
+      if (p === '/settings') return `${u.origin}/__settings__${u.search}`;
       return u.toString();
     }
 
@@ -69,7 +58,6 @@
       try {
         absolute = new URL(urlStr, window.location.origin).toString();
       } catch {
-        // If URL parsing fails, fall back to original fetch.
         return origFetch(input, init);
       }
 
@@ -78,89 +66,65 @@
       }
 
       const key = canonicalKey(absolute);
-      if (inflight.has(key)) {
-        return inflight.get(key).then((resp) => resp.clone());
-      }
+      if (inflight.has(key)) return inflight.get(key).then((resp) => resp.clone());
 
-      // Merge defaults without overriding explicit caller options (except ignore signal).
       const merged = { ...(init || {}) };
       if (!('credentials' in merged)) merged.credentials = 'include';
       if (!('cache' in merged)) merged.cache = 'no-store';
       if ('signal' in merged) delete merged.signal; // avoid cross-cancellation
 
       const req = origFetch(absolute, merged).finally(() => {
-        // Drop from map after settle so new calls can refetch.
         setTimeout(() => inflight.delete(key), 0);
       });
 
       inflight.set(key, req);
       return req.then((resp) => resp.clone());
     };
+
+    // Helper to force next /auth/check to hit origin (used after login)
+    window.__bustAuthCheckOnce = function () {
+      inflight.delete(`${window.location.origin}/__authcheck__`);
+    };
   }
 
   // =========================
-  // Initial page-load auth check with single-flight + retry
+  // Initial page-load auth check (single-flight, deterministic)
+  // Always use /auth/check to remove ambiguity.
   // =========================
 
-  const CHECK_ENDPOINT_PRIMARY = '/auth/check'; // current canonical endpoint
-  const CHECK_ENDPOINT_FALLBACK = '/check';     // if primary fails hard
+  const CHECK_ENDPOINT = '/auth/check';
 
-  async function doAuthCheckOnce(endpoint) {
-    // Use deduped fetch; apply logical timeout without aborting the underlying request.
+  async function doAuthCheckOnce() {
     const res = await withTimeoutPromise(
-      fetch(endpoint, { credentials: 'include', cache: 'no-store' }),
-      8000
+      fetch(CHECK_ENDPOINT, { credentials: 'include', cache: 'no-store' }),
+      12000
     );
     if (!res.ok) throw new Error(`check ${res.status}`);
     let data = {};
-    try {
-      data = await res.json();
-    } catch {}
+    try { data = await res.json(); } catch {}
     return data || {};
   }
 
-  async function runInitialAuthCheckInternal() {
-    try {
-      const data = await doAuthCheckOnce(CHECK_ENDPOINT_PRIMARY);
-      return data;
-    } catch (e1) {
-      // Retry once with a longer timeout and try the fallback path if needed.
-      try {
-        const res = await withTimeoutPromise(
-          fetch(CHECK_ENDPOINT_PRIMARY, { credentials: 'include', cache: 'no-store' }),
-          12000
-        );
-        if (!res.ok) throw new Error(`check ${res.status}`);
-        return (await res.json().catch(() => ({}))) || {};
-      } catch (e2) {
-        try {
-          const res = await withTimeoutPromise(
-            fetch(CHECK_ENDPOINT_FALLBACK, { credentials: 'include', cache: 'no-store' }),
-            12000
-          );
-          if (!res.ok) throw new Error(`check ${res.status}`);
-          return (await res.json().catch(() => ({}))) || {};
-        } catch {
-          return {};
-        }
-      }
-    }
-  }
-
-  // Single-flight global promise so multiple scripts/pages don't duplicate work.
   if (!window.auth) window.auth = { state: 'unknown', user: null, ready: null };
+
   if (!window.__authCheckPromise) {
     window.__authCheckPromise = (async () => {
-      const data = await runInitialAuthCheckInternal();
-      const name =
-        (data && data.user && data.user.username) ||
-        (data && data.username) ||
-        '';
-      if (name) {
-        window.auth.state = 'authenticated';
-        window.auth.user = name;
-        setAuthStateSafe(true, name);
-      } else {
+      try {
+        const data = await doAuthCheckOnce();
+        const name =
+          (data && data.user && data.user.username) ||
+          (data && data.username) || '';
+        if (name) {
+          window.auth.state = 'authenticated';
+          window.auth.user = name;
+          setAuthStateSafe(true, name);
+        } else {
+          window.auth.state = 'anonymous';
+          window.auth.user = null;
+          setAuthStateSafe(false, null);
+        }
+      } catch {
+        // Deterministic fallback: treat as anonymous without canceling requests
         window.auth.state = 'anonymous';
         window.auth.user = null;
         setAuthStateSafe(false, null);
@@ -181,9 +145,8 @@
   }
 
   // =========================
-  // Login form handler (unchanged semantics; uses abort for POST; verify via deduped check)
+  // Login form handler
   // =========================
-
   window.initLoginForm = function () {
     const form = document.getElementById('login-form');
     const errorDisplay = document.getElementById('error');
@@ -205,7 +168,7 @@
       errorDisplay.textContent = '';
 
       try {
-        // 1) Login (20s hard cap, real abort)
+        // 1) Login (20s hard cap with abort)
         {
           const { controller, timer } = withAbort(20000);
           const res = await fetch('/auth/login', {
@@ -228,28 +191,23 @@
           }
         }
 
-        // 2) Verify session (10s logical cap; uses deduped fetch)
+        // 2) Verify session deterministically via /auth/check (no abort)
         let verifiedUsername = '';
         {
-          const res = await withTimeoutPromise(
-            fetch(CHECK_ENDPOINT_PRIMARY, { credentials: 'include', cache: 'no-store' }),
-            10000
-          ).catch(async () => {
-            // Fallback to /check if /auth/check fails on some pages
-            return withTimeoutPromise(
-              fetch(CHECK_ENDPOINT_FALLBACK, { credentials: 'include', cache: 'no-store' }),
-              10000
-            );
-          });
+          // Ensure next check isn't served from a shared in-flight promise
+          if (typeof window.__bustAuthCheckOnce === 'function') window.__bustAuthCheckOnce();
 
-          if (!res || !res.ok) throw new Error('Login failed (no session)');
+          const res = await withTimeoutPromise(
+            fetch(`${CHECK_ENDPOINT}?t=${Date.now()}`, { credentials: 'include', cache: 'no-store' }),
+            10000
+          );
+
+          if (!res.ok) throw new Error('Login failed (no session)');
           const data = await res.json().catch(() => ({}));
           verifiedUsername =
             (data && data.user && data.user.username) ||
-            data.username ||
-            '';
-          if (!verifiedUsername)
-            throw new Error('Login failed (invalid session)');
+            data.username || '';
+          if (!verifiedUsername) throw new Error('Login failed (invalid session)');
         }
 
         // 3) Success UI
