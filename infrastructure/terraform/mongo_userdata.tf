@@ -144,4 +144,6 @@ locals {
 
     echo "== Done. Quick health =="
     systemctl is-active mongod || true
-    ss -lntp | grep ':27017' || tr
+    ss -lntp | grep ':27017' || true
+  EOT
+}
