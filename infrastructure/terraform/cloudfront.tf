@@ -10,8 +10,8 @@ locals {
   # Managed policy IDs (AWS)
   cf_cache_policy_caching_optimized        = "658327ea-f89d-4fab-a63d-7e88639e58f6" # CachingOptimized
   cf_cache_policy_caching_disabled         = "4135ea2d-6df8-44a3-9df3-4b5a84be39ad" # CachingDisabled
-  cf_origin_request_all_viewer             = "216adef6-5c7f-47e4-b989-5492eafa07d3" # AllViewer
   cf_origin_request_all_viewer_except_host = "b689b0a8-53d0-40ab-baf2-68738e2966ac" # AllViewerExceptHostHeader
+  cf_origin_request_cors_s3                = "88a5eaf4-2fd4-4709-b370-b4c650ea3fcf" # CORS-S3Origin (do NOT forward Host)
 }
 
 # ---------- ACM certificate for CloudFront (us-east-1) ----------
@@ -126,6 +126,7 @@ resource "aws_cloudfront_distribution" "frontend" {
   }
 
   # ---------- Default behavior (S3) ----------
+  # IMPORTANT: Use CORS-S3Origin so Host is NOT forwarded to S3
   default_cache_behavior {
     target_origin_id       = "s3-frontend"
     viewer_protocol_policy = "redirect-to-https"
@@ -134,7 +135,7 @@ resource "aws_cloudfront_distribution" "frontend" {
     cached_methods  = ["GET", "HEAD", "OPTIONS"]
 
     cache_policy_id          = local.cf_cache_policy_caching_optimized
-    origin_request_policy_id = local.cf_origin_request_all_viewer
+    origin_request_policy_id = local.cf_origin_request_cors_s3
 
     compress = true
 
