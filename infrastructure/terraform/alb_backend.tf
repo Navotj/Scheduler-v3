@@ -94,7 +94,7 @@ resource "aws_lb_target_group" "api" {
 
   health_check {
     path                = var.backend_health_check_path
-    matcher             = "200-399"
+    matcher             = "200"
     protocol            = "HTTP"
     interval            = 30
     timeout             = 5
