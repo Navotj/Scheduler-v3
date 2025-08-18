@@ -3,25 +3,15 @@
 # - Default origin: S3 static site (via OAC)
 # - API paths -> ALB origin with AllViewerExceptHostHeader
 # - SPA fallback handled by CF Function on S3 ONLY (no API rewrite)
+# NOTE: Uses hard-coded IDs for AWS managed policies to avoid data-source duplication
 ############################################################
 
-# ---------- Managed policies ----------
-data "aws_cloudfront_cache_policy" "managed_caching_optimized" {
-  id = "658327ea-f89d-4fab-a63d-7e88639e58f6" # CachingOptimized
-}
-
-data "aws_cloudfront_cache_policy" "managed_caching_disabled" {
-  id = "4135ea2d-6df8-44a3-9df3-4b5a84be39ad" # CachingDisabled
-}
-
-# For default S3 behavior (forwards all viewer headers)
-data "aws_cloudfront_origin_request_policy" "managed_all_viewer" {
-  id = "216adef6-5c7f-47e4-b989-5492eafa07d3" # AllViewer
-}
-
-# For API behaviors — forwards all viewer headers EXCEPT Host (and allows Authorization)
-data "aws_cloudfront_origin_request_policy" "managed_all_viewer_except_host" {
-  id = "b689b0a8-53d0-40ab-baf2-68738e2966ac" # AllViewerExceptHostHeader
+locals {
+  # Managed policy IDs (AWS)
+  cf_cache_policy_caching_optimized        = "658327ea-f89d-4fab-a63d-7e88639e58f6" # CachingOptimized
+  cf_cache_policy_caching_disabled         = "4135ea2d-6df8-44a3-9df3-4b5a84be39ad" # CachingDisabled
+  cf_origin_request_all_viewer             = "216adef6-5c7f-47e4-b989-5492eafa07d3" # AllViewer
+  cf_origin_request_all_viewer_except_host = "b689b0a8-53d0-40ab-baf2-68738e2966ac" # AllViewerExceptHostHeader
 }
 
 # ---------- ACM certificate for CloudFront (us-east-1) ----------
@@ -140,11 +130,11 @@ resource "aws_cloudfront_distribution" "frontend" {
     target_origin_id       = "s3-frontend"
     viewer_protocol_policy = "redirect-to-https"
 
-    allowed_methods  = ["GET", "HEAD", "OPTIONS"]
-    cached_methods   = ["GET", "HEAD", "OPTIONS"]
+    allowed_methods = ["GET", "HEAD", "OPTIONS"]
+    cached_methods  = ["GET", "HEAD", "OPTIONS"]
 
-    cache_policy_id          = data.aws_cloudfront_cache_policy.managed_caching_optimized.id
-    origin_request_policy_id = data.aws_cloudfront_origin_request_policy.managed_all_viewer.id
+    cache_policy_id          = local.cf_cache_policy_caching_optimized
+    origin_request_policy_id = local.cf_origin_request_all_viewer
 
     compress = true
 
@@ -163,8 +153,8 @@ resource "aws_cloudfront_distribution" "frontend" {
     viewer_protocol_policy = "redirect-to-https"
     allowed_methods        = ["GET","HEAD","OPTIONS","PUT","POST","PATCH","DELETE"]
     cached_methods         = ["GET","HEAD","OPTIONS"]
-    cache_policy_id          = data.aws_cloudfront_cache_policy.managed_caching_disabled.id
-    origin_request_policy_id = data.aws_cloudfront_origin_request_policy.managed_all_viewer_except_host.id
+    cache_policy_id          = local.cf_cache_policy_caching_disabled
+    origin_request_policy_id = local.cf_origin_request_all_viewer_except_host
     compress = true
   }
 
@@ -174,8 +164,8 @@ resource "aws_cloudfront_distribution" "frontend" {
     viewer_protocol_policy = "redirect-to-https"
     allowed_methods        = ["GET","HEAD","OPTIONS","PUT","POST","PATCH","DELETE"]
     cached_methods         = ["GET","HEAD","OPTIONS"]
-    cache_policy_id          = data.aws_cloudfront_cache_policy.managed_caching_disabled.id
-    origin_request_policy_id = data.aws_cloudfront_origin_request_policy.managed_all_viewer_except_host.id
+    cache_policy_id          = local.cf_cache_policy_caching_disabled
+    origin_request_policy_id = local.cf_origin_request_all_viewer_except_host
     compress = true
   }
 
@@ -185,8 +175,8 @@ resource "aws_cloudfront_distribution" "frontend" {
     viewer_protocol_policy = "redirect-to-https"
     allowed_methods        = ["GET","HEAD","OPTIONS","PUT","POST","PATCH","DELETE"]
     cached_methods         = ["GET","HEAD","OPTIONS"]
-    cache_policy_id          = data.aws_cloudfront_cache_policy.managed_caching_disabled.id
-    origin_request_policy_id = data.aws_cloudfront_origin_request_policy.managed_all_viewer_except_host.id
+    cache_policy_id          = local.cf_cache_policy_caching_disabled
+    origin_request_policy_id = local.cf_origin_request_all_viewer_except_host
     compress = true
   }
 
@@ -196,8 +186,8 @@ resource "aws_cloudfront_distribution" "frontend" {
     viewer_protocol_policy = "redirect-to-https"
     allowed_methods        = ["GET","HEAD","OPTIONS","PUT","POST","PATCH","DELETE"]
     cached_methods         = ["GET","HEAD","OPTIONS"]
-    cache_policy_id          = data.aws_cloudfront_cache_policy.managed_caching_disabled.id
-    origin_request_policy_id = data.aws_cloudfront_origin_request_policy.managed_all_viewer_except_host.id
+    cache_policy_id          = local.cf_cache_policy_caching_disabled
+    origin_request_policy_id = local.cf_origin_request_all_viewer_except_host
     compress = true
   }
 
@@ -207,8 +197,8 @@ resource "aws_cloudfront_distribution" "frontend" {
     viewer_protocol_policy = "redirect-to-https"
     allowed_methods        = ["GET","HEAD","OPTIONS","PUT","POST","PATCH","DELETE"]
     cached_methods         = ["GET","HEAD","OPTIONS"]
-    cache_policy_id          = data.aws_cloudfront_cache_policy.managed_caching_disabled.id
-    origin_request_policy_id = data.aws_cloudfront_origin_request_policy.managed_all_viewer_except_host.id
+    cache_policy_id          = local.cf_cache_policy_caching_disabled
+    origin_request_policy_id = local.cf_origin_request_all_viewer_except_host
     compress = true
   }
 
@@ -218,8 +208,8 @@ resource "aws_cloudfront_distribution" "frontend" {
     viewer_protocol_policy = "redirect-to-https"
     allowed_methods        = ["GET","HEAD","OPTIONS","PUT","POST","PATCH","DELETE"]
     cached_methods         = ["GET","HEAD","OPTIONS"]
-    cache_policy_id          = data.aws_cloudfront_cache_policy.managed_caching_disabled.id
-    origin_request_policy_id = data.aws_cloudfront_origin_request_policy.managed_all_viewer_except_host.id
+    cache_policy_id          = local.cf_cache_policy_caching_disabled
+    origin_request_policy_id = local.cf_origin_request_all_viewer_except_host
     compress = true
   }
 
@@ -229,8 +219,8 @@ resource "aws_cloudfront_distribution" "frontend" {
     viewer_protocol_policy = "redirect-to-https"
     allowed_methods        = ["GET","HEAD","OPTIONS","PUT","POST","PATCH","DELETE"]
     cached_methods         = ["GET","HEAD","OPTIONS"]
-    cache_policy_id          = data.aws_cloudfront_cache_policy.managed_caching_disabled.id
-    origin_request_policy_id = data.aws_cloudfront_origin_request_policy.managed_all_viewer_except_host.id
+    cache_policy_id          = local.cf_cache_policy_caching_disabled
+    origin_request_policy_id = local.cf_origin_request_all_viewer_except_host
     compress = true
   }
 
@@ -240,8 +230,8 @@ resource "aws_cloudfront_distribution" "frontend" {
     viewer_protocol_policy = "redirect-to-https"
     allowed_methods        = ["GET","HEAD","OPTIONS","PUT","POST","PATCH","DELETE"]
     cached_methods         = ["GET","HEAD","OPTIONS"]
-    cache_policy_id          = data.aws_cloudfront_cache_policy.managed_caching_disabled.id
-    origin_request_policy_id = data.aws_cloudfront_origin_request_policy.managed_all_viewer_except_host.id
+    cache_policy_id          = local.cf_cache_policy_caching_disabled
+    origin_request_policy_id = local.cf_origin_request_all_viewer_except_host
     compress = true
   }
 
