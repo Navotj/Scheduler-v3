@@ -34,9 +34,3 @@ data "aws_subnet" "eu_central_1b" {
 
 # Current region (used by CloudFront S3 origin domain)
 data "aws_region" "current" {}
-
-# Public hosted zone lookup (created in route53_zone.tf)
-data "aws_route53_zone" "main" {
-  name         = var.domain_name
-  private_zone = false
-}
