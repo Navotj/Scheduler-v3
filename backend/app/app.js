@@ -14,7 +14,7 @@ const usersRoutes = require('./routes/users');               // /users/*
 const app = express();
 
 /* ========= Core security & infra ========= */
-app.set('trust proxy', true); // behind ALB/CloudFront
+app.set('trust proxy', 1); // behind ALB/CloudFront, ensure correct scheme/IP for cookies, etc.
 
 app.use(cors({
   origin: ['https://www.nat20scheduling.com', 'https://nat20scheduling.com'],
@@ -142,6 +142,11 @@ app.use((err, _req, res, _next) => {
 
 /* ========= Start ========= */
 const PORT = Number(process.env.PORT || 3000);
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`[BOOT] Backend listening on port ${PORT}`);
 });
+
+/* ========= HTTP server timeouts (fix intermittent ALB/keep-alive resets) ========= */
+server.keepAliveTimeout = 65000; // must be > ALB idle timeout (usually 60s)
+server.headersTimeout   = 66000; // a bit higher than keepAliveTimeout
+server.requestTimeout   = 0;     // disable per-request timeout to avoid premature closes
