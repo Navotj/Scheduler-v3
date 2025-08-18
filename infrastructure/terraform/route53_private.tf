@@ -29,3 +29,14 @@ resource "aws_ssm_parameter" "mongo_host" {
   overwrite   = true
   tags        = { Name = "mongo-host" }
 }
+
+resource "aws_route53_record" "private_api_alias" {
+  zone_id = aws_route53_zone.private.zone_id
+  name    = "api.${var.domain_name}"
+  type    = "A"
+  alias {
+    name                   = aws_lb.api.dns_name
+    zone_id                = aws_lb.api.zone_id
+    evaluate_target_health = true
+  }
+}
