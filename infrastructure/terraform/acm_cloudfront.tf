@@ -84,15 +84,19 @@ resource "aws_cloudfront_origin_request_policy" "api_no_host" {
 
   headers_config {
     header_behavior = "whitelist"
-    headers = [
-      "Accept",
-      "Accept-Language",
-      "Content-Type",
-      "Origin",
-      "Referer",
-      "User-Agent",
-      "Authorization"
-    ]
+    headers {
+      items = [
+        "Accept",
+        "Accept-Language",
+        "Content-Type",
+        "Origin",
+        "Referer",
+        "User-Agent",
+        "Authorization",
+        "Access-Control-Request-Headers",
+        "Access-Control-Request-Method"
+      ]
+    }
   }
 
   query_strings_config {
