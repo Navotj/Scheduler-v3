@@ -1,0 +1,3 @@
+aws ssm start-session --target $(aws ec2 describe-instances --instance-ids $(aws ec2 describe-tags --filters "Name=resource-type,Values=instance" "Name=value,Values=terraform-mongodb" --query "Tags[].ResourceId" --output text) --filters "Name=instance-state-name,Values=running" --query "Reservations[].Instances[].InstanceId" --output text)
+
+aws ssm start-session --target $(aws ec2 describe-instances --instance-ids $(aws ec2 describe-tags --filters "Name=resource-type,Values=instance" "Name=value,Values=terraform-backend" --query "Tags[].ResourceId" --output text) --filters "Name=instance-state-name,Values=running" --query "Reservations[].Instances[].InstanceId" --output text)
