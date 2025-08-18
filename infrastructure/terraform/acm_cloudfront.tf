@@ -155,17 +155,16 @@ resource "aws_cloudfront_distribution" "frontend" {
     }
 
     origin {
-      domain_name                  = "api.${var.domain_name}"  # must be an ALB ALIAS in Route53
-      origin_id                    = "alb-origin"
-      connection_attempts          = 1     # <— surface problems quickly (no 30s stall)
-      connection_timeout           = 5
-
+      domain_name              = "api.${var.domain_name}"
+      origin_id                = "alb-origin"
+      connection_attempts      = 1
+      connection_timeout       = 5
       custom_origin_config {
-        http_port                = 80
-        https_port               = 443
-        origin_protocol_policy   = "https-only"
-        origin_ssl_protocols     = ["TLSv1.2"]
-        origin_read_timeout      = 60
+        http_port              = 80
+        https_port             = 443
+        origin_protocol_policy = "https-only"
+        origin_ssl_protocols   = ["TLSv1.2"]
+        origin_read_timeout    = 60
         origin_keepalive_timeout = 60
       }
     }
