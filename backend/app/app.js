@@ -6,7 +6,7 @@ const cookieParser = require('cookie-parser');
 require('dotenv').config();
 
 // Routers
-const authRoutes = require('./routes/auth');                 // /login, /auth/*, /logout
+const authRoutes = require('./routes/auth');                 // /login, /auth/*, /logout, /check
 const availabilityRoutes = require('./routes/availability'); // /availability/*
 const settingsRoutes = require('./routes/settings');         // /settings (GET/POST)
 const usersRoutes = require('./routes/users');               // /users/*
@@ -16,12 +16,18 @@ const app = express();
 /* ========= Core security & infra ========= */
 app.set('trust proxy', 1); // behind ALB/CloudFront, ensure correct scheme/IP for cookies, etc.
 
-app.use(cors({
+// CORS (explicit, credentials-enabled)
+const corsOptions = {
   origin: ['https://www.nat20scheduling.com', 'https://nat20scheduling.com'],
-  credentials: true
-}));
+  credentials: true,
+  methods: ['GET', 'HEAD', 'OPTIONS', 'POST', 'PUT', 'PATCH', 'DELETE'],
+  allowedHeaders: ['Content-Type', 'X-Requested-With'],
+  optionsSuccessStatus: 204
+};
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions)); // fast preflight responses
 
-app.use(express.json());
+app.use(express.json({ limit: '1mb' }));
 app.use(cookieParser());
 
 /* ========= Process-level logging ========= */
@@ -39,7 +45,6 @@ app.use((req, res, next) => {
   req.__reqId = reqId;
 
   const safeBody = (() => {
-    // Never log raw passwords or tokens
     try {
       if (!req.body || typeof req.body !== 'object') return req.body;
       const clone = JSON.parse(JSON.stringify(req.body));
@@ -96,13 +101,13 @@ mongoose.connect(MONGO_URI, {
 });
 
 /* ========= Health & debug ========= */
+// ALB Target Group health check endpoint (PERSISTENTLY /health)
 app.get('/health', (_req, res) => {
-  console.log('[HEALTH] OK');
   res.status(200).json({ ok: true });
 });
 
+// Simple echo & Mongo ping for troubleshooting
 app.all('/__debug/echo', (req, res) => {
-  console.log('[DEBUG] echo endpoint hit');
   res.json({
     ok: true,
     method: req.method,
@@ -117,10 +122,8 @@ app.get('/__debug/dbping', async (_req, res) => {
   try {
     const admin = mongoose.connection.getClient().db().admin();
     const out = await admin.ping();
-    console.log('[DEBUG] dbping ok:', out);
     res.json({ ok: true, mongo: out });
   } catch (e) {
-    console.error('[DEBUG] dbping error:', e);
     res.status(500).json({ ok: false, error: e.message });
   }
 });
@@ -146,7 +149,9 @@ const server = app.listen(PORT, () => {
   console.log(`[BOOT] Backend listening on port ${PORT}`);
 });
 
-/* ========= HTTP server timeouts (fix intermittent ALB/keep-alive resets) ========= */
-server.keepAliveTimeout = 65000; // must be > ALB idle timeout (usually 60s)
+/* ========= HTTP server timeouts (help avoid intermittent 50% timeouts via ALB) =========
+   Keep-Alive must exceed ALB idle timeout (default 60s).
+*/
+server.keepAliveTimeout = 65000; // > 60000 (ALB idle)
 server.headersTimeout   = 66000; // a bit higher than keepAliveTimeout
 server.requestTimeout   = 0;     // disable per-request timeout to avoid premature closes
