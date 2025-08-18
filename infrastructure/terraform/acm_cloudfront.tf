@@ -2,7 +2,7 @@
 # CloudFront (Frontend + API routing)
 # - Default origin: S3 static site (via OAC)
 # - API paths -> ALB origin with cookies/headers/query forwarded
-# - SPA fallback for 403/404 to /index.html
+# - SPA fallback handled by CF Function on S3 ONLY (no API rewrite)
 ############################################################
 
 # ---------- Managed policies ----------
@@ -105,6 +105,36 @@ resource "aws_cloudfront_origin_request_policy" "api_all_cookies" {
   }
 }
 
+# ---------- CloudFront Function for SPA rewrite on S3 ONLY ----------
+resource "aws_cloudfront_function" "spa_rewrite" {
+  name    = "spa-rewrite-index"
+  runtime = "cloudfront-js-1.0"
+  publish = true
+  code    = <<-EOF
+function handler(event) {
+  var req = event.request;
+  var uri = req.uri;
+
+  // Never rewrite API or dynamic endpoints
+  if (uri === '/auth' ||
+      uri === '/check' ||
+      uri.startsWith('/auth/') ||
+      uri.startsWith('/availability/') ||
+      uri.startsWith('/users/') ||
+      uri.startsWith('/api/') ||
+      uri.startsWith('/settings')) {
+    return req;
+  }
+
+  // SPA: If no file extension and GET, serve index.html
+  if (req.method === 'GET' && uri.indexOf('.') === -1) {
+    req.uri = '/index.html';
+  }
+  return req;
+}
+EOF
+}
+
 # ---------- CloudFront Distribution ----------
 resource "aws_cloudfront_distribution" "frontend" {
   enabled             = true
@@ -151,10 +181,15 @@ resource "aws_cloudfront_distribution" "frontend" {
     origin_request_policy_id = data.aws_cloudfront_origin_request_policy.managed_all_viewer.id
 
     compress = true
+
+    function_association {
+      event_type   = "viewer-request"
+      function_arn = aws_cloudfront_function.spa_rewrite.arn
+    }
   }
 
   # ---------- Ordered behaviors (API -> ALB) ----------
-  # Put exact paths before prefixes to make matching deterministic.
+  # Exact paths before prefixes to ensure deterministic matching.
   ordered_cache_behavior {
     path_pattern           = "/auth/check"
     target_origin_id       = "alb-origin"
@@ -199,7 +234,6 @@ resource "aws_cloudfront_distribution" "frontend" {
     compress = true
   }
 
-  # API exact path /settings -> ALB
   ordered_cache_behavior {
     path_pattern           = "/settings"
     target_origin_id       = "alb-origin"
@@ -211,7 +245,6 @@ resource "aws_cloudfront_distribution" "frontend" {
     compress = true
   }
 
-  # API prefix /settings/* -> ALB
   ordered_cache_behavior {
     path_pattern           = "/settings/*"
     target_origin_id       = "alb-origin"
@@ -243,20 +276,6 @@ resource "aws_cloudfront_distribution" "frontend" {
     cache_policy_id          = data.aws_cloudfront_cache_policy.managed_caching_disabled.id
     origin_request_policy_id = aws_cloudfront_origin_request_policy.api_all_cookies.id
     compress = true
-  }
-
-  # ---------- Error responses (SPA fallback) ----------
-  custom_error_response {
-    error_code            = 403
-    response_code         = 200
-    response_page_path    = "/index.html"
-    error_caching_min_ttl = 0
-  }
-  custom_error_response {
-    error_code            = 404
-    response_code         = 200
-    response_page_path    = "/index.html"
-    error_caching_min_ttl = 0
   }
 
   # ---------- Restrictions (required block) ----------
