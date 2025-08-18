@@ -1,4 +1,3 @@
-reminder  that this is the old alb.tf
 ############################################################
 # Application Load Balancer for Backend API (HTTPS only)
 # NOTE: Security groups are defined in security_groups.tf.
