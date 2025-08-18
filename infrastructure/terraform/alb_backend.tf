@@ -11,7 +11,6 @@ data "aws_ec2_managed_prefix_list" "cloudfront_origin" {
 }
 
 # Security group for ALB (HTTPS from CloudFront only)
-# Security group for ALB (HTTPS from CloudFront only)
 resource "aws_security_group" "alb" {
   name_prefix            = "nat20-alb-sg-"
   description            = "ALB security group (HTTPS from CloudFront origin fetchers only)"
@@ -67,7 +66,6 @@ resource "aws_security_group" "alb" {
   }
 }
 
-
 # Application Load Balancer
 resource "aws_lb" "api" {
   name               = "nat20-backend-alb"
@@ -78,6 +76,7 @@ resource "aws_lb" "api" {
     data.aws_subnet.eu_central_1a.id,
     data.aws_subnet.eu_central_1b.id
   ]
+  idle_timeout       = 120
 
   tags = {
     Name = "nat20-backend-alb"
