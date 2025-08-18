@@ -1,3 +1,42 @@
+// --- global fetch de-dup for auth/settings (idempotent installer) ---
+(function () {
+  if (window.__dedupeFetchInstalled) return;
+  const origFetch = window.fetch.bind(window);
+  const inflight = new Map();
+
+  function shouldDedupe(url) {
+    const p = new URL(url, window.location.origin).pathname;
+    return p === '/auth/check' || p === '/check' || p === '/settings';
+  }
+  function canonicalKey(url) {
+    const u = new URL(url, window.location.origin);
+    const p = u.pathname;
+    if (p === '/auth/check' || p === '/check') return `${u.origin}/__authcheck__`;
+    if (p === '/settings') return `${u.origin}/__settings__`; // ignore search to collapse dupes
+    return u.toString();
+  }
+  window.__dedupeFetchInstalled = true;
+  window.fetch = function dedupedFetch(input, init) {
+    const urlStr = typeof input === 'string' ? input : (input && input.url) || '';
+    let absolute;
+    try { absolute = new URL(urlStr, window.location.origin).toString(); } catch { return origFetch(input, init); }
+    if (!shouldDedupe(absolute)) return origFetch(input, init);
+
+    const key = canonicalKey(absolute);
+    if (inflight.has(key)) return inflight.get(key).then(r => r.clone());
+
+    const merged = { ...(init || {}) };
+    if (!('credentials' in merged)) merged.credentials = 'include';
+    if (!('cache' in merged)) merged.cache = 'no-store';
+    if ('signal' in merged) delete merged.signal;
+
+    const req = origFetch(absolute, merged).finally(() => setTimeout(() => inflight.delete(key), 0));
+    inflight.set(key, req);
+    return req.then(r => r.clone());
+  };
+})();
+
+
 (function () {
   function getSystemTZ() {
     return (Intl.DateTimeFormat().resolvedOptions().timeZone) || 'UTC';
