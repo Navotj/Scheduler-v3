@@ -1,7 +1,6 @@
 ############################################################
-# S3 bucket policy for frontend (OAC + legacy OAI + TLS-only)
-# Grants CloudFront access to private S3 via OAC and keeps
-# legacy OAI readable during migration to avoid downtime.
+# S3 bucket policy for frontend (OAC + TLS-only)
+# Grants CloudFront access to private S3 via OAC.
 ############################################################
 
 data "aws_iam_policy_document" "frontend_bucket_policy" {
@@ -21,19 +20,6 @@ data "aws_iam_policy_document" "frontend_bucket_policy" {
       test     = "StringEquals"
       variable = "AWS:SourceArn"
       values   = [aws_cloudfront_distribution.frontend.arn]
-    }
-  }
-
-  # Allow legacy OAI (kept during migration)
-  statement {
-    sid     = "AllowCloudFrontReadViaOAI"
-    effect  = "Allow"
-    actions = ["s3:GetObject"]
-    resources = ["${aws_s3_bucket.frontend.arn}/*"]
-
-    principals {
-      type        = "CanonicalUser"
-      identifiers = [aws_cloudfront_origin_access_identity.frontend.s3_canonical_user_id]
     }
   }
 
