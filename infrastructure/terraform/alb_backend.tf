@@ -93,7 +93,7 @@ resource "aws_lb_target_group" "api" {
   vpc_id   = data.aws_vpc.default.id
 
   health_check {
-    path                = var.backend_health_check_path
+    path                = "/health"
     matcher             = "200"
     protocol            = "HTTP"
     interval            = 30
