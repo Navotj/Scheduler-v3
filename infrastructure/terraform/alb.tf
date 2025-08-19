@@ -1,6 +1,6 @@
 ############################################################
 # Application Load Balancer for Backend API
-# NOTE: Security groups are defined in security_groupts.tf.
+# NOTE: Security groups are defined in security_groups.tf.
 ############################################################
 
 # Uses existing data sources declared elsewhere:
@@ -23,6 +23,9 @@ resource "aws_lb" "api" {
     data.aws_subnet.eu_central_1b.id
   ]
   idle_timeout       = 120
+
+  # Ensure no AZ affinity issues if one AZ has fewer healthy targets
+  enable_cross_zone_load_balancing = true
 
   tags = {
     Name = "nat20-backend-alb"
