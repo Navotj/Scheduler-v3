@@ -1,38 +1,84 @@
-name: Deploy Frontend to S3
+name: Deploy Frontend to EKS
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
     paths:
       - "frontend/**"
       - ".github/workflows/deploy_frontend.yml"
+      - "infrastructure/docker/frontend/Dockerfile"
   workflow_dispatch:
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      AWS_REGION: eu-central-1
+      CLUSTER_NAME: nat20-eks
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-    - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v2
-      with:
-        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        aws-region: eu-central-1
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
 
-    - name: Sync frontend to S3 (clean deploy)
-      run: |
-        aws s3 sync frontend/ s3://nat20scheduling.com/ --delete
+      - name: Get ECR URIs and cert/SG from SSM
+        run: |
+          set -euo pipefail
+          ECR_FRONTEND_URI=$(aws ssm get-parameter --name /nat20/ecr/FRONTEND_URI --query Parameter.Value --output text)
+          ORIGIN_CERT_ARN=$(aws ssm get-parameter --name /nat20/network/ORIGIN_CERT_ARN --query Parameter.Value --output text)
+          ALB_FRONTEND_SG_ID=$(aws ssm get-parameter --name /nat20/network/ALB_FRONTEND_SG_ID --query Parameter.Value --output text)
+          echo "ECR_FRONTEND_URI=$ECR_FRONTEND_URI" >> $GITHUB_ENV
+          echo "ORIGIN_CERT_ARN=$ORIGIN_CERT_ARN" >> $GITHUB_ENV
+          echo "ALB_FRONTEND_SG_ID=$ALB_FRONTEND_SG_ID" >> $GITHUB_ENV
+          echo "ORIGIN_HOST=origin.nat20scheduling.com" >> $GITHUB_ENV
 
-    - name: Invalidate CloudFront cache
-      run: |
-        DIST_ID=$(aws cloudfront list-distributions --query "DistributionList.Items[?Aliases.Items && contains(Aliases.Items, 'nat20scheduling.com')].Id | [0]" --output text)
-        if [ "$DIST_ID" != "None" ] && [ -n "$DIST_ID" ]; then
-          aws cloudfront create-invalidation --distribution-id "$DIST_ID" --paths "/*"
-        else
-          echo "CloudFront distribution not found for nat20scheduling.com" >&2
-          exit 1
-        fi
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push frontend image
+        run: |
+          set -euo pipefail
+          docker build -t "$ECR_FRONTEND_URI:${GITHUB_SHA}" -f infrastructure/docker/frontend/Dockerfile .
+          docker push "$ECR_FRONTEND_URI:${GITHUB_SHA}"
+          echo "FRONTEND_IMAGE=$ECR_FRONTEND_URI:${GITHUB_SHA}" >> $GITHUB_ENV
+
+      - name: Update image in k8s manifest
+        run: |
+          set -euo pipefail
+          sed -i "s#<ECR_URI_REPLACED_BY_CI>/frontend:\${GITHUB_SHA}#${ECR_FRONTEND_URI}:${GITHUB_SHA}#g" infrastructure/k8s/frontend/deployment.yaml
+
+      - name: Update ingress template vars (envsubst)
+        run: |
+          set -euo pipefail
+          ORIGIN_CERT_ARN="${ORIGIN_CERT_ARN}" ALB_FRONTEND_SG_ID="${ALB_FRONTEND_SG_ID}" ORIGIN_HOST="${ORIGIN_HOST}" \
+          envsubst < infrastructure/k8s/ingress/frontend-ingress.yaml > /tmp/frontend-ingress.rendered.yaml
+
+      - name: Configure kubectl
+        run: |
+          aws eks update-kubeconfig --name "${CLUSTER_NAME}" --region "${AWS_REGION}"
+
+      - name: Apply frontend and ingress
+        run: |
+          set -euo pipefail
+          kubectl apply -f infrastructure/k8s/frontend/deployment.yaml
+          kubectl apply -f /tmp/frontend-ingress.rendered.yaml
+          kubectl rollout status deployment/frontend -n nat20 --timeout=180s || (kubectl -n nat20 describe deploy frontend; kubectl -n nat20 logs deploy/frontend --all-containers --tail=200; exit 1)
+
+      - name: Discover Frontend ALB DNS
+        id: alb
+        run: |
+          set -euo pipefail
+          ARN=$(aws elbv2 describe-load-balancers --query "LoadBalancers[?starts_with(LoadBalancerName, 'k8s-nat20-frontend') || contains(DNSName, 'elb.amazonaws.com')].LoadBalancerArn" --output text | head -n1)
+          [ -z "$ARN" ] && echo "Could not find frontend ALB ARN" && exit 1
+          DNS=$(aws elbv2 describe-load-balancers --load-balancer-arns "$ARN" --query "LoadBalancers[0].DNSName" --output text)
+          echo "FRONTEND_ALB_DNS=$DNS" >> $GITHUB_ENV
+          echo "frontend_alb_dns=$DNS" >> $GITHUB_OUTPUT

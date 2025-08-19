@@ -1,11 +1,12 @@
-name: Deploy Backend to EC2
+name: Deploy Backend to EKS
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
     paths:
       - "backend/**"
       - ".github/workflows/deploy_backend.yml"
+      - "infrastructure/docker/backend/Dockerfile"
   workflow_dispatch:
 
 jobs:
@@ -16,8 +17,12 @@ jobs:
       id-token: write
       contents: read
 
+    env:
+      AWS_REGION: eu-central-1
+      CLUSTER_NAME: nat20-eks
+
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Configure AWS credentials
@@ -25,233 +30,68 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: eu-central-1
+          aws-region: ${{ env.AWS_REGION }}
 
-      - name: Derive artifact bucket name
-        id: acct
+      - name: Get ECR URIs and cert/SG from SSM
+        id: ssm
         run: |
           set -euo pipefail
-          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-          echo "ACCOUNT_ID=$ACCOUNT_ID" >> $GITHUB_ENV
-          ARTIFACT_BUCKET="nat20scheduling-com-deploy-artifacts-$ACCOUNT_ID"
-          echo "ARTIFACT_BUCKET=$ARTIFACT_BUCKET" >> $GITHUB_ENV
+          ECR_BACKEND_URI=$(aws ssm get-parameter --name /nat20/ecr/BACKEND_URI --query Parameter.Value --output text)
+          API_CERT_ARN=$(aws ssm get-parameter --name /nat20/network/API_CERT_ARN --query Parameter.Value --output text)
+          ALB_BACKEND_SG_ID=$(aws ssm get-parameter --name /nat20/network/ALB_BACKEND_SG_ID --query Parameter.Value --output text)
+          echo "ECR_BACKEND_URI=$ECR_BACKEND_URI" >> $GITHUB_ENV
+          echo "API_CERT_ARN=$API_CERT_ARN" >> $GITHUB_ENV
+          echo "ALB_BACKEND_SG_ID=$ALB_BACKEND_SG_ID" >> $GITHUB_ENV
+          echo "API_HOST=api.nat20scheduling.com" >> $GITHUB_ENV
 
-      - name: Verify artifact bucket exists (managed by Terraform)
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push backend image
         run: |
           set -euo pipefail
-          if ! aws s3api head-bucket --bucket "$ARTIFACT_BUCKET" 2>/dev/null; then
-            echo "Artifact bucket $ARTIFACT_BUCKET does not exist. Run the Terraform workflow first." >&2
-            exit 1
-          fi
+          docker build -t "$ECR_BACKEND_URI:${GITHUB_SHA}" -f infrastructure/docker/backend/Dockerfile .
+          docker push "$ECR_BACKEND_URI:${GITHUB_SHA}"
+          echo "BACKEND_IMAGE=$ECR_BACKEND_URI:${GITHUB_SHA}" >> $GITHUB_ENV
 
-      - name: Get Backend Instance ID from tag
-        id: backend_instance
+      - name: Update image in k8s manifest
         run: |
           set -euo pipefail
-          INSTANCE_ID=$(aws ec2 describe-instances \
-            --filters "Name=tag:Name,Values=terraform-backend" "Name=instance-state-name,Values=running" \
-            --query "Reservations[0].Instances[0].InstanceId" \
-            --output text)
-          if [ -z "$INSTANCE_ID" ] || [ "$INSTANCE_ID" = "None" ]; then
-            echo "No running instance tagged Name=terraform-backend" >&2
-            exit 1
-          fi
-          echo "INSTANCE_ID=$INSTANCE_ID" >> $GITHUB_ENV
-          echo "instance_id=$INSTANCE_ID" >> $GITHUB_OUTPUT
+          sed -i "s#<ECR_URI_REPLACED_BY_CI>/backend:\${GITHUB_SHA}#${ECR_BACKEND_URI}:${GITHUB_SHA}#g" infrastructure/k8s/backend/deployment.yaml
 
-      - name: Build production bundle (vendor node_modules + Node binaries)
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-
-      - name: Create bundle from backend/app
+      - name: Update ingress template vars (envsubst)
         run: |
           set -euo pipefail
+          API_CERT_ARN="${API_CERT_ARN}" ALB_BACKEND_SG_ID="${ALB_BACKEND_SG_ID}" API_HOST="${API_HOST}" \
+          envsubst < infrastructure/k8s/ingress/backend-ingress.yaml > /tmp/backend-ingress.rendered.yaml
 
-          rm -rf pack backend.zip
-          mkdir -p pack
+      - name: Configure kubectl
+        run: |
+          aws eks update-kubeconfig --name "${CLUSTER_NAME}" --region "${AWS_REGION}"
 
-          # Copy app sources (contains app.js, package.json, routes/, models/, utils/, services/)
-          rsync -a --delete backend/app/ pack/
-
-          # Install prod deps in pack/
-          pushd pack >/dev/null
-          if [ -f package-lock.json ]; then
-            npm ci --omit=dev
-          else
-            npm install --omit=dev
-          fi
-          popd >/dev/null
-
-          # Vendor Node binaries (x64 + arm64) inside pack/bin/
-          NODE_VERSION="v22.7.0"
-          mkdir -p pack/bin
-
-          curl -fsSL "https://nodejs.org/dist/${NODE_VERSION}/node-${NODE_VERSION}-linux-x64.tar.xz" -o /tmp/node-x64.tar.xz
-          tar -xJf /tmp/node-x64.tar.xz --strip-components=2 -C pack/bin "node-${NODE_VERSION}-linux-x64/bin/node"
-          mv pack/bin/node pack/bin/node-linux-x64
-
-          curl -fsSL "https://nodejs.org/dist/${NODE_VERSION}/node-${NODE_VERSION}-linux-arm64.tar.xz" -o /tmp/node-arm64.tar.xz
-          tar -xJf /tmp/node-arm64.tar.xz --strip-components=2 -C pack/bin "node-${NODE_VERSION}-linux-arm64/bin/node"
-          mv pack/bin/node pack/bin/node-linux-arm64
-
-          # Portable launcher
-          cat > pack/bin/node <<'EOS'
-          #!/usr/bin/env bash
-          set -euo pipefail
-          ARCH="$(uname -m)"
-          DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-          case "$ARCH" in
-            x86_64) exec "$DIR/node-linux-x64" "$@" ;;
-            aarch64|arm64) exec "$DIR/node-linux-arm64" "$@" ;;
-            *) echo "Unsupported architecture: $ARCH" >&2; exit 1 ;;
-          esac
-          EOS
-          chmod +x pack/bin/node pack/bin/node-linux-x64 pack/bin/node-linux-arm64
-
-          # Systemd unit using vendored Node
-          cat > pack/scheduler.service <<'UNIT'
-          [Unit]
-          Description=NAT20 Backend (Node.js)
-          After=network-online.target
-          Wants=network-online.target
-
-          [Service]
-          Type=simple
-          WorkingDirectory=/opt/app
-          EnvironmentFile=/opt/app/.env
-          ExecStart=/opt/app/bin/node /opt/app/app.js
-          Restart=always
-          RestartSec=2
-          NoNewPrivileges=true
-          ProtectSystem=full
-          ProtectHome=true
-          PrivateTmp=true
-
-          [Install]
-          WantedBy=multi-user.target
-          UNIT
-
-          # Zip the pack dir as backend.zip at repo root
-          (cd pack && zip -r ../backend.zip .)
-
-      - name: Upload artifact to private S3 (encrypted)
+      - name: Apply namespace, secrets, backend, ingress
         run: |
           set -euo pipefail
-          KEY="backend/${GITHUB_SHA}.zip"
-          echo "ARTIFACT_KEY=$KEY" >> $GITHUB_ENV
-          aws s3 cp backend.zip "s3://$ARTIFACT_BUCKET/$KEY" --sse AES256
+          kubectl apply -f infrastructure/k8s/namespaces/nat20.yaml
+          kubectl apply -f infrastructure/k8s/secret-stores/clustersecretstore.yaml
+          kubectl apply -f infrastructure/k8s/externalsecrets/backend-secrets.yaml
+          kubectl rollout status deployment/external-secrets -n externalsecrets --timeout=120s || true
+          kubectl apply -f infrastructure/k8s/backend/deployment.yaml
+          kubectl apply -f /tmp/backend-ingress.rendered.yaml
+          kubectl rollout status deployment/backend -n nat20 --timeout=180s || (kubectl -n nat20 describe deploy backend; kubectl -n nat20 logs deploy/backend --all-containers --tail=200; exit 1)
 
-      - name: Deploy on instance via SSM (download from S3, write .env, install unit)
-        env:
-          INSTANCE_ID: ${{ env.INSTANCE_ID }}
-          ARTIFACT_BUCKET: ${{ env.ARTIFACT_BUCKET }}
-          ARTIFACT_KEY: ${{ env.ARTIFACT_KEY }}
+      - name: Discover Backend ALB DNS and publish to Route53 variable
+        id: alb
         run: |
           set -euo pipefail
+          # Find the ALB created for backend ingress
+          ARN=$(aws elbv2 describe-load-balancers --query "LoadBalancers[?starts_with(LoadBalancerName, 'k8s-nat20-backend') || contains(DNSName, 'elb.amazonaws.com')].LoadBalancerArn" --output text | head -n1)
+          [ -z "$ARN" ] && echo "Could not find backend ALB ARN" && exit 1
+          DNS=$(aws elbv2 describe-load-balancers --load-balancer-arns "$ARN" --query "LoadBalancers[0].DNSName" --output text)
+          echo "BACKEND_ALB_DNS=$DNS" >> $GITHUB_ENV
+          echo "backend_alb_dns=$DNS" >> $GITHUB_OUTPUT
 
-          if ! command -v jq >/dev/null 2>&1; then
-            sudo apt-get update -y
-            sudo apt-get install -y jq
-          fi
-
-          cat > /tmp/ssm_commands.txt <<CMDS
-          set -euo pipefail
-
-          # Ensure basic tools exist on instance
-          if ! command -v unzip >/dev/null 2>&1; then
-            if command -v dnf >/dev/null 2>&1; then dnf install -y unzip; elif command -v yum >/dev/null 2>&1; then yum install -y unzip; elif command -v apt-get >/dev/null 2>&1; then apt-get update -y && apt-get install -y unzip; fi
-          fi
-          if ! command -v rsync >/dev/null 2>&1; then
-            if command -v dnf >/dev/null 2>&1; then dnf install -y rsync; elif command -v yum >/dev/null 2>&1; then yum install -y rsync; elif command -v apt-get >/dev/null 2>&1; then apt-get update -y && apt-get install -y rsync; fi
-          fi
-          if ! command -v curl >/dev/null 2>&1; then
-            if command -v dnf >/dev/null 2>&1; then dnf install -y curl; elif command -v yum >/dev/null 2>&1; then yum install -y curl; elif command -v apt-get >/dev/null 2>&1; then apt-get update -y && apt-get install -y curl; fi
-          fi
-
-          sudo mkdir -p /opt/app /tmp/installation
-          sudo chown -R root:root /tmp/installation
-
-          # Download and extract artifact (runner expanded bucket/key here)
-          aws s3 cp "s3://${ARTIFACT_BUCKET}/${ARTIFACT_KEY}" /tmp/installation/backend.zip
-          rm -rf /tmp/installation/unpack
-          mkdir -p /tmp/installation/unpack
-          unzip -o /tmp/installation/backend.zip -d /tmp/installation/unpack/
-
-          # Sync into /opt/app (artifact root already contains app.js, node_modules, bin/, scheduler.service)
-          SRC="/tmp/installation/unpack"
-          sudo rsync -a --delete "\$SRC"/ /opt/app/
-
-          # Permissions for vendored node binaries
-          sudo chmod +x /opt/app/bin/node || true
-          sudo chmod +x /opt/app/bin/node-linux-* || true
-
-          # Fetch secrets from SSM
-          JWT_SECRET=\$(aws ssm get-parameter --name /nat20/backend/JWT_SECRET --with-decryption --query Parameter.Value --output text)
-          MONGO_USER=\$(aws ssm get-parameter --name /nat20/mongo/USER --with-decryption --query Parameter.Value --output text)
-          MONGO_PASS=\$(aws ssm get-parameter --name /nat20/mongo/PASSWORD --with-decryption --query Parameter.Value --output text)
-          MONGO_HOST=\$(aws ssm get-parameter --name /nat20/mongo/HOST --with-decryption --query Parameter.Value --output text)
-          MONGO_DB=\$(aws ssm get-parameter --name /nat20/mongo/DB --with-decryption --query Parameter.Value --output text)
-
-          # Write .env
-          {
-            echo JWT_SECRET=\$JWT_SECRET
-            echo MONGO_URI=mongodb://\$MONGO_USER:\$MONGO_PASS@\$MONGO_HOST:27017/\$MONGO_DB?authSource=admin
-            echo MONGO_DB_NAME=\$MONGO_DB
-            echo PORT=3000
-            echo COOKIE_SECURE=true
-          } | sudo tee /opt/app/.env >/dev/null
-
-          # Install service unit (from artifact)
-          sudo cp -f /opt/app/scheduler.service /etc/systemd/system/scheduler.service
-
-          sudo systemctl daemon-reload
-          sudo systemctl enable scheduler || true
-          sudo systemctl restart scheduler || (journalctl -u scheduler --no-pager -n 200; exit 1)
-
-          sleep 2; ss -lntp | sed -n "1,200p" || true
-          curl -sS -o /dev/null -w 'HTTP:%{http_code}\n' http://127.0.0.1:3000/ || true
-          rm -rf /tmp/installation
-          CMDS
-
-          jq -Rs '{commands: (split("\n") | map(select(length>0)))}' /tmp/ssm_commands.txt > /tmp/ssm_params.json
-
-          CMD_ID=$(aws ssm send-command \
-            --document-name "AWS-RunShellScript" \
-            --instance-ids "$INSTANCE_ID" \
-            --region eu-central-1 \
-            --comment "Deploy backend (vendored node + node_modules; secrets from SSM)" \
-            --parameters file:///tmp/ssm_params.json \
-            --query "Command.CommandId" --output text)
-
-          echo "Waiting for SSM command ${CMD_ID} to finish..."
-          for i in $(seq 1 60); do
-            STATUS=$(aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" --query Status --output text || echo "Pending")
-            if [ "$STATUS" = "Success" ]; then
-              break
-            fi
-            if [ "$STATUS" = "Failed" ] || [ "$STATUS" = "Cancelled" ] || [ "$STATUS" = "TimedOut" ]; then
-              echo "SSM status: $STATUS"
-              echo "SSM STDOUT"
-              aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" --query 'StandardOutputContent' --output text || true
-              echo
-              echo "SSM STDERR"
-              aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" --query 'StandardErrorContent' --output text || true
-              echo
-              echo "Remote deploy script failed with status: $STATUS" >&2
-              exit 1
-            fi
-            sleep 5
-          done
-
-          echo "SSM status: Success"
-          echo "SSM STDOUT"
-          aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" --query 'StandardOutputContent' --output text || true
-          echo
-          echo "SSM STDERR"
-          aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" --query 'StandardErrorContent' --output text || true
-          echo
-
-      - name: Clean up local artifact
-        if: always()
-        run: rm -f backend.zip
+      - name: Update Route53 record via Terraform var (optional)
+        run: |
+          echo "Backend ALB DNS: ${BACKEND_ALB_DNS}"
+          # Optionally trigger Terraform with -var backend_alb_dns to create/refresh the api A-record

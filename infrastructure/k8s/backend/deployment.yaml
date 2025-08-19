@@ -1,0 +1,62 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  namespace: nat20
+spec:
+  selector: { app: backend }
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: nat20
+spec:
+  replicas: 2
+  revisionHistoryLimit: 2
+  selector:
+    matchLabels: { app: backend }
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels: { app: backend }
+    spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector: { matchLabels: { app: backend } }
+      containers:
+        - name: backend
+          image: <ECR_URI_REPLACED_BY_CI>/backend:${GITHUB_SHA}
+          imagePullPolicy: IfNotPresent
+          ports: [{ containerPort: 3000, name: http }]
+          envFrom:
+            - secretRef: { name: backend-env }
+          env:
+            - name: MONGO_URI
+              value: "mongodb://$(MONGO_USER):$(MONGO_PASS)@mongo.nat20.svc.cluster.local:27017/$(MONGO_DB)?authSource=admin"
+            - name: PORT
+              value: "3000"
+            - name: COOKIE_SECURE
+              value: "true"
+          readinessProbe:
+            httpGet: { path: /check, port: http }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /check, port: http }
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          resources:
+            requests: { cpu: "100m", memory: "256Mi" }
+            limits:   { cpu: "500m", memory: "512Mi" }
