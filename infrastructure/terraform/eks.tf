@@ -36,10 +36,27 @@ data "aws_ssm_parameter" "eks_api_allowed_cidrs" {
   with_decryption = false
 }
 
+# Fallback: detect the current runner/bastion public IP so plan/apply never leaves API open.
+# This is a safety-net; prefer setting var.api_allowed_cidrs or the SSM parameter explicitly.
+data "http" "runner_ip" {
+  url = "https://checkip.amazonaws.com/"
+}
+
 locals {
+  # SSM-sourced list (CSV -> list)
   ssm_cidrs_raw  = var.use_ssm_api_cidrs && length(data.aws_ssm_parameter.eks_api_allowed_cidrs) > 0 ? data.aws_ssm_parameter.eks_api_allowed_cidrs[0].value : ""
   ssm_cidrs_list = length(trimspace(local.ssm_cidrs_raw)) > 0 ? [for c in split(",", local.ssm_cidrs_raw) : trimspace(c)] : []
-  public_cidrs   = length(local.ssm_cidrs_list) > 0 ? local.ssm_cidrs_list : var.api_allowed_cidrs
+
+  # Explicit var list
+  explicit_cidrs = var.api_allowed_cidrs
+
+  # Fallback to the current runner public /32 (from https://checkip.amazonaws.com/)
+  runner_ip   = trimspace(data.http.runner_ip.response_body)
+  runner_cidr = can(regex("^\\d+\\.\\d+\\.\\d+\\.\\d+$", local.runner_ip)) ? ["${local.runner_ip}/32"] : []
+
+  # Final allowlist precedence: SSM > explicit var > runner /32
+  public_cidrs = length(local.ssm_cidrs_list) > 0 ? local.ssm_cidrs_list :
+                 (length(local.explicit_cidrs) > 0 ? local.explicit_cidrs : local.runner_cidr)
 }
 
 resource "aws_iam_role" "eks_cluster" {
@@ -123,7 +140,7 @@ resource "aws_eks_cluster" "this" {
   lifecycle {
     precondition {
       condition     = length(local.public_cidrs) > 0
-      error_message = "EKS public_access_cidrs must not be empty. Set var.api_allowed_cidrs or enable use_ssm_api_cidrs with a valid SSM parameter."
+      error_message = "EKS public_access_cidrs must not be empty. Set var.api_allowed_cidrs, populate the SSM parameter, or rely on the runner /32 fallback."
     }
   }
 }
