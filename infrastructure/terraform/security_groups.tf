@@ -96,16 +96,16 @@ resource "aws_security_group" "mongodb_access" {
   tags = { Name = "mongodb-access" }
 }
 
-# ALB security group (restrict origin access to CloudFront only; replace old SG to avoid rule-limit issues)
+# ALB security group (CloudFront origin fetchers only; minimal rules to avoid per-SG rule limit)
 resource "aws_security_group" "alb" {
-  name_prefix            = "nat20-alb-sg-v2-"  # force new SG creation
+  name_prefix            = "nat20-alb-sg-v3-"
   description            = "ALB security group (CloudFront origin fetchers only)"
   vpc_id                 = data.aws_vpc.default.id
   revoke_rules_on_delete = true
 
   lifecycle { create_before_destroy = true }
 
-  # HTTP from CloudFront origin fetchers (IPv4)
+  # Single ingress rule: HTTP from CloudFront origin-facing managed prefix list (IPv4)
   ingress {
     description     = "HTTP from CloudFront origin fetchers (IPv4)"
     from_port       = 80
@@ -114,16 +114,7 @@ resource "aws_security_group" "alb" {
     prefix_list_ids = [data.aws_ec2_managed_prefix_list.cloudfront_origin.id]
   }
 
-  # HTTPS from CloudFront origin fetchers (IPv4) — kept for future HTTPS origin
-  ingress {
-    description     = "HTTPS from CloudFront origin fetchers (IPv4)"
-    from_port       = 443
-    to_port         = 443
-    protocol        = "tcp"
-    prefix_list_ids = [data.aws_ec2_managed_prefix_list.cloudfront_origin.id]
-  }
-
-  # Egress ONLY to backend instances on app port (no generic 0.0.0.0/0 egress)
+  # Single egress rule: only to backend instances on app port
   egress {
     description     = "Backend application traffic"
     from_port       = var.backend_port
