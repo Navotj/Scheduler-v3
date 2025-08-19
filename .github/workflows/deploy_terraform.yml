@@ -1,56 +1,74 @@
-name: 'Deploy Terraform Infrastructure'
+name: Terraform Apply (EKS hardened, staged)
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
     paths:
-      - 'infrastructure/terraform/**'
-      - '.github/workflows/deploy_terraform.yml'
+      - "infrastructure/terraform/**"
+      - ".github/workflows/terraform_apply.yml"
   workflow_dispatch:
 
-permissions:
-  contents: read
+env:
+  AWS_REGION: eu-central-1
 
 jobs:
-  terraform:
+  tf-apply:
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+
     defaults:
       run:
         shell: bash
         working-directory: infrastructure/terraform
-    env:
-      TF_IN_AUTOMATION: "true"
-      TF_REGISTRY_CLIENT_TIMEOUT: "60s"
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v2
-        with:
-          terraform_wrapper: false
-
-      - name: Configure AWS Credentials
+      - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v2
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: eu-central-1
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.8.5
 
       - name: Terraform Init
+        run: terraform init -input=false
+
+      # Avoid contacting the cluster during planning (helm/k8s providers refresh),
+      # which can fail when we're rotating public_access_cidrs to the current runner IP.
+      - name: Terraform Plan (no refresh)
+        run: terraform plan -refresh=false -input=false -lock-timeout=2m -out=tfplan-norefresh
+
+      # Stage 1: update the EKS cluster networking (public_access_cidrs, private endpoint, logging, KMS).
+      # This ensures the current runner IP is allowed BEFORE any helm/k8s provider operations run.
+      - name: Apply cluster-only changes first
+        run: terraform apply -input=false -lock-timeout=2m -auto-approve -target=aws_eks_cluster.this
+
+      # Optional: brief wait for control-plane to accept the CIDR change
+      - name: Wait for EKS API reachability
         run: |
           set -euo pipefail
-          printf '%s\n' 'provider_installation { direct {} }' > "$HOME/.tfrc.direct"
-          cp "$HOME/.tfrc.direct" "$HOME/.terraformrc"
-          terraform init -reconfigure -lock-timeout=2m
+          for i in $(seq 1 30); do
+            if timeout 5 bash -c "exec 3<>/dev/tcp/$(aws eks describe-cluster --name nat20-eks --query 'cluster.endpoint' --output text | sed -E 's|https://([^/]+)/.*|\1|')/443"; then
+              echo "EKS API reachable"; exit 0
+            fi
+            echo "Waiting for EKS API to accept new CIDR... ($i/30)"
+            sleep 5
+          done
+          echo "EKS API not reachable in time" >&2
+          exit 1
 
-      - name: Terraform Validate
-        run: terraform validate
+      # Stage 2: apply the rest (Helm releases for ALB Controller, External Secrets, etc.)
+      - name: Terraform Apply (everything)
+        run: terraform apply -input=false -lock-timeout=2m -auto-approve
 
-      - name: Terraform Plan
-        run: terraform plan -input=false -lock-timeout=2m
-
-      - name: Terraform Apply
-        if: github.ref == 'refs/heads/main'
-        run: terraform apply -auto-approve -input=false -lock-timeout=2m
+      - name: Output
+        run: terraform output -json || true
