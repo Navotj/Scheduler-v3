@@ -78,3 +78,14 @@ resource "aws_lb_target_group_attachment" "backend_instance" {
   target_id        = each.value.id
   port             = 3000
 }
+
+resource "aws_lb_listener" "http" {
+  load_balancer_arn = aws_lb.api.arn
+  port              = 80
+  protocol          = "HTTP"
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.api.arn
+  }
+}
