@@ -2,11 +2,6 @@
 # Security Groups for ALB, Backend and MongoDB
 ############################################################
 
-# CloudFront origin-facing IPv4 prefix list
-data "aws_ec2_managed_prefix_list" "cloudfront_origin" {
-  name = "com.amazonaws.global.cloudfront.origin-facing"
-}
-
 # Backend instance security group (reachable only from ALB SG on backend_port)
 resource "aws_security_group" "backend_access" {
   name        = "backend-access"
@@ -101,7 +96,7 @@ resource "aws_security_group" "mongodb_access" {
   tags = { Name = "mongodb-access" }
 }
 
-# ALB security group (restrict origin access to CloudFront only)
+# ALB security group (restrict origin access to CloudFront only; IPv4 via managed prefix list)
 resource "aws_security_group" "alb" {
   name_prefix            = "nat20-alb-sg-"
   description            = "ALB security group (CloudFront origin fetchers only)"
@@ -110,7 +105,7 @@ resource "aws_security_group" "alb" {
 
   lifecycle { create_before_destroy = true }
 
-  # IPv4: restrict HTTP/HTTPS to CloudFront origin-facing prefix list
+  # HTTP from CloudFront origin fetchers (IPv4 only for custom origins)
   ingress {
     description     = "HTTP from CloudFront origin fetchers (IPv4)"
     from_port       = 80
@@ -119,6 +114,7 @@ resource "aws_security_group" "alb" {
     prefix_list_ids = [data.aws_ec2_managed_prefix_list.cloudfront_origin.id]
   }
 
+  # HTTPS from CloudFront origin fetchers (IPv4)
   ingress {
     description     = "HTTPS from CloudFront origin fetchers (IPv4)"
     from_port       = 443
@@ -127,7 +123,7 @@ resource "aws_security_group" "alb" {
     prefix_list_ids = [data.aws_ec2_managed_prefix_list.cloudfront_origin.id]
   }
 
-  # Note: No IPv6 ingress to origin; CloudFront origin fetch to custom origins is IPv4.
+  # No IPv6 ingress (CloudFront → custom origin uses IPv4)
 
   # Egress to backend instances on app port
   egress {

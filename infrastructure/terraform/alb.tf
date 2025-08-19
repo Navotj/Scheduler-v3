@@ -51,7 +51,7 @@ resource "aws_lb_target_group" "api" {
   }
 }
 
-# HTTPS listener (not used by CloudFront in http-only mode). Keep blocked by default.
+# HTTPS listener (kept but default 403; we use HTTP from CloudFront)
 resource "aws_lb_listener" "https" {
   load_balancer_arn = aws_lb.api.arn
   port              = 443
@@ -71,7 +71,7 @@ resource "aws_lb_listener" "https" {
   }
 }
 
-# HTTP listener (used by CloudFront origin). Block by default; forward only with secret header.
+# HTTP listener (CloudFront origin uses this)
 resource "aws_lb_listener" "http" {
   load_balancer_arn = aws_lb.api.arn
   port              = 80
@@ -87,7 +87,7 @@ resource "aws_lb_listener" "http" {
   }
 }
 
-# Allow only requests that carry the CloudFront origin secret header to reach the target group.
+# Allow only requests with the shared secret header to reach targets (HTTP)
 resource "aws_lb_listener_rule" "http_from_cf_with_secret" {
   listener_arn = aws_lb_listener.http.arn
   priority     = 10
@@ -105,7 +105,7 @@ resource "aws_lb_listener_rule" "http_from_cf_with_secret" {
   }
 }
 
-# Mirror rule on HTTPS (in case you later flip CF to https-only). Safe to keep now.
+# Mirror rule on HTTPS (future-proof if you flip CF→HTTPS)
 resource "aws_lb_listener_rule" "https_from_cf_with_secret" {
   listener_arn = aws_lb_listener.https.arn
   priority     = 10
