@@ -1,8 +1,8 @@
 ############################################################
 # EKS Cluster + Managed Node Group (2 AZs, AL2023)
 # Hardened: restricted API CIDRs, private endpoint enabled,
-# control-plane logging (log group lives in cloudwatch_logs.tf),
-# KMS envelope encryption (key/alias live in kms_eks.tf).
+# control-plane logging (log group in cloudwatch_logs.tf),
+# KMS envelope encryption (key/alias in kms_eks.tf).
 ############################################################
 
 variable "eks_api_allowed_cidrs_ssm_name" {
@@ -36,27 +36,18 @@ data "aws_ssm_parameter" "eks_api_allowed_cidrs" {
   with_decryption = false
 }
 
-# Fallback: detect the current runner/bastion public IP so plan/apply never leaves API open.
-# This is a safety-net; prefer setting var.api_allowed_cidrs or the SSM parameter explicitly.
+# Fallback: detect current runner/bastion public IP to avoid opening API.
 data "http" "runner_ip" {
   url = "https://checkip.amazonaws.com/"
 }
 
 locals {
-  # SSM-sourced list (CSV -> list)
   ssm_cidrs_raw  = var.use_ssm_api_cidrs && length(data.aws_ssm_parameter.eks_api_allowed_cidrs) > 0 ? data.aws_ssm_parameter.eks_api_allowed_cidrs[0].value : ""
   ssm_cidrs_list = length(trimspace(local.ssm_cidrs_raw)) > 0 ? [for c in split(",", local.ssm_cidrs_raw) : trimspace(c)] : []
-
-  # Explicit var list
   explicit_cidrs = var.api_allowed_cidrs
-
-  # Fallback to the current runner public /32 (from https://checkip.amazonaws.com/)
-  runner_ip   = trimspace(data.http.runner_ip.response_body)
-  runner_cidr = can(regex("^\\d+\\.\\d+\\.\\d+\\.\\d+$", local.runner_ip)) ? ["${local.runner_ip}/32"] : []
-
-  # Final allowlist precedence: SSM > explicit var > runner /32
-  public_cidrs = length(local.ssm_cidrs_list) > 0 ? local.ssm_cidrs_list :
-                 (length(local.explicit_cidrs) > 0 ? local.explicit_cidrs : local.runner_cidr)
+  runner_ip      = trimspace(data.http.runner_ip.response_body)
+  runner_cidr    = can(regex("^\\d+\\.\\d+\\.\\d+\\.\\d+$", local.runner_ip)) ? ["${local.runner_ip}/32"] : []
+  public_cidrs   = length(local.ssm_cidrs_list) > 0 ? local.ssm_cidrs_list : (length(local.explicit_cidrs) > 0 ? local.explicit_cidrs : local.runner_cidr)
 }
 
 resource "aws_iam_role" "eks_cluster" {
@@ -105,7 +96,6 @@ resource "aws_eks_cluster" "this" {
   role_arn = aws_iam_role.eks_cluster.arn
   version  = var.eks_version
 
-  # Restrict API exposure + enable private endpoint
   vpc_config {
     subnet_ids              = [data.aws_subnet.eu_central_1a.id, data.aws_subnet.eu_central_1b.id]
     endpoint_private_access = true
@@ -114,7 +104,6 @@ resource "aws_eks_cluster" "this" {
     public_access_cidrs     = local.public_cidrs
   }
 
-  # Control plane logs -> CloudWatch (log group defined in cloudwatch_logs.tf)
   enabled_cluster_log_types = [
     "api",
     "audit",
@@ -123,7 +112,6 @@ resource "aws_eks_cluster" "this" {
     "scheduler"
   ]
 
-  # Secrets envelope encryption (KMS key/alias defined in kms_eks.tf)
   encryption_config {
     provider { key_arn = aws_kms_key.eks.arn }
     resources = ["secrets"]
@@ -145,7 +133,6 @@ resource "aws_eks_cluster" "this" {
   }
 }
 
-# Node group role
 resource "aws_iam_role" "eks_node" {
   name = "${var.project_name}-eks-node-role"
   assume_role_policy = jsonencode({
@@ -199,7 +186,6 @@ resource "aws_eks_node_group" "default" {
   depends_on = [aws_eks_cluster.this]
 }
 
-# EKS data sources (for providers)
 data "aws_eks_cluster" "this" {
   name       = aws_eks_cluster.this.name
   depends_on = [aws_eks_cluster.this]
