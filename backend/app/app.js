@@ -72,12 +72,28 @@ app.use((req, res, next) => {
 });
 
 /* ========= MongoDB connection ========= */
-const MONGO_URI = process.env.MONGO_URI;
+const buildMongoUri = () => {
+  // Prefer explicit URI if provided
+  if (process.env.MONGO_URI && process.env.MONGO_URI.trim().length > 0) {
+    return process.env.MONGO_URI.trim();
+  }
+  // Otherwise compose from parts
+  const user = process.env.MONGO_USER ? encodeURIComponent(process.env.MONGO_USER) : '';
+  const pass = process.env.MONGO_PASS ? encodeURIComponent(process.env.MONGO_PASS) : '';
+  const auth = user && pass ? `${user}:${pass}@` : '';
+  const host = (process.env.MONGO_HOST && process.env.MONGO_HOST.trim()) || 'mongo.nat20.svc.cluster.local';
+  const port = process.env.MONGO_PORT || '27017';
+  const dbNameFromEnv = process.env.MONGO_DB || process.env.MONGO_DB_NAME || 'nat20';
+  return `mongodb://${auth}${host}:${port}/${dbNameFromEnv}?authSource=admin`;
+};
+
+const MONGO_URI = buildMongoUri();
+const DB_NAME = process.env.MONGO_DB_NAME || process.env.MONGO_DB || 'nat20';
+
 if (!MONGO_URI) {
   console.error('[BOOT] FATAL: MONGO_URI is required but not set. Exiting.');
   process.exit(1);
 }
-const DB_NAME = process.env.MONGO_DB_NAME || 'nat20';
 
 console.log('[BOOT] Connecting to MongoDB...', { dbName: DB_NAME });
 mongoose.set('strictQuery', true);
