@@ -96,42 +96,26 @@ jobs:
           kubectl get ns nat20 >/dev/null 2>&1 || kubectl create ns nat20
           kubectl get ns externalsecrets >/dev/null 2>&1 || kubectl create ns externalsecrets
 
-      - name: Resolve ALB subnets for this cluster
+      - name: Ensure External Secrets CRDs (server-side, pinned)
         shell: bash
         run: |
           set -euo pipefail
-          SUBNETS_CSV="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
-            --query 'cluster.resourcesVpcConfig.subnetIds' --output text | sed 's/\t/,/g')"
-          if [ -z "${SUBNETS_CSV}" ]; then
-            echo "Could not resolve cluster subnets" >&2
-            exit 1
-          fi
-          echo "ALB_PUBLIC_SUBNET_IDS=${SUBNETS_CSV}" >> "$GITHUB_ENV"
-
-      - name: Ensure External Secrets CRDs (auto-install if missing)
-        shell: bash
-        run: |
-          set -euo pipefail
-          if ! kubectl get crd clustersecretstores.external-secrets.io >/dev/null 2>&1; then
-            echo "Installing External Secrets CRDs (server-side apply)..."
-            kubectl apply --server-side -f https://raw.githubusercontent.com/external-secrets/external-secrets/helm-chart-0.19.2/deploy/crds/bundle.yaml
-          fi
-          # Wait up to 5 minutes for CRDs to be established
-          for i in $(seq 1 60); do
-            if kubectl get crd clustersecretstores.external-secrets.io >/dev/null 2>&1 \
-              && kubectl get crd externalsecrets.external-secrets.io >/dev/null 2>&1 \
-              && kubectl get crd secretstores.external-secrets.io >/dev/null 2>&1; then
-              echo "External Secrets CRDs are present"
-              break
-            fi
-            echo "Waiting for External Secrets CRDs to be established... ($i/60)"
-            sleep 5
-          done
+          # v0.19.x requires server-side apply for CRDs
+          kubectl apply --server-side -f https://raw.githubusercontent.com/external-secrets/external-secrets/v0.19.2/deploy/crds/bundle.yaml
+          # Wait until CRDs are established
+          kubectl wait --for=condition=Established crd clustersecretstores.external-secrets.io --timeout=180s
+          kubectl wait --for=condition=Established crd secretstores.external-secrets.io --timeout=180s
+          kubectl wait --for=condition=Established crd externalsecrets.external-secrets.io --timeout=180s
 
       - name: Render backend ingress (envsubst)
         shell: bash
         run: |
           set -euo pipefail
+          # Resolve ALB subnets from the cluster's VPC config
+          SUBNETS_CSV="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
+            --query 'cluster.resourcesVpcConfig.subnetIds' --output text | sed 's/\t/,/g')"
+          echo "ALB_PUBLIC_SUBNET_IDS=${SUBNETS_CSV}" >> "$GITHUB_ENV"
+
           API_CERT_ARN="${API_CERT_ARN}" \
           ALB_BACKEND_SG_ID="${ALB_BACKEND_SG_ID}" \
           API_HOST="${API_HOST}" \
