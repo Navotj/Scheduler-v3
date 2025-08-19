@@ -159,9 +159,3 @@ resource "aws_wafv2_web_acl" "frontend" {
     sampled_requests_enabled   = true
   }
 }
-
-resource "aws_wafv2_web_acl_association" "frontend_cf_assoc" {
-  provider     = aws.us_east_1
-  resource_arn = aws_cloudfront_distribution.frontend.arn
-  web_acl_arn  = aws_wafv2_web_acl.frontend.arn
-}

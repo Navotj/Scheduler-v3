@@ -46,7 +46,8 @@ resource "aws_cloudfront_distribution" "frontend" {
   default_root_object = "index.html"
   price_class         = "PriceClass_100"
 
-  aliases = [var.domain_name]
+  aliases    = [var.domain_name]
+  web_acl_id = aws_wafv2_web_acl.frontend.arn  # Attach WAFv2 (scope=CLOUDFRONT, us-east-1)
 
   # Frontend ALB origin (use hostname directly; Route53 alias created separately)
   origin {
@@ -180,9 +181,7 @@ resource "aws_cloudfront_distribution" "frontend" {
   }
 
   restrictions {
-    geo_restriction {
-      restriction_type = "none"
-    }
+    geo_restriction { restriction_type = "none" }
   }
 
   viewer_certificate {
@@ -194,7 +193,8 @@ resource "aws_cloudfront_distribution" "frontend" {
   tags = { Name = "${var.project_name}-frontend-cf" }
 
   depends_on = [
-    aws_acm_certificate_validation.frontend
+    aws_acm_certificate_validation.frontend,
+    aws_wafv2_web_acl.frontend
   ]
 }
 
