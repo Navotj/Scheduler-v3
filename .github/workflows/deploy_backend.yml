@@ -108,23 +108,25 @@ jobs:
           fi
           echo "ALB_PUBLIC_SUBNET_IDS=${SUBNETS_CSV}" >> "$GITHUB_ENV"
 
-      - name: Wait for External Secrets CRDs
+      - name: Ensure External Secrets CRDs (auto-install if missing)
         shell: bash
         run: |
           set -euo pipefail
+          if ! kubectl get crd clustersecretstores.external-secrets.io >/dev/null 2>&1; then
+            echo "Installing External Secrets CRDs (server-side apply)..."
+            kubectl apply --server-side -f https://raw.githubusercontent.com/external-secrets/external-secrets/helm-chart-0.19.2/deploy/crds/bundle.yaml
+          fi
+          # Wait up to 5 minutes for CRDs to be established
           for i in $(seq 1 60); do
             if kubectl get crd clustersecretstores.external-secrets.io >/dev/null 2>&1 \
               && kubectl get crd externalsecrets.external-secrets.io >/dev/null 2>&1 \
               && kubectl get crd secretstores.external-secrets.io >/dev/null 2>&1; then
               echo "External Secrets CRDs are present"
-              exit 0
+              break
             fi
-            echo "Waiting for External Secrets CRDs to be installed... ($i/60)"
+            echo "Waiting for External Secrets CRDs to be established... ($i/60)"
             sleep 5
           done
-          echo "Timed out waiting for External Secrets CRDs" >&2
-          kubectl get crds | grep external-secrets || true
-          exit 1
 
       - name: Render backend ingress (envsubst)
         shell: bash

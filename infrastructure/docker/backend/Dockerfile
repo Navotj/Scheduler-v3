@@ -2,7 +2,7 @@ FROM node:22-alpine
 
 WORKDIR /opt/app
 
-# Install deps first for better layer caching
+# Install dependencies first (silences npm ci error if lockfile is missing)
 COPY backend/app/package*.json ./
 RUN if [ -f package-lock.json ]; then \
       npm ci --omit=dev; \
@@ -13,5 +13,4 @@ RUN if [ -f package-lock.json ]; then \
 # Copy application source
 COPY backend/app/ ./
 
-# Adjust if your start script differs
 CMD ["npm","start"]
