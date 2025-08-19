@@ -117,32 +117,41 @@ jobs:
           fi
           echo "ALB_PUBLIC_SUBNET_IDS=${SUBNETS_CSV}" >> "$GITHUB_ENV"
 
-      - name: Apply ClusterSecretStore and ExternalSecret
+      - name: Preflight check SSM params for ExternalSecret
+        shell: bash
+        run: |
+          set -euo pipefail
+          MISSING=0
+          for KEY in /nat20/backend/JWT_SECRET /nat20/mongo/USER /nat20/mongo/PASSWORD /nat20/mongo/DB; do
+            if ! aws ssm get-parameter --name "$KEY" >/dev/null 2>&1; then
+              echo "Missing SSM parameter: $KEY" >&2
+              MISSING=1
+            fi
+          done
+          if [ $MISSING -ne 0 ]; then
+            echo "One or more required SSM parameters are missing." >&2
+            exit 1
+          fi
+
+      - name: Apply ClusterSecretStore and ExternalSecret (recreate to avoid patch issues)
         shell: bash
         run: |
           set -euo pipefail
           kubectl apply -f infrastructure/k8s/secret-stores/clustersecretstore.yaml
-          # Normalize ExternalSecret to v1 to match CRDs >=0.17
-          if grep -q '^apiVersion: *external-secrets.io/v1beta1' infrastructure/k8s/externalsecrets/backend-secrets.yaml; then
-            sed -i 's#^apiVersion: *external-secrets.io/v1beta1#apiVersion: external-secrets.io/v1#' infrastructure/k8s/externalsecrets/backend-secrets.yaml
-          fi
+          kubectl -n nat20 delete externalsecret backend-secrets --ignore-not-found=true
           kubectl apply -n nat20 -f infrastructure/k8s/externalsecrets/backend-secrets.yaml
-
-          echo "== Describe ExternalSecret =="
           kubectl -n nat20 describe externalsecret backend-secrets || true
 
       - name: Wait for ExternalSecret Ready and generated Secret
         shell: bash
         run: |
           set -euo pipefail
-          # Wait for controller to reconcile the ES
           kubectl -n nat20 wait --for=condition=Ready externalsecret.external-secrets.io/backend-secrets --timeout=300s || {
             echo "ExternalSecret did not become Ready. Dumping diagnostics..." >&2
             kubectl -n nat20 get externalsecret backend-secrets -o yaml || true
             kubectl -n externalsecrets logs deploy/external-secrets --tail=300 || true
             exit 1
           }
-          # Ensure the target Secret exists
           for i in $(seq 1 60); do
             if kubectl -n nat20 get secret backend-env >/dev/null 2>&1; then
               echo "backend-env Secret exists"
