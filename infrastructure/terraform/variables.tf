@@ -25,7 +25,7 @@ variable "origin_subdomain" {
 variable "eks_version" {
   description = "EKS Kubernetes version"
   type        = string
-  default     = "1.32"
+  default     = "1.33"
 }
 
 variable "node_instance_types" {
