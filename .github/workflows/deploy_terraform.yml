@@ -4,9 +4,12 @@ on:
   push:
     branches: ["main"]
     paths:
-      - "infrastructure/terraform/**"
+      - "**/*.tf"
+      - "**/*.tfvars"
+      - "infrastructure/**"
       - ".github/workflows/terraform_apply.yml"
   workflow_dispatch:
+
 
 env:
   AWS_REGION: eu-central-1
@@ -54,17 +57,31 @@ jobs:
 
       # Optional: brief wait for control-plane to accept the CIDR change
       - name: Wait for EKS API reachability
+        shell: bash
+        env:
+          CLUSTER_NAME: nat20-eks
         run: |
           set -euo pipefail
-          for i in $(seq 1 30); do
-            if timeout 5 bash -c "exec 3<>/dev/tcp/$(aws eks describe-cluster --name nat20-eks --query 'cluster.endpoint' --output text | sed -E 's|https://([^/]+)/.*|\1|')/443"; then
-              echo "EKS API reachable"; exit 0
+          ENDPOINT="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --query 'cluster.endpoint' --output text)"
+          # Strip scheme and any path robustly
+          HOST="$(printf '%s\n' "$ENDPOINT" | sed -E 's#^https?://##; s#/.*$##')"
+          echo "EKS endpoint host: ${HOST}"
+
+          for i in $(seq 1 60); do
+            if timeout 5 bash -lc "echo | openssl s_client -connect ${HOST}:443 -servername ${HOST} >/dev/null 2>&1"; then
+              echo "EKS API reachable on ${HOST}:443"
+              exit 0
             fi
-            echo "Waiting for EKS API to accept new CIDR... ($i/30)"
+            echo "Waiting for EKS API to accept new CIDR... (${i}/60)"
             sleep 5
           done
-          echo "EKS API not reachable in time" >&2
+
+          echo "EKS API not reachable; dumping cluster access config..."
+          aws eks describe-cluster --name "${CLUSTER_NAME}" \
+            --query 'cluster.resourcesVpcConfig.{publicAccessCidrs:publicAccessCidrs,endpointPublicAccess:endpointPublicAccess,endpointPrivateAccess:endpointPrivateAccess}' \
+            --output json || true
           exit 1
+
 
       # Stage 2: apply the rest (Helm releases for ALB Controller, External Secrets, etc.)
       - name: Terraform Apply (everything)

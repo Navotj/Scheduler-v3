@@ -175,15 +175,24 @@ resource "aws_eks_node_group" "default" {
     max_size     = var.max_capacity
   }
 
-  instance_types = var.node_instance_types
-  ami_type       = "AL2023_x86_64_STANDARD"
-  version        = var.eks_version
+  # Ensure AL2023 images
+  ami_type = "AL2023_x86_64_STANDARD"
 
-  update_config { max_unavailable = 1 }
+  # Pin node group to the cluster version so nodes roll with version bumps
+  version = var.eks_version
+
+  # Force a rollout even if only AMI/ami_type changed
+  force_update_version = true
+
+  update_config {
+    max_unavailable = 1
+  }
 
   tags = { Name = "${var.project_name}-ng" }
 
-  depends_on = [aws_eks_cluster.this]
+  depends_on = [
+    aws_eks_cluster.this
+  ]
 }
 
 data "aws_eks_cluster" "this" {
