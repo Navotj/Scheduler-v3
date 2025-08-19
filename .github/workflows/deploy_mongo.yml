@@ -1,0 +1,101 @@
+name: Deploy Mongo to EKS
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/deploy_mongo.yml"
+      - "infrastructure/k8s/mongo/**"
+      - "infrastructure/k8s/externalsecrets/mongo-secrets.yaml"
+      - "infrastructure/k8s/secret-stores/clustersecretstore.yaml"
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    permissions:
+      id-token: write
+      contents: read
+
+    env:
+      AWS_REGION: eu-central-1
+      CLUSTER_NAME: nat20-eks
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Configure kubectl
+        shell: bash
+        run: |
+          set -euo pipefail
+          aws eks update-kubeconfig --name "${CLUSTER_NAME}" --region "${AWS_REGION}"
+
+      - name: Ensure namespaces exist
+        shell: bash
+        run: |
+          set -euo pipefail
+          kubectl get ns nat20 >/dev/null 2>&1 || kubectl create ns nat20
+          kubectl get ns externalsecrets >/dev/null 2>&1 || kubectl create ns externalsecrets
+
+      - name: Ensure External Secrets CRDs (server-side, pinned)
+        shell: bash
+        run: |
+          set -euo pipefail
+          kubectl apply --server-side -f https://raw.githubusercontent.com/external-secrets/external-secrets/v0.19.2/deploy/crds/bundle.yaml
+          kubectl wait --for=condition=Established crd clustersecretstores.external-secrets.io --timeout=180s
+          kubectl wait --for=condition=Established crd secretstores.external-secrets.io --timeout=180s
+          kubectl wait --for=condition=Established crd externalsecrets.external-secrets.io --timeout=180s
+
+      - name: Preflight check required SSM params
+        shell: bash
+        run: |
+          set -euo pipefail
+          MISSING=0
+          for KEY in /nat20/mongo/USER /nat20/mongo/PASSWORD; do
+            if ! aws ssm get-parameter --name "$KEY" >/dev/null 2>&1; then
+              echo "Missing SSM parameter: $KEY" >&2
+              MISSING=1
+            fi
+          done
+          if [ $MISSING -ne 0 ]; then
+            echo "Required SSM parameters missing; aborting." >&2
+            exit 1
+          fi
+
+      - name: Apply ClusterSecretStore and Mongo ExternalSecret
+        shell: bash
+        run: |
+          set -euo pipefail
+          kubectl apply -f infrastructure/k8s/secret-stores/clustersecretstore.yaml
+          kubectl apply -n nat20 -f infrastructure/k8s/externalsecrets/mongo-secrets.yaml
+          kubectl -n nat20 wait --for=condition=Ready externalsecret.external-secrets.io/mongo-root --timeout=300s
+          for i in $(seq 1 60); do
+            if kubectl -n nat20 get secret mongo-root >/dev/null 2>&1; then
+              echo "mongo-root Secret exists"
+              break
+            fi
+            echo "Waiting for mongo-root Secret... ($i/60)"
+            sleep 5
+          done
+
+      - name: Deploy MongoDB StatefulSet (persistent)
+        shell: bash
+        run: |
+          set -euo pipefail
+          kubectl apply -n nat20 -f infrastructure/k8s/mongo/statefulset.yaml
+          kubectl -n nat20 rollout status statefulset/mongo --timeout=600s
+
+      - name: Output Mongo service
+        shell: bash
+        run: |
+          set -euo pipefail
+          kubectl -n nat20 get svc mongo -o wide || true

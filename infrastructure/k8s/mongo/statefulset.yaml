@@ -4,12 +4,13 @@ metadata:
   name: mongo
   namespace: nat20
 spec:
-  type: ClusterIP
-  selector: { app: mongo }
+  selector:
+    app: mongo
   ports:
     - name: mongo
       port: 27017
       targetPort: 27017
+  type: ClusterIP
 ---
 apiVersion: apps/v1
 kind: StatefulSet
@@ -20,35 +21,48 @@ spec:
   serviceName: mongo
   replicas: 1
   selector:
-    matchLabels: { app: mongo }
+    matchLabels:
+      app: mongo
   template:
     metadata:
-      labels: { app: mongo }
+      labels:
+        app: mongo
     spec:
-      containers:
-        - name: mongo
-          image: mongo:8.0
-          imagePullPolicy: IfNotPresent
-          ports:
-            - name: mongo
-              containerPort: 27017
-          envFrom:
-            - secretRef: { name: mongo-root }
-          volumeMounts:
-            - name: mongo-data
-              mountPath: /data/db
-          readinessProbe:
-            exec: { command: ["mongosh","--eval","db.adminCommand('ping')"] }
-            initialDelaySeconds: 15
-            periodSeconds: 10
-          livenessProbe:
-            exec: { command: ["mongosh","--eval","db.adminCommand('ping')"] }
-            initialDelaySeconds: 30
-            periodSeconds: 20
       securityContext:
         fsGroup: 999
         runAsUser: 999
         runAsGroup: 999
+      containers:
+        - name: mongo
+          image: mongo:8.0
+          imagePullPolicy: IfNotPresent
+          args: ["--bind_ip_all","--auth"]
+          ports:
+            - containerPort: 27017
+              name: mongo
+          envFrom:
+            - secretRef:
+                name: mongo-root
+          readinessProbe:
+            tcpSocket:
+              port: mongo
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: mongo
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          volumeMounts:
+            - name: mongo-data
+              mountPath: /data/db
   volumeClaimTemplates:
     - metadata:
         name: mongo-data
