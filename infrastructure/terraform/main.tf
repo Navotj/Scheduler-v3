@@ -8,19 +8,19 @@ terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = "~> 5.60"
+      version = "~> 5.100"
     }
     helm = {
       source  = "hashicorp/helm"
-      version = "~> 2.13"
+      version = "~> 2.17"
     }
     kubernetes = {
       source  = "hashicorp/kubernetes"
-      version = "~> 2.33"
+      version = "~> 2.38"
     }
     random = {
       source  = "hashicorp/random"
-      version = "~> 3.6"
+      version = "~> 3.7"
     }
   }
 
@@ -42,17 +42,10 @@ provider "aws" {
   region = "us-east-1"
 }
 
-# ---------- IMPORTANT ----------
-# Configure Kubernetes/Helm providers from the *resource* aws_eks_cluster.this
-# so they are known at plan time (avoid localhost fallback).
-# Token is fetched via aws-cli exec, not via data sources.
-# This removes the “Kubernetes cluster unreachable / no configuration provided” error.
-# --------------------------------
-
+# Configure Kubernetes/Helm using the created EKS cluster (no data sources)
 provider "kubernetes" {
   host                   = aws_eks_cluster.this.endpoint
   cluster_ca_certificate = base64decode(aws_eks_cluster.this.certificate_authority[0].data)
-  load_config_file       = false
 
   exec {
     api_version = "client.authentication.k8s.io/v1beta1"
@@ -65,7 +58,6 @@ provider "helm" {
   kubernetes {
     host                   = aws_eks_cluster.this.endpoint
     cluster_ca_certificate = base64decode(aws_eks_cluster.this.certificate_authority[0].data)
-    load_config_file       = false
 
     exec {
       api_version = "client.authentication.k8s.io/v1beta1"
@@ -74,8 +66,3 @@ provider "helm" {
     }
   }
 }
-
-############################################################
-# (Your EKS cluster + node group resources live elsewhere in this repo)
-# Make sure eks_version is 1.32 in variables.tf (already set).
-############################################################
