@@ -2,8 +2,7 @@
 # EKS Cluster + Managed Node Group (2 AZs, AL2023)
 # Hardened: restricted API CIDRs, private endpoint enabled,
 # control-plane logging (log group lives in cloudwatch_logs.tf),
-# KMS envelope encryption (key/alias live in kms_eks.tf),
-# deletion protection enabled.
+# KMS envelope encryption (key/alias live in kms_eks.tf).
 ############################################################
 
 variable "eks_api_allowed_cidrs_ssm_name" {
@@ -19,7 +18,7 @@ variable "use_ssm_api_cidrs" {
 }
 
 variable "api_allowed_cidrs" {
-  description = "Fallback/explicit list of CIDRs when SSM is not used. Example: [\"198.51.100.10/32\",\"203.0.113.0/32\"]"
+  description = "Explicit list of CIDRs when SSM is not used. Example: [\"198.51.100.10/32\",\"203.0.113.0/32\"]"
   type        = list(string)
   default     = []
 }
@@ -112,9 +111,6 @@ resource "aws_eks_cluster" "this" {
     provider { key_arn = aws_kms_key.eks.arn }
     resources = ["secrets"]
   }
-
-  # Guardrail against accidental deletion
-  deletion_protection = true
 
   tags = { Name = "${var.project_name}-eks" }
 
