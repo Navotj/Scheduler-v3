@@ -100,7 +100,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # Install/upgrade CRDs and wait for them to be Established (v0.19.x)
           kubectl apply --server-side -f https://raw.githubusercontent.com/external-secrets/external-secrets/v0.19.2/deploy/crds/bundle.yaml
           kubectl wait --for=condition=Established crd clustersecretstores.external-secrets.io --timeout=180s
           kubectl wait --for=condition=Established crd secretstores.external-secrets.io --timeout=180s
@@ -118,13 +117,44 @@ jobs:
           fi
           echo "ALB_PUBLIC_SUBNET_IDS=${SUBNETS_CSV}" >> "$GITHUB_ENV"
 
-      - name: Normalize ExternalSecret apiVersion to v1 (ESO >= 0.17)
+      - name: Apply ClusterSecretStore and ExternalSecret
         shell: bash
         run: |
           set -euo pipefail
+          kubectl apply -f infrastructure/k8s/secret-stores/clustersecretstore.yaml
+          # Normalize ExternalSecret to v1 to match CRDs >=0.17
           if grep -q '^apiVersion: *external-secrets.io/v1beta1' infrastructure/k8s/externalsecrets/backend-secrets.yaml; then
             sed -i 's#^apiVersion: *external-secrets.io/v1beta1#apiVersion: external-secrets.io/v1#' infrastructure/k8s/externalsecrets/backend-secrets.yaml
           fi
+          kubectl apply -n nat20 -f infrastructure/k8s/externalsecrets/backend-secrets.yaml
+
+          echo "== Describe ExternalSecret =="
+          kubectl -n nat20 describe externalsecret backend-secrets || true
+
+      - name: Wait for ExternalSecret Ready and generated Secret
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Wait for controller to reconcile the ES
+          kubectl -n nat20 wait --for=condition=Ready externalsecret.external-secrets.io/backend-secrets --timeout=300s || {
+            echo "ExternalSecret did not become Ready. Dumping diagnostics..." >&2
+            kubectl -n nat20 get externalsecret backend-secrets -o yaml || true
+            kubectl -n externalsecrets logs deploy/external-secrets --tail=300 || true
+            exit 1
+          }
+          # Ensure the target Secret exists
+          for i in $(seq 1 60); do
+            if kubectl -n nat20 get secret backend-env >/dev/null 2>&1; then
+              echo "backend-env Secret exists"
+              exit 0
+            fi
+            echo "Waiting for backend-env Secret to be created... ($i/60)"
+            sleep 5
+          done
+          echo "Timed out waiting for backend-env Secret" >&2
+          kubectl -n nat20 get externalsecret backend-secrets -o yaml || true
+          kubectl -n externalsecrets logs deploy/external-secrets --tail=300 || true
+          exit 1
 
       - name: Render backend ingress (envsubst)
         shell: bash
@@ -141,16 +171,13 @@ jobs:
           ALB_PUBLIC_SUBNET_IDS="${ALB_PUBLIC_SUBNET_IDS}" \
           envsubst < infrastructure/k8s/ingress/backend-ingress.yaml > /tmp/backend-ingress.rendered.yaml
 
-      - name: Apply secret store, backend, ingress
+      - name: Apply backend Service/Deployment and Ingress
         shell: bash
         run: |
           set -euo pipefail
-          kubectl apply -f infrastructure/k8s/secret-stores/clustersecretstore.yaml
-          kubectl apply -n nat20 -f infrastructure/k8s/externalsecrets/backend-secrets.yaml
-
           kubectl apply -n nat20 -f infrastructure/k8s/backend/deployment.yaml
           kubectl apply -n nat20 -f /tmp/backend-ingress.rendered.yaml
-          kubectl rollout status deployment/backend -n nat20 --timeout=180s || (kubectl -n nat20 describe deploy backend; kubectl -n nat20 logs deploy/backend --all-containers --tail=200; exit 1)
+          kubectl rollout status deployment/backend -n nat20 --timeout=300s || (kubectl -n nat20 describe deploy backend; kubectl -n nat20 logs deploy/backend --all-containers --tail=200; exit 1)
 
           kubectl -n nat20 patch ingress backend --type merge -p '{"spec":{"ingressClassName":"alb"}}' || true
           kubectl -n nat20 annotate ingress backend "alb.ingress.kubernetes.io/subnets=${ALB_PUBLIC_SUBNET_IDS}" --overwrite || true
