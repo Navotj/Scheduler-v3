@@ -100,7 +100,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # Install/upgrade CRDs and wait for them to be Established
+          # Install/upgrade CRDs and wait for them to be Established (v0.19.x)
           kubectl apply --server-side -f https://raw.githubusercontent.com/external-secrets/external-secrets/v0.19.2/deploy/crds/bundle.yaml
           kubectl wait --for=condition=Established crd clustersecretstores.external-secrets.io --timeout=180s
           kubectl wait --for=condition=Established crd secretstores.external-secrets.io --timeout=180s
@@ -117,6 +117,14 @@ jobs:
             exit 1
           fi
           echo "ALB_PUBLIC_SUBNET_IDS=${SUBNETS_CSV}" >> "$GITHUB_ENV"
+
+      - name: Normalize ExternalSecret apiVersion to v1 (ESO >= 0.17)
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -q '^apiVersion: *external-secrets.io/v1beta1' infrastructure/k8s/externalsecrets/backend-secrets.yaml; then
+            sed -i 's#^apiVersion: *external-secrets.io/v1beta1#apiVersion: external-secrets.io/v1#' infrastructure/k8s/externalsecrets/backend-secrets.yaml
+          fi
 
       - name: Render backend ingress (envsubst)
         shell: bash
