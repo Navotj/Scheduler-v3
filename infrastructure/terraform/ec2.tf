@@ -19,39 +19,35 @@ resource "aws_instance" "mongodb" {
   lifecycle { create_before_destroy = true }
 }
 
-resource "aws_instance" "backend" {
-  ami                         = "ami-0c1b03e30bca3b373"
-  instance_type               = "t3.micro"
-  subnet_id                   = data.aws_subnet.eu_central_1b.id
-  availability_zone           = "eu-central-1a"
-  vpc_security_group_ids      = [aws_security_group.backend_access.id]
-  iam_instance_profile        = aws_iam_instance_profile.ssm_ec2_profile.name
-  associate_public_ip_address = false
-
-  user_data                   = file("${path.module}/backend_install.sh")
-  user_data_replace_on_change = true
-
-  tags = { Name = "terraform-backend-1a" }
-
-  lifecycle { create_before_destroy = true }
+locals {
+  backend_subnets = {
+    "eu-central-1a" = data.aws_subnet.eu_central_1a.id
+    "eu-central-1b" = data.aws_subnet.eu_central_1b.id
+  }
 }
 
 resource "aws_instance" "backend" {
-  ami                         = "ami-0c1b03e30bca3b373"
-  instance_type               = "t3.micro"
-  subnet_id                   = data.aws_subnet.eu_central_1b.id
-  availability_zone           = "eu-central-1b"
-  vpc_security_group_ids      = [aws_security_group.backend_access.id]
-  iam_instance_profile        = aws_iam_instance_profile.ssm_ec2_profile.name
-  associate_public_ip_address = false
+  for_each                     = local.backend_subnets
+  ami                          = "ami-0c1b03e30bca3b373"
+  instance_type                = "t3.micro"
+  subnet_id                    = each.value
+  vpc_security_group_ids       = [aws_security_group.backend_access.id]
+  iam_instance_profile         = aws_iam_instance_profile.ssm_ec2_profile.name
+  associate_public_ip_address  = false
 
-  user_data                   = file("${path.module}/backend_install.sh")
-  user_data_replace_on_change = true
+  user_data                    = file("${path.module}/backend_install.sh")
+  user_data_replace_on_change  = true
 
-  tags = { Name = "terraform-backend-1b" }
+  tags = {
+    Name = "terraform-backend-${each.key}"
+    Role = "backend"
+  }
 
-  lifecycle { create_before_destroy = true }
+  lifecycle {
+    create_before_destroy = true
+  }
 }
+
 
 ############################################################
 # MongoDB EBS Volume (prevent_destroy)
