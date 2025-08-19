@@ -9,6 +9,7 @@ on:
       - "infrastructure/docker/backend/Dockerfile"
       - "infrastructure/k8s/backend/**"
       - "infrastructure/k8s/externalsecrets/**"
+      - "infrastructure/k8s/mongo/**"
       - "infrastructure/k8s/ingress/backend-ingress.yaml"
       - "infrastructure/k8s/secret-stores/clustersecretstore.yaml"
   workflow_dispatch:
@@ -16,11 +17,9 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-
     permissions:
       id-token: write
       contents: read
-
     env:
       AWS_REGION: eu-central-1
       CLUSTER_NAME: nat20-eks
@@ -41,7 +40,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           ECR_BACKEND_URI="$(aws ssm get-parameter --name /nat20/ecr/BACKEND_URI --query Parameter.Value --output text 2>/dev/null || true)"
           if [ -z "${ECR_BACKEND_URI:-}" ] || [ "${ECR_BACKEND_URI}" = "None" ]; then
             ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
@@ -55,12 +53,10 @@ jobs:
           API_CERT_ARN="$(aws ssm get-parameter --name /nat20/network/API_CERT_ARN --query Parameter.Value --output text 2>/dev/null || true)"
           ALB_BACKEND_SG_ID="$(aws ssm get-parameter --name /nat20/network/ALB_BACKEND_SG_ID --query Parameter.Value --output text 2>/dev/null || true)"
           if [ -z "${API_CERT_ARN:-}" ] || [ "${API_CERT_ARN}" = "None" ]; then
-            echo "Missing SSM parameter: /nat20/network/API_CERT_ARN" >&2
-            exit 1
+            echo "Missing SSM parameter: /nat20/network/API_CERT_ARN" >&2; exit 1
           fi
           if [ -z "${ALB_BACKEND_SG_ID:-}" ] || [ "${ALB_BACKEND_SG_ID}" = "None" ]; then
-            echo "Missing SSM parameter: /nat20/network/ALB_BACKEND_SG_ID" >&2
-            exit 1
+            echo "Missing SSM parameter: /nat20/network/ALB_BACKEND_SG_ID" >&2; exit 1
           fi
           echo "API_CERT_ARN=${API_CERT_ARN}" >> "$GITHUB_ENV"
           echo "ALB_BACKEND_SG_ID=${ALB_BACKEND_SG_ID}" >> "$GITHUB_ENV"
@@ -83,18 +79,37 @@ jobs:
           set -euo pipefail
           sed -i "s#<ECR_URI_REPLACED_BY_CI>/backend:\${GITHUB_SHA}#${ECR_BACKEND_URI}:${GITHUB_SHA}#g" infrastructure/k8s/backend/deployment.yaml
 
+      # 🔐 Lock EKS API access to this runner + your allowlist (from SSM)
+      - name: Temporarily restrict EKS API to runner egress IP
+        shell: bash
+        run: |
+          set -euo pipefail
+          RUNNER_IP="$(curl -s https://checkip.amazonaws.com)/32"
+          BASE_ALLOW="$(aws ssm get-parameter --name /nat20/network/EKS_API_ALLOWED_CIDRS --query Parameter.Value --output text 2>/dev/null || true)"
+          if [ -n "${BASE_ALLOW:-}" ] && [ "${BASE_ALLOW}" != "None" ]; then
+            CIDRS="${RUNNER_IP},${BASE_ALLOW}"
+          else
+            CIDRS="${RUNNER_IP}"
+          fi
+          aws eks update-cluster-config --name "${CLUSTER_NAME}" --region "${AWS_REGION}" --resources-vpc-config publicAccessCidrs="${CIDRS}"
+
       - name: Configure kubectl
         shell: bash
         run: |
           set -euo pipefail
           aws eks update-kubeconfig --name "${CLUSTER_NAME}" --region "${AWS_REGION}"
 
-      - name: Ensure namespaces exist
+      - name: Ensure namespaces exist + enforce PSS (restricted)
         shell: bash
         run: |
           set -euo pipefail
           kubectl get ns nat20 >/dev/null 2>&1 || kubectl create ns nat20
           kubectl get ns externalsecrets >/dev/null 2>&1 || kubectl create ns externalsecrets
+          kubectl label ns nat20 \
+            pod-security.kubernetes.io/enforce=restricted \
+            pod-security.kubernetes.io/audit=restricted \
+            pod-security.kubernetes.io/warn=restricted \
+            --overwrite
 
       - name: Ensure External Secrets CRDs (server-side, pinned)
         shell: bash
@@ -109,12 +124,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          SUBNETS_CSV="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
-            --query 'cluster.resourcesVpcConfig.subnetIds' --output text | sed 's/\t/,/g')"
-          if [ -z "${SUBNETS_CSV:-}" ]; then
-            echo "Could not resolve cluster subnets" >&2
-            exit 1
-          fi
+          SUBNETS_CSV="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}" --query 'cluster.resourcesVpcConfig.subnetIds' --output text | sed 's/\t/,/g')"
+          [ -z "${SUBNETS_CSV:-}" ] && { echo "Could not resolve cluster subnets" >&2; exit 1; }
           echo "ALB_PUBLIC_SUBNET_IDS=${SUBNETS_CSV}" >> "$GITHUB_ENV"
 
       - name: Preflight check SSM params for ExternalSecret
@@ -124,46 +135,23 @@ jobs:
           MISSING=0
           for KEY in /nat20/backend/JWT_SECRET /nat20/mongo/USER /nat20/mongo/PASSWORD /nat20/mongo/DB; do
             if ! aws ssm get-parameter --name "$KEY" >/dev/null 2>&1; then
-              echo "Missing SSM parameter: $KEY" >&2
-              MISSING=1
+              echo "Missing SSM parameter: $KEY" >&2; MISSING=1
             fi
           done
-          if [ $MISSING -ne 0 ]; then
-            echo "One or more required SSM parameters are missing." >&2
-            exit 1
-          fi
+          [ $MISSING -ne 0 ] && { echo "Required SSM parameters missing; aborting." >&2; exit 1; }
 
-      - name: Apply ClusterSecretStore and ExternalSecret (recreate to avoid patch issues)
+      - name: Apply ClusterSecretStore and ExternalSecret
         shell: bash
         run: |
           set -euo pipefail
           kubectl apply -f infrastructure/k8s/secret-stores/clustersecretstore.yaml
           kubectl -n nat20 delete externalsecret backend-secrets --ignore-not-found=true
           kubectl apply -n nat20 -f infrastructure/k8s/externalsecrets/backend-secrets.yaml
-          kubectl -n nat20 describe externalsecret backend-secrets || true
-
-      - name: Wait for ExternalSecret Ready and generated Secret
-        shell: bash
-        run: |
-          set -euo pipefail
-          kubectl -n nat20 wait --for=condition=Ready externalsecret.external-secrets.io/backend-secrets --timeout=300s || {
-            echo "ExternalSecret did not become Ready. Dumping diagnostics..." >&2
-            kubectl -n nat20 get externalsecret backend-secrets -o yaml || true
-            kubectl -n externalsecrets logs deploy/external-secrets --tail=300 || true
-            exit 1
-          }
+          kubectl -n nat20 wait --for=condition=Ready externalsecret.external-secrets.io/backend-secrets --timeout=300s
           for i in $(seq 1 60); do
-            if kubectl -n nat20 get secret backend-env >/dev/null 2>&1; then
-              echo "backend-env Secret exists"
-              exit 0
-            fi
-            echo "Waiting for backend-env Secret to be created... ($i/60)"
-            sleep 5
+            kubectl -n nat20 get secret backend-env >/dev/null 2>&1 && break
+            echo "Waiting for backend-env Secret... ($i/60)"; sleep 5
           done
-          echo "Timed out waiting for backend-env Secret" >&2
-          kubectl -n nat20 get externalsecret backend-secrets -o yaml || true
-          kubectl -n externalsecrets logs deploy/external-secrets --tail=300 || true
-          exit 1
 
       - name: Render backend ingress (envsubst)
         shell: bash
@@ -178,8 +166,6 @@ jobs:
           API_HOST="${API_HOST}" \
           ALB_PUBLIC_SUBNET_IDS="${ALB_PUBLIC_SUBNET_IDS}" \
           envsubst < infrastructure/k8s/ingress/backend-ingress.yaml > /tmp/backend-ingress.rendered.yaml
-          echo "Rendered backend ingress:"
-          cat /tmp/backend-ingress.rendered.yaml
 
       - name: Apply backend Service/Deployment and Ingress
         shell: bash
@@ -187,7 +173,7 @@ jobs:
           set -euo pipefail
           kubectl apply -n nat20 -f infrastructure/k8s/backend/deployment.yaml
           kubectl apply -f /tmp/backend-ingress.rendered.yaml
-          kubectl rollout status deployment/backend -n nat20 --timeout=300s || (kubectl -n nat20 describe deploy backend; kubectl -n nat20 logs deploy/backend --all-containers --tail=200; exit 1)
+          kubectl rollout status deployment/backend -n nat20 --timeout=300s
 
       - name: Wait for Backend Ingress hostname (ALB provisioning)
         id: alb
@@ -196,25 +182,20 @@ jobs:
           set -euo pipefail
           for i in $(seq 1 90); do
             HOSTNAME="$(kubectl -n nat20 get ingress backend -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)"
-            if [ -n "${HOSTNAME}" ] && [ "${HOSTNAME}" != "<no value>" ]; then
-              break
-            fi
-            echo "Waiting for Ingress ALB hostname... ($i/90)"
-            sleep 10
+            if [ -n "${HOSTNAME:-}" ] && [ "${HOSTNAME}" != "<no value>" ]; then break; fi
+            echo "Waiting for Ingress ALB hostname... ($i/90)"; sleep 10
           done
-
-          if [ -z "${HOSTNAME:-}" ] || [ "${HOSTNAME}" = "<no value>" ]; then
-            echo "Ingress not ready; collecting diagnostics..." >&2
-            kubectl -n nat20 describe ingress backend || true
-            kubectl -n kube-system get deploy aws-load-balancer-controller -o wide || true
-            kubectl -n kube-system logs deploy/aws-load-balancer-controller --tail=300 || true
-            exit 1
-          fi
-
+          [ -z "${HOSTNAME:-}" ] || [ "${HOSTNAME}" = "<no value>" ] && { kubectl -n nat20 describe ingress backend || true; exit 1; }
           echo "BACKEND_ALB_DNS=${HOSTNAME}" >> "$GITHUB_ENV"
           echo "backend_alb_dns=${HOSTNAME}" >> "$GITHUB_OUTPUT"
 
-      - name: Output backend ALB DNS
+      # 🔐 Restore long-term allowlist for EKS API (from SSM)
+      - name: Restore EKS API CIDR allowlist
+        if: always()
         shell: bash
         run: |
-          echo "Backend ALB DNS: ${BACKEND_ALB_DNS}"
+          set -euo pipefail
+          BASE_ALLOW="$(aws ssm get-parameter --name /nat20/network/EKS_API_ALLOWED_CIDRS --query Parameter.Value --output text 2>/dev/null || true)"
+          if [ -n "${BASE_ALLOW:-}" ] && [ "${BASE_ALLOW}" != "None" ]; then
+            aws eks update-cluster-config --name "${CLUSTER_NAME}" --region "${AWS_REGION}" --resources-vpc-config publicAccessCidrs="${BASE_ALLOW}"
+          fi

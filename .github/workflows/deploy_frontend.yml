@@ -35,10 +35,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
-          # --- Try to read ECR URI from SSM; fallback to derive and ensure repo exists ---
           ECR_FRONTEND_URI="$(aws ssm get-parameter --name /nat20/ecr/FRONTEND_URI --query Parameter.Value --output text 2>/dev/null || true)"
-          if [ -z "${ECR_FRONTEND_URI}" ] || [ "${ECR_FRONTEND_URI}" = "None" ]; then
+          if [ -z "${ECR_FRONTEND_URI:-}" ] || [ "${ECR_FRONTEND_URI}" = "None" ]; then
             ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
             REPO_NAME="frontend"
             ECR_FRONTEND_URI="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${REPO_NAME}"
@@ -47,19 +45,14 @@ jobs:
           fi
           echo "ECR_FRONTEND_URI=${ECR_FRONTEND_URI}" >> "$GITHUB_ENV"
 
-          # --- ORIGIN cert + ALB SG (from SSM with strict checks) ---
           ORIGIN_CERT_ARN="$(aws ssm get-parameter --name /nat20/network/ORIGIN_CERT_ARN --query Parameter.Value --output text 2>/dev/null || true)"
           ALB_FRONTEND_SG_ID="$(aws ssm get-parameter --name /nat20/network/ALB_FRONTEND_SG_ID --query Parameter.Value --output text 2>/dev/null || true)"
-
-          if [ -z "${ORIGIN_CERT_ARN}" ] || [ "${ORIGIN_CERT_ARN}" = "None" ]; then
-            echo "Missing SSM parameter: /nat20/network/ORIGIN_CERT_ARN" >&2
-            exit 1
+          if [ -z "${ORIGIN_CERT_ARN:-}" ] || [ "${ORIGIN_CERT_ARN}" = "None" ]; then
+            echo "Missing SSM parameter: /nat20/network/ORIGIN_CERT_ARN" >&2; exit 1
           fi
-          if [ -z "${ALB_FRONTEND_SG_ID}" ] || [ "${ALB_FRONTEND_SG_ID}" = "None" ]; then
-            echo "Missing SSM parameter: /nat20/network/ALB_FRONTEND_SG_ID" >&2
-            exit 1
+          if [ -z "${ALB_FRONTEND_SG_ID:-}" ] || [ "${ALB_FRONTEND_SG_ID}" = "None" ]; then
+            echo "Missing SSM parameter: /nat20/network/ALB_FRONTEND_SG_ID" >&2; exit 1
           fi
-
           echo "ORIGIN_CERT_ARN=${ORIGIN_CERT_ARN}" >> "$GITHUB_ENV"
           echo "ALB_FRONTEND_SG_ID=${ALB_FRONTEND_SG_ID}" >> "$GITHUB_ENV"
           echo "ORIGIN_HOST=origin.nat20scheduling.com" >> "$GITHUB_ENV"
@@ -81,29 +74,43 @@ jobs:
           set -euo pipefail
           sed -i "s#<ECR_URI_REPLACED_BY_CI>/frontend:\${GITHUB_SHA}#${ECR_FRONTEND_URI}:${GITHUB_SHA}#g" infrastructure/k8s/frontend/deployment.yaml
 
+      # 🔐 Lock EKS API access to this runner + your allowlist (from SSM)
+      - name: Temporarily restrict EKS API to runner egress IP
+        shell: bash
+        run: |
+          set -euo pipefail
+          RUNNER_IP="$(curl -s https://checkip.amazonaws.com)/32"
+          BASE_ALLOW="$(aws ssm get-parameter --name /nat20/network/EKS_API_ALLOWED_CIDRS --query Parameter.Value --output text 2>/dev/null || true)"
+          if [ -n "${BASE_ALLOW:-}" ] && [ "${BASE_ALLOW}" != "None" ]; then
+            CIDRS="${RUNNER_IP},${BASE_ALLOW}"
+          else
+            CIDRS="${RUNNER_IP}"
+          fi
+          aws eks update-cluster-config --name "${CLUSTER_NAME}" --region "${AWS_REGION}" --resources-vpc-config publicAccessCidrs="${CIDRS}"
+
       - name: Configure kubectl
         shell: bash
         run: |
           set -euo pipefail
           aws eks update-kubeconfig --name "${CLUSTER_NAME}" --region "${AWS_REGION}"
 
-      - name: Ensure namespace exists
+      - name: Ensure namespace exists + enforce PSS (restricted)
         shell: bash
         run: |
           set -euo pipefail
           kubectl get ns nat20 >/dev/null 2>&1 || kubectl create ns nat20
+          kubectl label ns nat20 \
+            pod-security.kubernetes.io/enforce=restricted \
+            pod-security.kubernetes.io/audit=restricted \
+            pod-security.kubernetes.io/warn=restricted \
+            --overwrite
 
-      # IMMEDIATE FIX: resolve the exact subnets the cluster is using and pass them to the ingress
       - name: Resolve ALB subnets for this cluster
         shell: bash
         run: |
           set -euo pipefail
-          SUBNETS_CSV="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
-            --query 'cluster.resourcesVpcConfig.subnetIds' --output text | sed 's/\t/,/g')"
-          if [ -z "${SUBNETS_CSV}" ]; then
-            echo "Could not resolve cluster subnets" >&2
-            exit 1
-          fi
+          SUBNETS_CSV="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}" --query 'cluster.resourcesVpcConfig.subnetIds' --output text | sed 's/\t/,/g')"
+          [ -z "${SUBNETS_CSV:-}" ] && { echo "Could not resolve cluster subnets" >&2; exit 1; }
           echo "ALB_PUBLIC_SUBNET_IDS=${SUBNETS_CSV}" >> "$GITHUB_ENV"
 
       - name: Render ingress with cert/SG/host/subnets
@@ -122,31 +129,29 @@ jobs:
           set -euo pipefail
           kubectl apply -f infrastructure/k8s/frontend/deployment.yaml
           kubectl apply -f /tmp/frontend-ingress.rendered.yaml
-          kubectl rollout status deployment/frontend -n nat20 --timeout=180s || (kubectl -n nat20 describe deploy frontend; kubectl -n nat20 logs deploy/frontend --all-containers --tail=200; exit 1)
+          kubectl rollout status deployment/frontend -n nat20 --timeout=300s
 
       - name: Wait for Ingress hostname (ALB provisioning)
         id: alb
         shell: bash
         run: |
           set -euo pipefail
-          kubectl -n kube-system get deploy aws-load-balancer-controller >/dev/null 2>&1 || true
-
-          HOSTNAME=""
           for i in $(seq 1 90); do
             HOSTNAME="$(kubectl -n nat20 get ingress frontend -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)"
-            if [ -n "${HOSTNAME}" ] && [ "${HOSTNAME}" != "<no value>" ]; then
-              break
-            fi
-            sleep 10
+            if [ -n "${HOSTNAME:-}" ] && [ "${HOSTNAME}" != "<no value>" ]; then break; fi
+            echo "Waiting for Ingress ALB hostname... ($i/90)"; sleep 10
           done
-
-          if [ -z "${HOSTNAME}" ] || [ "${HOSTNAME}" = "<no value>" ]; then
-            echo "Ingress not ready; collecting diagnostics..." >&2
-            kubectl -n nat20 describe ingress frontend || true
-            kubectl -n kube-system get deploy aws-load-balancer-controller -o wide || true
-            kubectl -n kube-system logs deploy/aws-load-balancer-controller --tail=200 || true
-            exit 1
-          fi
-
+          [ -z "${HOSTNAME:-}" ] || [ "${HOSTNAME}" = "<no value>" ] && { kubectl -n nat20 describe ingress frontend || true; exit 1; }
           echo "FRONTEND_ALB_DNS=${HOSTNAME}" >> "$GITHUB_ENV"
           echo "frontend_alb_dns=${HOSTNAME}" >> "$GITHUB_OUTPUT"
+
+      # 🔐 Restore long-term allowlist for EKS API (from SSM)
+      - name: Restore EKS API CIDR allowlist
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE_ALLOW="$(aws ssm get-parameter --name /nat20/network/EKS_API_ALLOWED_CIDRS --query Parameter.Value --output text 2>/dev/null || true)"
+          if [ -n "${BASE_ALLOW:-}" ] && [ "${BASE_ALLOW}" != "None" ]; then
+            aws eks update-cluster-config --name "${CLUSTER_NAME}" --region "${AWS_REGION}" --resources-vpc-config publicAccessCidrs="${BASE_ALLOW}"
+          fi

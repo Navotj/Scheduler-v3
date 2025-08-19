@@ -74,3 +74,5 @@ spec:
               value: "3000"
             - name: COOKIE_SECURE
               value: "true"
+            - name: MONGO_URI
+              value: mongodb://$(MONGO_USER):$(MONGO_PASS)@mongo.nat20.svc.cluster.local:27017/$(MONGO_DB)?authSource=admin

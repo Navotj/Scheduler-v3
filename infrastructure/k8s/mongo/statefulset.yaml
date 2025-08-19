@@ -3,14 +3,17 @@ kind: Service
 metadata:
   name: mongo
   namespace: nat20
+  labels:
+    app: mongo
 spec:
+  # Headless service for stable DNS to the StatefulSet pod
+  clusterIP: None
   selector:
     app: mongo
   ports:
     - name: mongo
       port: 27017
       targetPort: 27017
-  type: ClusterIP
 ---
 apiVersion: apps/v1
 kind: StatefulSet
@@ -32,37 +35,52 @@ spec:
         fsGroup: 999
         runAsUser: 999
         runAsGroup: 999
+        fsGroupChangePolicy: "OnRootMismatch"
       containers:
         - name: mongo
           image: mongo:8.0
           imagePullPolicy: IfNotPresent
-          args: ["--bind_ip_all","--auth"]
           ports:
-            - containerPort: 27017
-              name: mongo
+            - name: mongo
+              containerPort: 27017
           envFrom:
             - secretRef:
                 name: mongo-root
-          readinessProbe:
-            tcpSocket:
-              port: mongo
-            initialDelaySeconds: 10
-            periodSeconds: 10
-          livenessProbe:
-            tcpSocket:
-              port: mongo
-            initialDelaySeconds: 20
-            periodSeconds: 20
+          volumeMounts:
+            - name: mongo-data
+              mountPath: /data/db
           resources:
             requests:
               cpu: "100m"
               memory: "256Mi"
             limits:
               cpu: "500m"
-              memory: "512Mi"
-          volumeMounts:
-            - name: mongo-data
-              mountPath: /data/db
+              memory: "1Gi"
+          readinessProbe:
+            # Use credentials because MONGO_INITDB_* enables auth on first init
+            exec:
+              command:
+                - sh
+                - -c
+                - >
+                  mongosh --quiet -u "$MONGO_INITDB_ROOT_USERNAME" -p "$MONGO_INITDB_ROOT_PASSWORD"
+                  --authenticationDatabase admin --eval 'db.adminCommand({ ping: 1 })'
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - >
+                  mongosh --quiet -u "$MONGO_INITDB_ROOT_USERNAME" -p "$MONGO_INITDB_ROOT_PASSWORD"
+                  --authenticationDatabase admin --eval 'db.adminCommand({ ping: 1 })'
+            initialDelaySeconds: 40
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
   volumeClaimTemplates:
     - metadata:
         name: mongo-data
