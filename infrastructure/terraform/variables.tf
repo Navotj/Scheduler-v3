@@ -37,3 +37,8 @@ variable "frontend_waf_name" {
   type        = string
   default     = "nat20-frontend-waf"
 }
+
+variable "alb_dns_name" {
+  type        = string
+  description = "Public DNS name of the backend ALB (e.g., nat20-backend-alb-xxxxxxxx.eu-central-1.elb.amazonaws.com)"
+}
