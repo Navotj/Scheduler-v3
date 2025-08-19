@@ -5,22 +5,26 @@
 # - EBS CSI Driver
 ############################################################
 
-# OIDC provider for the cluster
-data "aws_iam_openid_connect_provider" "eks" {
-  arn = aws_eks_cluster.this.identity[0].oidc[0].issuer_arn
-}
-
+# Derive OIDC provider URL/ARN for IRSA
 locals {
-  oidc_provider_url  = replace(aws_eks_cluster.this.identity[0].oidc[0].issuer, "https://", "")
-  oidc_provider_arn  = data.aws_iam_openid_connect_provider.eks.arn
+  oidc_provider_url = replace(aws_eks_cluster.this.identity[0].oidc[0].issuer, "https://", "")
+  oidc_provider_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:oidc-provider/${local.oidc_provider_url}"
 }
 
-# ---------- AWS Load Balancer Controller ----------
+##########################
+# AWS Load Balancer Controller
+##########################
+
 data "aws_iam_policy_document" "alb_controller_trust" {
   statement {
     actions = ["sts:AssumeRoleWithWebIdentity"]
     effect  = "Allow"
-    principals { type = "Federated", identifiers = [local.oidc_provider_arn] }
+
+    principals {
+      type        = "Federated"
+      identifiers = [local.oidc_provider_arn]
+    }
+
     condition {
       test     = "StringEquals"
       variable = "${local.oidc_provider_url}:sub"
@@ -32,11 +36,11 @@ data "aws_iam_policy_document" "alb_controller_trust" {
 resource "aws_iam_role" "alb_controller" {
   name               = "${var.project_name}-alb-controller-irsa"
   assume_role_policy = data.aws_iam_policy_document.alb_controller_trust.json
+  tags               = { Name = "${var.project_name}-alb-controller-irsa" }
 }
 
-# Managed policy JSON for ALB controller
 resource "aws_iam_policy" "alb_controller" {
-  name = "${var.project_name}-alb-controller-policy"
+  name   = "${var.project_name}-alb-controller-policy"
   policy = file("${path.module}/policies/aws-lbc-policy.json")
 }
 
@@ -45,12 +49,20 @@ resource "aws_iam_role_policy_attachment" "alb_controller_attach" {
   policy_arn = aws_iam_policy.alb_controller.arn
 }
 
-# ---------- External Secrets (SSM parameters) ----------
+##########################
+# External Secrets (SSM)
+##########################
+
 data "aws_iam_policy_document" "external_secrets_trust" {
   statement {
     actions = ["sts:AssumeRoleWithWebIdentity"]
     effect  = "Allow"
-    principals { type = "Federated", identifiers = [local.oidc_provider_arn] }
+
+    principals {
+      type        = "Federated"
+      identifiers = [local.oidc_provider_arn]
+    }
+
     condition {
       test     = "StringEquals"
       variable = "${local.oidc_provider_url}:sub"
@@ -73,6 +85,7 @@ data "aws_iam_policy_document" "external_secrets_policy" {
 resource "aws_iam_role" "external_secrets" {
   name               = "${var.project_name}-external-secrets-irsa"
   assume_role_policy = data.aws_iam_policy_document.external_secrets_trust.json
+  tags               = { Name = "${var.project_name}-external-secrets-irsa" }
 }
 
 resource "aws_iam_policy" "external_secrets" {
@@ -85,12 +98,20 @@ resource "aws_iam_role_policy_attachment" "external_secrets_attach" {
   policy_arn = aws_iam_policy.external_secrets.arn
 }
 
-# ---------- EBS CSI Driver ----------
+##########################
+# EBS CSI Driver
+##########################
+
 data "aws_iam_policy_document" "ebs_csi_trust" {
   statement {
     actions = ["sts:AssumeRoleWithWebIdentity"]
     effect  = "Allow"
-    principals { type = "Federated", identifiers = [local.oidc_provider_arn] }
+
+    principals {
+      type        = "Federated"
+      identifiers = [local.oidc_provider_arn]
+    }
+
     condition {
       test     = "StringEquals"
       variable = "${local.oidc_provider_url}:sub"
@@ -102,9 +123,9 @@ data "aws_iam_policy_document" "ebs_csi_trust" {
 resource "aws_iam_role" "ebs_csi" {
   name               = "${var.project_name}-ebs-csi-irsa"
   assume_role_policy = data.aws_iam_policy_document.ebs_csi_trust.json
+  tags               = { Name = "${var.project_name}-ebs-csi-irsa" }
 }
 
-# AWS managed policy for EBS CSI
 resource "aws_iam_role_policy_attachment" "ebs_csi_attach" {
   role       = aws_iam_role.ebs_csi.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy"

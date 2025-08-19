@@ -1,57 +1,58 @@
 ############################################################
-# Variables
+# Terraform + Providers
 ############################################################
 
-variable "project_name" {
-  description = "Project name prefix for tagging/naming."
-  type        = string
-  default     = "nat20"
+terraform {
+  required_version = ">= 1.6.0"
+
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.60"
+    }
+    helm = {
+      source  = "hashicorp/helm"
+      version = "~> 2.13"
+    }
+    kubernetes = {
+      source  = "hashicorp/kubernetes"
+      version = "~> 2.33"
+    }
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.6"
+    }
+  }
+
+  backend "s3" {
+    bucket         = "navot-terraform-state-1"
+    key            = "terraform.tfstate"
+    region         = "eu-central-1"
+    dynamodb_table = "terraform-lock-table"
+    encrypt        = true
+  }
 }
 
-variable "domain_name" {
-  description = "Base domain for the site (public hosted zone in Route 53)"
-  type        = string
-  default     = "nat20scheduling.com"
+provider "aws" {
+  region = "eu-central-1"
 }
 
-variable "api_subdomain" {
-  description = "Subdomain for the backend API (ALB origin for API)"
-  type        = string
-  default     = "api"
+provider "aws" {
+  alias  = "us_east_1"
+  region = "us-east-1"
 }
 
-variable "origin_subdomain" {
-  description = "Subdomain for the frontend origin (ALB origin for frontend)"
-  type        = string
-  default     = "origin"
+# These providers are configured against the EKS cluster once it's created.
+provider "kubernetes" {
+  host                   = data.aws_eks_cluster.this.endpoint
+  cluster_ca_certificate = base64decode(data.aws_eks_cluster.this.certificate_authority[0].data)
+  token                  = data.aws_eks_cluster_auth.this.token
 }
 
-variable "eks_version" {
-  description = "Kubernetes version for EKS."
-  type        = string
-  default     = "1.29"
-}
-
-variable "node_instance_types" {
-  description = "Instance types for managed node group."
-  type        = list(string)
-  default     = ["t3.medium"]
-}
-
-variable "desired_capacity" {
-  description = "Desired node count for the managed node group."
-  type        = number
-  default     = 2
-}
-
-variable "min_capacity" {
-  description = "Min node count."
-  type        = number
-  default     = 2
-}
-
-variable "max_capacity" {
-  description = "Max node count."
-  type        = number
-  default     = 4
+provider "helm" {
+  kubernetes {
+    host                   = data.aws_eks_cluster.this.endpoint
+    cluster_ca_certificate = base64decode(data.aws_eks_cluster.this.certificate_authority[0].data)
+    token                  = data.aws_eks_cluster_auth.this.token
+  }
 }
