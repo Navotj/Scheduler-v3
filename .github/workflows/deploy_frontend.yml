@@ -30,6 +30,59 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: Whitelist this runner IP for EKS API (merge, wait)
+        shell: bash
+        env:
+          AWS_REGION: ${{ env.AWS_REGION }}
+          CLUSTER_NAME: ${{ env.CLUSTER_NAME }}
+        run: |
+          set -euo pipefail
+          RUNNER_IP="$(curl -s https://checkip.amazonaws.com)/32"
+          echo "Runner IP: ${RUNNER_IP}"
+
+          CUR_JSON="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
+            --query 'cluster.resourcesVpcConfig.publicAccessCidrs' --output json)"
+          printf '%s' "${CUR_JSON}" > /tmp/cidrs.json
+
+          NEW_JSON="$(python -c 'import json,sys; cur=json.load(open(sys.argv[1])); ip=sys.argv[2]; print(json.dumps(sorted(set(cur+[ip]))))' /tmp/cidrs.json "${RUNNER_IP}")"
+
+          if [ "${CUR_JSON}" = "${NEW_JSON}" ]; then
+            echo "Runner IP already allowed."
+          else
+            echo "Updating publicAccessCidrs -> ${NEW_JSON}"
+            RESP="$(aws eks update-cluster-config --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
+              --resources-vpc-config endpointPublicAccess=true,endpointPrivateAccess=true,publicAccessCidrs="${NEW_JSON}")"
+            UPD_ID="$(python -c 'import json,sys; print(json.loads(sys.stdin.read())["update"]["id"])' <<< "${RESP}")"
+            echo "Waiting for EKS update ${UPD_ID}..."
+            for i in $(seq 1 90); do
+              ST="$(aws eks describe-update --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
+                --update-id "${UPD_ID}" --query 'update.status' --output text || true)"
+              [ "${ST}" = "Successful" ] && { echo "EKS update successful"; break; }
+              [ "${ST}" = "Failed" ] && { echo "EKS update failed"; exit 1; }
+              sleep 5
+            done
+          fi
+
+      - name: Wait for EKS API reachability
+        shell: bash
+        env:
+          AWS_REGION: ${{ env.AWS_REGION }}
+          CLUSTER_NAME: ${{ env.CLUSTER_NAME }}
+        run: |
+          set -euo pipefail
+          HOST="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
+            --query 'cluster.endpoint' --output text | sed -E 's|https://([^/]+)/?.*|\1|')"
+          for i in $(seq 1 30); do
+            if timeout 5 bash -lc "exec 3<>/dev/tcp/${HOST}/443"; then
+              echo "EKS API reachable"
+              exit 0
+            fi
+            echo "Waiting for EKS API to accept new CIDR... ($i/30)"
+            sleep 5
+          done
+          echo "EKS API not reachable in time" >&2
+          exit 1
+
       - name: Resolve ECR URI and SSM parameters (robust)
         id: resolve
         shell: bash
