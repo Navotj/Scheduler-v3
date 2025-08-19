@@ -44,3 +44,9 @@ output "backend_instance_ip" {
 output "backend_instance_private_ip" {
   value = { for az, inst in aws_instance.backend : az => inst.private_ip }
 }
+
+variable "backend_tg_name" {
+  type        = string
+  description = "Existing ALB Target Group name for the backend"
+  default     = "nat20-backend-tg"
+}

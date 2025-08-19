@@ -52,13 +52,6 @@ resource "aws_lb_target_group" "api" {
   }
 }
 
-resource "aws_lb_target_group_attachment" "backend_instance" {
-  for_each         = aws_instance.backend
-  target_group_arn = aws_lb_target_group.backend.arn
-  target_id        = each.value.id
-  port             = 3000
-}
-
 resource "aws_lb_listener" "https" {
   load_balancer_arn = aws_lb.api.arn
   port              = 443
@@ -72,4 +65,16 @@ resource "aws_lb_listener" "https" {
     type             = "forward"
     target_group_arn = aws_lb_target_group.api.arn
   }
+}
+
+# Lookup existing Target Group by name
+data "aws_lb_target_group" "backend" {
+  name = var.backend_tg_name
+}
+
+resource "aws_lb_target_group_attachment" "backend_instance" {
+  for_each         = aws_instance.backend
+  target_group_arn = data.aws_lb_target_group.backend.arn
+  target_id        = each.value.id
+  port             = 3000
 }
