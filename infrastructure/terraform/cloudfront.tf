@@ -14,6 +14,12 @@ locals {
   cf_origin_request_cors_s3                = "88a5eaf4-2fd4-4709-b370-b4c650ea3fcf" # CORS-S3Origin (do NOT forward Host)
 }
 
+# Shared secret for CloudFront -> ALB origin enforcement
+resource "random_password" "origin_secret" {
+  length  = 32
+  special = false
+}
+
 # ---------- ACM certificate for CloudFront (us-east-1) ----------
 resource "aws_acm_certificate" "frontend" {
   provider          = aws.us_east_1
@@ -108,12 +114,17 @@ resource "aws_cloudfront_distribution" "frontend" {
     connection_timeout       = 10
   }
 
-  # ALB origin by DNS (CF -> ALB over HTTP to avoid TLS/SNI mismatch)
+  # ALB origin by DNS (CF -> ALB over HTTP; enforce header secret)
   origin {
     domain_name         = aws_lb.api.dns_name
     origin_id           = "alb-origin"
     connection_attempts = 3
     connection_timeout  = 10
+
+    custom_header {
+      name  = "X-Origin-Verify"
+      value = random_password.origin_secret.result
+    }
 
     custom_origin_config {
       http_port                = 80

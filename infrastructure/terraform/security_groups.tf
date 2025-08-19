@@ -2,6 +2,11 @@
 # Security Groups for ALB, Backend and MongoDB
 ############################################################
 
+# CloudFront origin-facing IPv4 prefix list
+data "aws_ec2_managed_prefix_list" "cloudfront_origin" {
+  name = "com.amazonaws.global.cloudfront.origin-facing"
+}
+
 # Backend instance security group (reachable only from ALB SG on backend_port)
 resource "aws_security_group" "backend_access" {
   name        = "backend-access"
@@ -96,16 +101,24 @@ resource "aws_security_group" "mongodb_access" {
   tags = { Name = "mongodb-access" }
 }
 
-# ALB security group (HTTPS from CloudFront only over IPv4, open IPv6 for CF dualstack)
+# ALB security group (restrict origin access to CloudFront only)
 resource "aws_security_group" "alb" {
   name_prefix            = "nat20-alb-sg-"
-  description            = "ALB security group (HTTPS from CloudFront origin fetchers)"
+  description            = "ALB security group (CloudFront origin fetchers only)"
   vpc_id                 = data.aws_vpc.default.id
   revoke_rules_on_delete = true
 
   lifecycle { create_before_destroy = true }
 
-  # IPv4: restrict to CloudFront origin-facing prefix list
+  # IPv4: restrict HTTP/HTTPS to CloudFront origin-facing prefix list
+  ingress {
+    description     = "HTTP from CloudFront origin fetchers (IPv4)"
+    from_port       = 80
+    to_port         = 80
+    protocol        = "tcp"
+    prefix_list_ids = [data.aws_ec2_managed_prefix_list.cloudfront_origin.id]
+  }
+
   ingress {
     description     = "HTTPS from CloudFront origin fetchers (IPv4)"
     from_port       = 443
@@ -114,24 +127,7 @@ resource "aws_security_group" "alb" {
     prefix_list_ids = [data.aws_ec2_managed_prefix_list.cloudfront_origin.id]
   }
 
-  # IPv6: allow HTTPS (no managed IPv6 prefix list exists)
-  ingress {
-    description      = "HTTPS IPv6 for CloudFront dualstack origin connections"
-    from_port        = 443
-    to_port          = 443
-    protocol         = "tcp"
-    ipv6_cidr_blocks = ["::/0"]
-  }
-
-  ingress {
-    description      = "HTTP from anywhere (CloudFront)"
-    from_port        = 80
-    to_port          = 80
-    protocol         = "tcp"
-    cidr_blocks      = ["0.0.0.0/0"]
-    ipv6_cidr_blocks = ["::/0"]
-  }
-
+  # Note: No IPv6 ingress to origin; CloudFront origin fetch to custom origins is IPv4.
 
   # Egress to backend instances on app port
   egress {
