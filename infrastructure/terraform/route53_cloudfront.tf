@@ -48,9 +48,9 @@ resource "aws_cloudfront_distribution" "frontend" {
 
   aliases = [var.domain_name]
 
-  # Frontend ALB origin
+  # Frontend ALB origin (use hostname directly; Route53 alias created separately)
   origin {
-    domain_name         = aws_route53_record.origin_a.fqdn
+    domain_name         = "${var.origin_subdomain}.${var.domain_name}"
     origin_id           = "frontend-alb"
     connection_attempts = 3
     connection_timeout  = 10
@@ -65,9 +65,9 @@ resource "aws_cloudfront_distribution" "frontend" {
     }
   }
 
-  # Backend ALB origin (api.<domain>)
+  # Backend ALB origin (use hostname directly; Route53 alias created separately)
   origin {
-    domain_name         = aws_route53_record.api_a.fqdn
+    domain_name         = "${var.api_subdomain}.${var.domain_name}"
     origin_id           = "backend-alb"
     connection_attempts = 3
     connection_timeout  = 10
@@ -180,7 +180,9 @@ resource "aws_cloudfront_distribution" "frontend" {
   }
 
   restrictions {
-    geo_restriction { restriction_type = "none" }
+    geo_restriction {
+      restriction_type = "none"
+    }
   }
 
   viewer_certificate {
@@ -212,10 +214,7 @@ resource "aws_route53_record" "apex_a" {
   allow_overwrite = true
 }
 
-# api -> backend ALB (created by controller; we point at its DNS via alias record)
-# We'll set this after ALB exists using a placeholder; instead create it as an alias to a dummy,
-# then the controller will adopt via 'external-dns' in future. For now we set to the ALB DNS from output.
-# To simplify, create a CNAME to the ALB later in CI. Here create the record resource with a variable value.
+# Variables for late-binding ALB DNS names (set by CI after Ingress creation)
 variable "backend_alb_dns" {
   description = "Backend ALB DNS name (filled by CI after Ingress creation). Leave default empty on first apply."
   type        = string
@@ -228,6 +227,7 @@ variable "frontend_alb_dns" {
   default     = ""
 }
 
+# api -> backend ALB (alias created only if DNS provided)
 resource "aws_route53_record" "api_a" {
   count   = var.backend_alb_dns == "" ? 0 : 1
   zone_id = aws_route53_zone.main.zone_id
@@ -243,6 +243,7 @@ resource "aws_route53_record" "api_a" {
   allow_overwrite = true
 }
 
+# origin -> frontend ALB (alias created only if DNS provided)
 resource "aws_route53_record" "origin_a" {
   count   = var.frontend_alb_dns == "" ? 0 : 1
   zone_id = aws_route53_zone.main.zone_id
@@ -258,5 +259,5 @@ resource "aws_route53_record" "origin_a" {
   allow_overwrite = true
 }
 
-# Helper: get ELB hosted zone id for aliases
+# Helper: ELB hosted zone id for aliases
 data "aws_elb_hosted_zone_id" "main" {}
