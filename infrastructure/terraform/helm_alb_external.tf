@@ -93,18 +93,43 @@ resource "helm_release" "aws_load_balancer_controller" {
   namespace  = "kube-system"
   version    = "1.8.2"
 
-  set { name = "clusterName"; value = aws_eks_cluster.this.name }
-  set { name = "region";      value = data.aws_region.current.name }
-  set { name = "vpcId";       value = data.aws_vpc.default.id }
+  set {
+    name  = "clusterName"
+    value = aws_eks_cluster.this.name
+  }
+  set {
+    name  = "region"
+    value = data.aws_region.current.name
+  }
+  set {
+    name  = "vpcId"
+    value = data.aws_vpc.default.id
+  }
 
   # Ensure the IngressClass "alb" exists
-  set { name = "ingressClass";        value = "alb" }
-  set { name = "createIngressClass";  value = "true" }
-  set { name = "defaultIngressClass"; value = "false" }
+  set {
+    name  = "ingressClass"
+    value = "alb"
+  }
+  # NOTE: chart key is createIngressClassResource (not createIngressClass)
+  set {
+    name  = "createIngressClassResource"
+    value = "true"
+  }
+  set {
+    name  = "defaultIngressClass"
+    value = "false"
+  }
 
   # ServiceAccount with IRSA annotation (reuse existing role)
-  set { name = "serviceAccount.create"; value = "true" }
-  set { name = "serviceAccount.name";   value = "aws-load-balancer-controller" }
+  set {
+    name  = "serviceAccount.create"
+    value = "true"
+  }
+  set {
+    name  = "serviceAccount.name"
+    value = "aws-load-balancer-controller"
+  }
   set {
     name  = "serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
     value = aws_iam_role.alb_controller.arn
