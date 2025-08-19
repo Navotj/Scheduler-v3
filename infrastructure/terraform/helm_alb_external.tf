@@ -1,7 +1,7 @@
 ############################################################
 # Kubernetes/Helm addons (gated to avoid plan-time provider init)
 # 1) terraform apply (install_addons=false) -> creates EKS + node group
-# 2) terraform apply -var='install_addons=true' -> installs addons
+# 2) terraform apply -var='install_addons=true' -> installs addons (where applicable)
 ############################################################
 
 # Namespace for External Secrets
@@ -111,7 +111,7 @@ resource "helm_release" "aws_load_balancer_controller" {
     name  = "ingressClass"
     value = "alb"
   }
-  # NOTE: chart key is createIngressClassResource (not createIngressClass)
+  # Chart key is createIngressClassResource
   set {
     name  = "createIngressClassResource"
     value = "true"
@@ -143,5 +143,46 @@ resource "helm_release" "aws_load_balancer_controller" {
     aws_iam_openid_connect_provider.eks,
     aws_iam_role.alb_controller,
     aws_iam_role_policy_attachment.alb_controller_attach
+  ]
+}
+
+# External Secrets Operator (installs CRDs) with IRSA
+resource "helm_release" "external_secrets" {
+  count      = 1
+  name       = "external-secrets"
+  repository = "https://charts.external-secrets.io"
+  chart      = "external-secrets"
+  namespace  = "externalsecrets"
+  # version intentionally not pinned here; pin if you require reproducibility
+
+  # Install CRDs so ClusterSecretStore/ExternalSecret kinds exist
+  set {
+    name  = "installCRDs"
+    value = "true"
+  }
+
+  # Use IRSA role created in iam_irsa.tf
+  set {
+    name  = "serviceAccount.create"
+    value = "true"
+  }
+  set {
+    name  = "serviceAccount.name"
+    value = "external-secrets"
+  }
+  set {
+    name  = "serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
+    value = aws_iam_role.external_secrets.arn
+  }
+
+  timeout = 600
+
+  depends_on = [
+    aws_eks_cluster.this,
+    aws_eks_node_group.default,
+    aws_iam_openid_connect_provider.eks,
+    kubernetes_namespace.externalsecrets,
+    aws_iam_role.external_secrets,
+    aws_iam_role_policy_attachment.external_secrets_attach
   ]
 }

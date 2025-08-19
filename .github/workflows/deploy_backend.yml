@@ -94,7 +94,7 @@ jobs:
         run: |
           set -euo pipefail
           kubectl get ns nat20 >/dev/null 2>&1 || kubectl create ns nat20
-          kubectl get ns externalsecrets >/dev/null 2>&1 || true
+          kubectl get ns externalsecrets >/dev/null 2>&1 || kubectl create ns externalsecrets
 
       - name: Resolve ALB subnets for this cluster
         shell: bash
@@ -108,6 +108,15 @@ jobs:
           fi
           echo "ALB_PUBLIC_SUBNET_IDS=${SUBNETS_CSV}" >> "$GITHUB_ENV"
 
+      - name: Require External Secrets CRDs
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! kubectl get crd clustersecretstores.external-secrets.io >/dev/null 2>&1; then
+            echo "External Secrets CRDs not installed. Run Terraform to install the Helm chart (external-secrets) first." >&2
+            exit 1
+          fi
+
       - name: Render backend ingress (envsubst)
         shell: bash
         run: |
@@ -118,14 +127,15 @@ jobs:
           ALB_PUBLIC_SUBNET_IDS="${ALB_PUBLIC_SUBNET_IDS}" \
           envsubst < infrastructure/k8s/ingress/backend-ingress.yaml > /tmp/backend-ingress.rendered.yaml
 
-      - name: Apply namespace, secrets, backend, ingress
+      - name: Apply secret store, backend, ingress
         shell: bash
         run: |
           set -euo pipefail
-          kubectl apply -f infrastructure/k8s/namespaces/nat20.yaml
+          # Ensure ESO is up (chart should be installed by Terraform)
+          kubectl -n externalsecrets rollout status deploy/external-secrets --timeout=180s || true
+
           kubectl apply -f infrastructure/k8s/secret-stores/clustersecretstore.yaml
-          kubectl apply -f infrastructure/k8s/externalsecrets/backend-secrets.yaml
-          kubectl rollout status deployment/external-secrets -n externalsecrets --timeout=120s || true
+          kubectl apply -n nat20 -f infrastructure/k8s/externalsecrets/backend-secrets.yaml
 
           kubectl apply -n nat20 -f infrastructure/k8s/backend/deployment.yaml
           kubectl apply -n nat20 -f /tmp/backend-ingress.rendered.yaml
