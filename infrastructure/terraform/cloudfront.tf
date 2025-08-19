@@ -108,10 +108,9 @@ resource "aws_cloudfront_distribution" "frontend" {
     connection_timeout       = 10
   }
 
-  # ALB origin by DNS (api.<domain>)
-  # ALB origin by DNS (use the ALB's DNS name; CF -> ALB over HTTP)
+  # ALB origin by DNS (CF -> ALB over HTTP to avoid TLS/SNI mismatch)
   origin {
-    domain_name         = var.alb_dns_name  # e.g. nat20-backend-alb-123456.eu-central-1.elb.amazonaws.com
+    domain_name         = aws_lb.api.dns_name
     origin_id           = "alb-origin"
     connection_attempts = 3
     connection_timeout  = 10
@@ -119,8 +118,8 @@ resource "aws_cloudfront_distribution" "frontend" {
     custom_origin_config {
       http_port                = 80
       https_port               = 443
-      origin_protocol_policy   = "http-only"         # CloudFront to ALB over HTTP (avoids TLS/SNI mismatch)
-      origin_ssl_protocols     = ["TLSv1.2"]         # kept for completeness; unused with http-only
+      origin_protocol_policy   = "http-only"
+      origin_ssl_protocols     = ["TLSv1.2"]
       origin_read_timeout      = 60
       origin_keepalive_timeout = 60
     }
