@@ -31,7 +31,7 @@ resource "aws_instance" "backend" {
   user_data                   = file("${path.module}/backend_install.sh")
   user_data_replace_on_change = true
 
-  tags = { Name = "terraform-backend" }
+  tags = { Name = "terraform-backend-1a" }
 
   lifecycle { create_before_destroy = true }
 }
@@ -48,7 +48,7 @@ resource "aws_instance" "backend" {
   user_data                   = file("${path.module}/backend_install.sh")
   user_data_replace_on_change = true
 
-  tags = { Name = "terraform-backend" }
+  tags = { Name = "terraform-backend-1b" }
 
   lifecycle { create_before_destroy = true }
 }
