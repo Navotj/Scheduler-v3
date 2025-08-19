@@ -1,17 +1,25 @@
 ############################################################
 # EKS Cluster + Managed Node Group (2 AZs, AL2023)
 # Hardened: restricted API CIDRs, private endpoint enabled,
-# control-plane logging, KMS envelope encryption, deletion protection.
+# control-plane logging (log group lives in cloudwatch_logs.tf),
+# KMS envelope encryption (key/alias live in kms_eks.tf),
+# deletion protection enabled.
 ############################################################
 
 variable "eks_api_allowed_cidrs_ssm_name" {
-  description = "SSM parameter name that contains a comma-separated list of CIDRs allowed to the public EKS API endpoint"
+  description = "SSM parameter name with comma-separated CIDRs allowed to the public EKS API endpoint"
   type        = string
   default     = "/nat20/network/EKS_API_ALLOWED_CIDRS"
 }
 
+variable "use_ssm_api_cidrs" {
+  description = "If true, read API allowlist from SSM; if false, use var.api_allowed_cidrs"
+  type        = bool
+  default     = false
+}
+
 variable "api_allowed_cidrs" {
-  description = "Fallback list of CIDRs (if SSM param empty). Example: [\"198.51.100.10/32\",\"203.0.113.0/32\"]"
+  description = "Fallback/explicit list of CIDRs when SSM is not used. Example: [\"198.51.100.10/32\",\"203.0.113.0/32\"]"
   type        = list(string)
   default     = []
 }
@@ -22,23 +30,17 @@ variable "log_retention_days" {
   default     = 30
 }
 
-# Load allowlist from SSM (comma-separated string)
+# Optionally read allowlist from SSM (guarded by 'use_ssm_api_cidrs')
 data "aws_ssm_parameter" "eks_api_allowed_cidrs" {
+  count           = var.use_ssm_api_cidrs ? 1 : 0
   name            = var.eks_api_allowed_cidrs_ssm_name
   with_decryption = false
-  # ignore if not present
-  lifecycle {
-    postcondition {
-      condition     = can(self.value)
-      error_message = "Failed to read SSM parameter ${var.eks_api_allowed_cidrs_ssm_name}."
-    }
-  }
 }
 
 locals {
-  ssm_cidrs_raw   = try(data.aws_ssm_parameter.eks_api_allowed_cidrs.value, "")
-  ssm_cidrs_list  = length(trim(local.ssm_cidrs_raw)) > 0 ? [for c in split(",", local.ssm_cidrs_raw) : trimspace(c)] : []
-  public_cidrs    = length(local.ssm_cidrs_list) > 0 ? local.ssm_cidrs_list : var.api_allowed_cidrs
+  ssm_cidrs_raw  = var.use_ssm_api_cidrs && length(data.aws_ssm_parameter.eks_api_allowed_cidrs) > 0 ? data.aws_ssm_parameter.eks_api_allowed_cidrs[0].value : ""
+  ssm_cidrs_list = length(trim(local.ssm_cidrs_raw)) > 0 ? [for c in split(",", local.ssm_cidrs_raw) : trimspace(c)] : []
+  public_cidrs   = length(local.ssm_cidrs_list) > 0 ? local.ssm_cidrs_list : var.api_allowed_cidrs
 }
 
 resource "aws_iam_role" "eks_cluster" {
@@ -82,24 +84,6 @@ resource "aws_security_group" "eks_cluster" {
   tags = { Name = "${var.project_name}-eks-cluster-sg" }
 }
 
-# CloudWatch logs group for control plane logs (precreate to set retention)
-resource "aws_cloudwatch_log_group" "eks" {
-  name              = "/aws/eks/${var.project_name}-eks/cluster"
-  retention_in_days = var.log_retention_days
-}
-
-# KMS key for envelope encryption of Kubernetes secrets
-resource "aws_kms_key" "eks" {
-  description             = "KMS key for EKS secrets envelope encryption (${var.project_name})"
-  deletion_window_in_days = 7
-  enable_key_rotation     = true
-}
-
-resource "aws_kms_alias" "eks" {
-  name          = "alias/${var.project_name}-eks-secrets"
-  target_key_id = aws_kms_key.eks.key_id
-}
-
 resource "aws_eks_cluster" "this" {
   name     = "${var.project_name}-eks"
   role_arn = aws_iam_role.eks_cluster.arn
@@ -114,7 +98,7 @@ resource "aws_eks_cluster" "this" {
     public_access_cidrs     = local.public_cidrs
   }
 
-  # Control plane logs -> CloudWatch
+  # Control plane logs -> CloudWatch (log group defined in cloudwatch_logs.tf)
   enabled_cluster_log_types = [
     "api",
     "audit",
@@ -123,7 +107,7 @@ resource "aws_eks_cluster" "this" {
     "scheduler"
   ]
 
-  # Secrets envelope encryption
+  # Secrets envelope encryption (KMS key/alias defined in kms_eks.tf)
   encryption_config {
     provider { key_arn = aws_kms_key.eks.arn }
     resources = ["secrets"]
@@ -143,7 +127,7 @@ resource "aws_eks_cluster" "this" {
   lifecycle {
     precondition {
       condition     = length(local.public_cidrs) > 0
-      error_message = "EKS public_access_cidrs must not be empty. Populate SSM ${var.eks_api_allowed_cidrs_ssm_name} or set var.api_allowed_cidrs."
+      error_message = "EKS public_access_cidrs must not be empty. Set var.api_allowed_cidrs or enable use_ssm_api_cidrs with a valid SSM parameter."
     }
   }
 }
