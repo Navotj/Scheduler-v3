@@ -30,7 +30,6 @@ resource "helm_release" "aws_ebs_csi_driver" {
   namespace  = "kube-system"
   version    = "2.30.0"
 
-  # Use IRSA role
   set {
     name  = "controller.serviceAccount.create"
     value = "true"
@@ -49,6 +48,7 @@ resource "helm_release" "aws_ebs_csi_driver" {
   depends_on = [
     aws_eks_cluster.this,
     aws_eks_node_group.default,
+    aws_iam_openid_connect_provider.eks,
     aws_iam_role.ebs_csi
   ]
 }
@@ -84,36 +84,27 @@ resource "kubernetes_storage_class" "gp3" {
 }
 
 # AWS Load Balancer Controller (IRSA: aws_iam_role.alb_controller)
+# Install unconditionally so Ingress provisioning always works
 resource "helm_release" "aws_load_balancer_controller" {
-  count      = var.install_addons ? 1 : 0
+  count      = 1
   name       = "aws-load-balancer-controller"
   repository = "https://aws.github.io/eks-charts"
   chart      = "aws-load-balancer-controller"
   namespace  = "kube-system"
   version    = "1.8.2"
 
-  set {
-    name  = "clusterName"
-    value = aws_eks_cluster.this.name
-  }
-  set {
-    name  = "region"
-    value = data.aws_region.current.name
-  }
-  set {
-    name  = "vpcId"
-    value = data.aws_vpc.default.id
-  }
+  set { name = "clusterName"; value = aws_eks_cluster.this.name }
+  set { name = "region";      value = data.aws_region.current.name }
+  set { name = "vpcId";       value = data.aws_vpc.default.id }
 
-  # ServiceAccount with IRSA annotation
-  set {
-    name  = "serviceAccount.create"
-    value = "true"
-  }
-  set {
-    name  = "serviceAccount.name"
-    value = "aws-load-balancer-controller"
-  }
+  # Ensure the IngressClass "alb" exists
+  set { name = "ingressClass";        value = "alb" }
+  set { name = "createIngressClass";  value = "true" }
+  set { name = "defaultIngressClass"; value = "false" }
+
+  # ServiceAccount with IRSA annotation (reuse existing role)
+  set { name = "serviceAccount.create"; value = "true" }
+  set { name = "serviceAccount.name";   value = "aws-load-balancer-controller" }
   set {
     name  = "serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
     value = aws_iam_role.alb_controller.arn
@@ -124,6 +115,8 @@ resource "helm_release" "aws_load_balancer_controller" {
   depends_on = [
     aws_eks_cluster.this,
     aws_eks_node_group.default,
-    aws_iam_role.alb_controller
+    aws_iam_openid_connect_provider.eks,
+    aws_iam_role.alb_controller,
+    aws_iam_role_policy_attachment.alb_controller_attach
   ]
 }

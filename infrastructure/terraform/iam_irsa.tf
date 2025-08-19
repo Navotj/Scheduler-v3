@@ -25,10 +25,18 @@ data "aws_iam_policy_document" "alb_controller_trust" {
       identifiers = [local.oidc_provider_arn]
     }
 
+    # Service Account identity
     condition {
       test     = "StringEquals"
       variable = "${local.oidc_provider_url}:sub"
       values   = ["system:serviceaccount:kube-system:aws-load-balancer-controller"]
+    }
+
+    # Audience must be sts.amazonaws.com
+    condition {
+      test     = "StringEquals"
+      variable = "${local.oidc_provider_url}:aud"
+      values   = ["sts.amazonaws.com"]
     }
   }
 }
@@ -37,6 +45,7 @@ resource "aws_iam_role" "alb_controller" {
   name               = "${var.project_name}-alb-controller-irsa"
   assume_role_policy = data.aws_iam_policy_document.alb_controller_trust.json
   tags               = { Name = "${var.project_name}-alb-controller-irsa" }
+  depends_on         = [aws_iam_openid_connect_provider.eks]
 }
 
 resource "aws_iam_policy" "alb_controller" {
@@ -68,6 +77,12 @@ data "aws_iam_policy_document" "external_secrets_trust" {
       variable = "${local.oidc_provider_url}:sub"
       values   = ["system:serviceaccount:externalsecrets:external-secrets"]
     }
+
+    condition {
+      test     = "StringEquals"
+      variable = "${local.oidc_provider_url}:aud"
+      values   = ["sts.amazonaws.com"]
+    }
   }
 }
 
@@ -86,6 +101,7 @@ resource "aws_iam_role" "external_secrets" {
   name               = "${var.project_name}-external-secrets-irsa"
   assume_role_policy = data.aws_iam_policy_document.external_secrets_trust.json
   tags               = { Name = "${var.project_name}-external-secrets-irsa" }
+  depends_on         = [aws_iam_openid_connect_provider.eks]
 }
 
 resource "aws_iam_policy" "external_secrets" {
@@ -117,6 +133,12 @@ data "aws_iam_policy_document" "ebs_csi_trust" {
       variable = "${local.oidc_provider_url}:sub"
       values   = ["system:serviceaccount:kube-system:ebs-csi-controller-sa"]
     }
+
+    condition {
+      test     = "StringEquals"
+      variable = "${local.oidc_provider_url}:aud"
+      values   = ["sts.amazonaws.com"]
+    }
   }
 }
 
@@ -124,6 +146,7 @@ resource "aws_iam_role" "ebs_csi" {
   name               = "${var.project_name}-ebs-csi-irsa"
   assume_role_policy = data.aws_iam_policy_document.ebs_csi_trust.json
   tags               = { Name = "${var.project_name}-ebs-csi-irsa" }
+  depends_on         = [aws_iam_openid_connect_provider.eks]
 }
 
 resource "aws_iam_role_policy_attachment" "ebs_csi_attach" {
