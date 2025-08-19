@@ -110,21 +110,30 @@ jobs:
           kubectl apply -f /tmp/frontend-ingress.rendered.yaml
           kubectl rollout status deployment/frontend -n nat20 --timeout=180s || (kubectl -n nat20 describe deploy frontend; kubectl -n nat20 logs deploy/frontend --all-containers --tail=200; exit 1)
 
-      - name: Discover Frontend ALB DNS
+      - name: Wait for Ingress hostname (ALB provisioning)
         id: alb
         shell: bash
         run: |
           set -euo pipefail
-          DNS="$(kubectl -n nat20 get ingress frontend -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)"
-          if [ -z "${DNS}" ] || [ "${DNS}" = "<no value>" ]; then
-            ARN="$(aws elbv2 describe-load-balancers --query "LoadBalancers[?starts_with(LoadBalancerName, 'k8s-')].LoadBalancerArn" --output text | head -n1)"
-            if [ -n "${ARN}" ] && [ "${ARN}" != "None" ]; then
-              DNS="$(aws elbv2 describe-load-balancers --load-balancer-arns "${ARN}" --query "LoadBalancers[0].DNSName" --output text || true)"
+          # Ensure the AWS Load Balancer Controller is up before waiting
+          kubectl -n kube-system get deploy aws-load-balancer-controller >/dev/null 2>&1 || true
+
+          HOSTNAME=""
+          for i in $(seq 1 90); do
+            HOSTNAME="$(kubectl -n nat20 get ingress frontend -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)"
+            if [ -n "${HOSTNAME}" ] && [ "${HOSTNAME}" != "<no value>" ]; then
+              break
             fi
-          fi
-          if [ -z "${DNS}" ] || [ "${DNS}" = "None" ]; then
-            echo "Could not discover frontend ALB DNS" >&2
+            sleep 10
+          done
+
+          if [ -z "${HOSTNAME}" ] || [ "${HOSTNAME}" = "<no value>" ]; then
+            echo "Ingress not ready; collecting diagnostics..." >&2
+            kubectl -n nat20 describe ingress frontend || true
+            kubectl -n kube-system get deploy aws-load-balancer-controller -o wide || true
+            kubectl -n kube-system logs deploy/aws-load-balancer-controller --tail=200 || true
             exit 1
           fi
-          echo "FRONTEND_ALB_DNS=${DNS}" >> "$GITHUB_ENV"
-          echo "frontend_alb_dns=${DNS}" >> "$GITHUB_OUTPUT"
+
+          echo "FRONTEND_ALB_DNS=${HOSTNAME}" >> "$GITHUB_ENV"
+          echo "frontend_alb_dns=${HOSTNAME}" >> "$GITHUB_OUTPUT"
