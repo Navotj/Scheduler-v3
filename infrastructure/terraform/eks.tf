@@ -39,7 +39,7 @@ data "aws_ssm_parameter" "eks_api_allowed_cidrs" {
 
 locals {
   ssm_cidrs_raw  = var.use_ssm_api_cidrs && length(data.aws_ssm_parameter.eks_api_allowed_cidrs) > 0 ? data.aws_ssm_parameter.eks_api_allowed_cidrs[0].value : ""
-  ssm_cidrs_list = length(trim(local.ssm_cidrs_raw)) > 0 ? [for c in split(",", local.ssm_cidrs_raw) : trimspace(c)] : []
+  ssm_cidrs_list = length(trimspace(local.ssm_cidrs_raw)) > 0 ? [for c in split(",", local.ssm_cidrs_raw) : trimspace(c)] : []
   public_cidrs   = length(local.ssm_cidrs_list) > 0 ? local.ssm_cidrs_list : var.api_allowed_cidrs
 }
 
