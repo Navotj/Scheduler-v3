@@ -112,7 +112,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # Wait up to ~5 minutes for CRDs installed by the Helm chart to appear
           for i in $(seq 1 60); do
             if kubectl get crd clustersecretstores.external-secrets.io >/dev/null 2>&1 \
               && kubectl get crd externalsecrets.external-secrets.io >/dev/null 2>&1 \
@@ -126,7 +125,6 @@ jobs:
           echo "Timed out waiting for External Secrets CRDs" >&2
           kubectl get crds | grep external-secrets || true
           exit 1
-
 
       - name: Render backend ingress (envsubst)
         shell: bash
@@ -142,9 +140,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # Ensure ESO is up (chart should be installed by Terraform)
-          kubectl -n externalsecrets rollout status deploy/external-secrets --timeout=180s || true
-
           kubectl apply -f infrastructure/k8s/secret-stores/clustersecretstore.yaml
           kubectl apply -n nat20 -f infrastructure/k8s/externalsecrets/backend-secrets.yaml
 
@@ -152,7 +147,6 @@ jobs:
           kubectl apply -n nat20 -f /tmp/backend-ingress.rendered.yaml
           kubectl rollout status deployment/backend -n nat20 --timeout=180s || (kubectl -n nat20 describe deploy backend; kubectl -n nat20 logs deploy/backend --all-containers --tail=200; exit 1)
 
-          # Enforce ingressClassName and subnets annotation even if template lacks them
           kubectl -n nat20 patch ingress backend --type merge -p '{"spec":{"ingressClassName":"alb"}}' || true
           kubectl -n nat20 annotate ingress backend "alb.ingress.kubernetes.io/subnets=${ALB_PUBLIC_SUBNET_IDS}" --overwrite || true
 
