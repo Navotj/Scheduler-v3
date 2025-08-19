@@ -7,6 +7,10 @@ on:
       - "backend/**"
       - ".github/workflows/deploy_backend.yml"
       - "infrastructure/docker/backend/Dockerfile"
+      - "infrastructure/k8s/backend/**"
+      - "infrastructure/k8s/externalsecrets/**"
+      - "infrastructure/k8s/ingress/backend-ingress.yaml"
+      - "infrastructure/k8s/secret-stores/clustersecretstore.yaml"
   workflow_dispatch:
 
 jobs:
@@ -38,7 +42,6 @@ jobs:
         run: |
           set -euo pipefail
 
-          # --- ECR backend URI from SSM; fallback to derive and ensure repo exists ---
           ECR_BACKEND_URI="$(aws ssm get-parameter --name /nat20/ecr/BACKEND_URI --query Parameter.Value --output text 2>/dev/null || true)"
           if [ -z "${ECR_BACKEND_URI:-}" ] || [ "${ECR_BACKEND_URI}" = "None" ]; then
             ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
@@ -49,10 +52,8 @@ jobs:
           fi
           echo "ECR_BACKEND_URI=${ECR_BACKEND_URI}" >> "$GITHUB_ENV"
 
-          # --- Required network params from SSM ---
           API_CERT_ARN="$(aws ssm get-parameter --name /nat20/network/API_CERT_ARN --query Parameter.Value --output text 2>/dev/null || true)"
           ALB_BACKEND_SG_ID="$(aws ssm get-parameter --name /nat20/network/ALB_BACKEND_SG_ID --query Parameter.Value --output text 2>/dev/null || true)"
-
           if [ -z "${API_CERT_ARN:-}" ] || [ "${API_CERT_ARN}" = "None" ]; then
             echo "Missing SSM parameter: /nat20/network/API_CERT_ARN" >&2
             exit 1
@@ -61,7 +62,6 @@ jobs:
             echo "Missing SSM parameter: /nat20/network/ALB_BACKEND_SG_ID" >&2
             exit 1
           fi
-
           echo "API_CERT_ARN=${API_CERT_ARN}" >> "$GITHUB_ENV"
           echo "ALB_BACKEND_SG_ID=${ALB_BACKEND_SG_ID}" >> "$GITHUB_ENV"
           echo "API_HOST=api.nat20scheduling.com" >> "$GITHUB_ENV"
@@ -173,41 +173,37 @@ jobs:
           : "${API_CERT_ARN:?API_CERT_ARN is not set}"
           : "${ALB_BACKEND_SG_ID:?ALB_BACKEND_SG_ID is not set}"
           : "${API_HOST:?API_HOST is not set}"
-
           API_CERT_ARN="${API_CERT_ARN}" \
           ALB_BACKEND_SG_ID="${ALB_BACKEND_SG_ID}" \
           API_HOST="${API_HOST}" \
           ALB_PUBLIC_SUBNET_IDS="${ALB_PUBLIC_SUBNET_IDS}" \
           envsubst < infrastructure/k8s/ingress/backend-ingress.yaml > /tmp/backend-ingress.rendered.yaml
+          echo "Rendered backend ingress:"
+          cat /tmp/backend-ingress.rendered.yaml
 
       - name: Apply backend Service/Deployment and Ingress
         shell: bash
         run: |
           set -euo pipefail
           kubectl apply -n nat20 -f infrastructure/k8s/backend/deployment.yaml
-          kubectl apply -n nat20 -f /tmp/backend-ingress.rendered.yaml
+          kubectl apply -f /tmp/backend-ingress.rendered.yaml
           kubectl rollout status deployment/backend -n nat20 --timeout=300s || (kubectl -n nat20 describe deploy backend; kubectl -n nat20 logs deploy/backend --all-containers --tail=200; exit 1)
-
-          kubectl -n nat20 patch ingress backend --type merge -p '{"spec":{"ingressClassName":"alb"}}' || true
-          kubectl -n nat20 annotate ingress backend "alb.ingress.kubernetes.io/subnets=${ALB_PUBLIC_SUBNET_IDS}" --overwrite || true
 
       - name: Wait for Backend Ingress hostname (ALB provisioning)
         id: alb
         shell: bash
         run: |
           set -euo pipefail
-          kubectl -n kube-system get deploy aws-load-balancer-controller >/dev/null 2>&1 || true
-
-          HOSTNAME=""
           for i in $(seq 1 90); do
             HOSTNAME="$(kubectl -n nat20 get ingress backend -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)"
             if [ -n "${HOSTNAME}" ] && [ "${HOSTNAME}" != "<no value>" ]; then
               break
             fi
+            echo "Waiting for Ingress ALB hostname... ($i/90)"
             sleep 10
           done
 
-          if [ -z "${HOSTNAME}" ] || [ "${HOSTNAME}" = "<no value>" ]; then
+          if [ -z "${HOSTNAME:-}" ] || [ "${HOSTNAME}" = "<no value>" ]; then
             echo "Ingress not ready; collecting diagnostics..." >&2
             kubectl -n nat20 describe ingress backend || true
             kubectl -n kube-system get deploy aws-load-balancer-controller -o wide || true
