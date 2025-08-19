@@ -108,14 +108,25 @@ jobs:
           fi
           echo "ALB_PUBLIC_SUBNET_IDS=${SUBNETS_CSV}" >> "$GITHUB_ENV"
 
-      - name: Require External Secrets CRDs
+      - name: Wait for External Secrets CRDs
         shell: bash
         run: |
           set -euo pipefail
-          if ! kubectl get crd clustersecretstores.external-secrets.io >/dev/null 2>&1; then
-            echo "External Secrets CRDs not installed. Run Terraform to install the Helm chart (external-secrets) first." >&2
-            exit 1
-          fi
+          # Wait up to ~5 minutes for CRDs installed by the Helm chart to appear
+          for i in $(seq 1 60); do
+            if kubectl get crd clustersecretstores.external-secrets.io >/dev/null 2>&1 \
+              && kubectl get crd externalsecrets.external-secrets.io >/dev/null 2>&1 \
+              && kubectl get crd secretstores.external-secrets.io >/dev/null 2>&1; then
+              echo "External Secrets CRDs are present"
+              exit 0
+            fi
+            echo "Waiting for External Secrets CRDs to be installed... ($i/60)"
+            sleep 5
+          done
+          echo "Timed out waiting for External Secrets CRDs" >&2
+          kubectl get crds | grep external-secrets || true
+          exit 1
+
 
       - name: Render backend ingress (envsubst)
         shell: bash
