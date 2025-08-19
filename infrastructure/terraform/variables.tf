@@ -69,3 +69,9 @@ variable "backend_health_check_path" {
   type        = string
   default     = "/health"
 }
+
+variable "install_addons" {
+  description = "Install Helm/K8s addons (set to true on a second apply after the cluster is ACTIVE)"
+  type        = bool
+  default     = false
+}
