@@ -40,7 +40,7 @@ jobs:
 
           # --- ECR backend URI from SSM; fallback to derive and ensure repo exists ---
           ECR_BACKEND_URI="$(aws ssm get-parameter --name /nat20/ecr/BACKEND_URI --query Parameter.Value --output text 2>/dev/null || true)"
-          if [ -z "${ECR_BACKEND_URI}" ] || [ "${ECR_BACKEND_URI}" = "None" ]; then
+          if [ -z "${ECR_BACKEND_URI:-}" ] || [ "${ECR_BACKEND_URI}" = "None" ]; then
             ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
             REPO_NAME="backend"
             ECR_BACKEND_URI="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${REPO_NAME}"
@@ -53,11 +53,11 @@ jobs:
           API_CERT_ARN="$(aws ssm get-parameter --name /nat20/network/API_CERT_ARN --query Parameter.Value --output text 2>/dev/null || true)"
           ALB_BACKEND_SG_ID="$(aws ssm get-parameter --name /nat20/network/ALB_BACKEND_SG_ID --query Parameter.Value --output text 2>/dev/null || true)"
 
-          if [ -z "${API_CERT_ARN}" ] || [ "${API_CERT_ARN}" = "None" ]; then
+          if [ -z "${API_CERT_ARN:-}" ] || [ "${API_CERT_ARN}" = "None" ]; then
             echo "Missing SSM parameter: /nat20/network/API_CERT_ARN" >&2
             exit 1
           fi
-          if [ -z "${ALB_BACKEND_SG_ID}" ] || [ "${ALB_BACKEND_SG_ID}" = "None" ]; then
+          if [ -z "${ALB_BACKEND_SG_ID:-}" ] || [ "${ALB_BACKEND_SG_ID}" = "None" ]; then
             echo "Missing SSM parameter: /nat20/network/ALB_BACKEND_SG_ID" >&2
             exit 1
           fi
@@ -100,21 +100,32 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # v0.19.x requires server-side apply for CRDs
+          # Install/upgrade CRDs and wait for them to be Established
           kubectl apply --server-side -f https://raw.githubusercontent.com/external-secrets/external-secrets/v0.19.2/deploy/crds/bundle.yaml
-          # Wait until CRDs are established
           kubectl wait --for=condition=Established crd clustersecretstores.external-secrets.io --timeout=180s
           kubectl wait --for=condition=Established crd secretstores.external-secrets.io --timeout=180s
           kubectl wait --for=condition=Established crd externalsecrets.external-secrets.io --timeout=180s
+
+      - name: Resolve ALB subnets for this cluster
+        shell: bash
+        run: |
+          set -euo pipefail
+          SUBNETS_CSV="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
+            --query 'cluster.resourcesVpcConfig.subnetIds' --output text | sed 's/\t/,/g')"
+          if [ -z "${SUBNETS_CSV:-}" ]; then
+            echo "Could not resolve cluster subnets" >&2
+            exit 1
+          fi
+          echo "ALB_PUBLIC_SUBNET_IDS=${SUBNETS_CSV}" >> "$GITHUB_ENV"
 
       - name: Render backend ingress (envsubst)
         shell: bash
         run: |
           set -euo pipefail
-          # Resolve ALB subnets from the cluster's VPC config
-          SUBNETS_CSV="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
-            --query 'cluster.resourcesVpcConfig.subnetIds' --output text | sed 's/\t/,/g')"
-          echo "ALB_PUBLIC_SUBNET_IDS=${SUBNETS_CSV}" >> "$GITHUB_ENV"
+          : "${ALB_PUBLIC_SUBNET_IDS:?ALB_PUBLIC_SUBNET_IDS is not set}"
+          : "${API_CERT_ARN:?API_CERT_ARN is not set}"
+          : "${ALB_BACKEND_SG_ID:?ALB_BACKEND_SG_ID is not set}"
+          : "${API_HOST:?API_HOST is not set}"
 
           API_CERT_ARN="${API_CERT_ARN}" \
           ALB_BACKEND_SG_ID="${ALB_BACKEND_SG_ID}" \
