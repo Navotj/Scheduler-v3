@@ -33,13 +33,16 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Capture current EKS API CIDRs
+      - name: Capture current EKS API CIDRs + endpoint
         shell: bash
         run: |
           set -euo pipefail
           ORIG="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
             --query 'cluster.resourcesVpcConfig.publicAccessCidrs' --output text | sed 's/\t/,/g')"
+          ENDPOINT="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
+            --query 'cluster.endpoint' --output text)"
           echo "ORIGINAL_EKS_API_CIDRS=${ORIG}" >> "$GITHUB_ENV"
+          echo "EKS_ENDPOINT=${ENDPOINT}" >> "$GITHUB_ENV"
 
       - name: Temporarily allow runner IP for EKS API (union + wait)
         shell: bash
@@ -82,6 +85,17 @@ jobs:
               done
             fi
           fi
+          # Extra: wait for TCP connectivity to endpoint 443 to avoid race
+          HOST="$(echo "${EKS_ENDPOINT}" | sed -E 's#https?://##g')"
+          for i in $(seq 1 60); do
+            if timeout 5 bash -lc "exec 3<>/dev/tcp/${HOST}/443" 2>/dev/null; then
+              exec 3>&-
+              echo "EKS endpoint reachable on port 443."
+              break
+            fi
+            echo "Waiting for EKS endpoint TCP readiness… (${i}/60)"
+            sleep 2
+          done
 
       - name: Configure kubectl (with retries)
         shell: bash
@@ -89,11 +103,18 @@ jobs:
           set -euo pipefail
           for i in 1 2 3; do
             if aws eks update-kubeconfig --name "${CLUSTER_NAME}" --region "${AWS_REGION}"; then
-              exit 0
+              break
             fi
             echo "Retry kubeconfig (${i}/3)"; sleep $((i*5))
+            [ $i -eq 3 ] && { echo "Failed to configure kubeconfig"; exit 1; }
           done
-          echo "Failed to configure kubeconfig"; exit 1
+          # Wait until kubectl can talk to API (avoid openapi timeouts)
+          for i in $(seq 1 30); do
+            if kubectl --request-timeout=10s version --short >/dev/null 2>&1; then
+              echo "kubectl connectivity OK"; break
+            fi
+            echo "Waiting for kubectl connectivity… (${i}/30)"; sleep 3
+          done
 
       - name: Ensure namespaces exist + enforce PSS (restricted)
         shell: bash
@@ -107,11 +128,17 @@ jobs:
             pod-security.kubernetes.io/warn=restricted \
             --overwrite || true
 
-      - name: Ensure External Secrets CRDs (server-side, pinned)
+      - name: Ensure External Secrets CRDs (server-side, pinned, retries)
         shell: bash
         run: |
           set -euo pipefail
-          kubectl apply --server-side -f https://raw.githubusercontent.com/external-secrets/external-secrets/v0.19.2/deploy/crds/bundle.yaml
+          for i in 1 2 3; do
+            if kubectl apply --server-side -f https://raw.githubusercontent.com/external-secrets/external-secrets/v0.19.2/deploy/crds/bundle.yaml; then
+              break
+            fi
+            echo "Retry CRD apply (${i}/3)"; sleep $((i*5))
+            [ $i -eq 3 ] && exit 1
+          done
           kubectl wait --for=condition=Established crd clustersecretstores.external-secrets.io --timeout=180s
           kubectl wait --for=condition=Established crd secretstores.external-secrets.io --timeout=180s
           kubectl wait --for=condition=Established crd externalsecrets.external-secrets.io --timeout=180s
@@ -168,7 +195,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # Ensure client Service is ClusterIP (not headless)
+          # Ensure 'mongo' client Service is ClusterIP; if it's headless, recreate it.
           if kubectl -n nat20 get svc mongo >/dev/null 2>&1; then
             CIP="$(kubectl -n nat20 get svc mongo -o jsonpath='{.spec.clusterIP}' || true)"
             if [ "${CIP}" = "None" ]; then
@@ -177,16 +204,15 @@ jobs:
             fi
           fi
 
-          # Apply Services (headless + client)
+          # Apply Services (mongo-hl headless + mongo client) and attempt StatefulSet create/update
           kubectl apply -n nat20 -f infrastructure/k8s/mongo/statefulset.yaml
 
-          # Recreate StatefulSet if immutable fields changed
+          # If immutable fields of StatefulSet changed (e.g., serviceName), recreate it safely
           if kubectl -n nat20 get sts mongo >/dev/null 2>&1; then
             CUR_SVC="$(kubectl -n nat20 get sts mongo -o jsonpath='{.spec.serviceName}' || true)"
             if [ "${CUR_SVC}" != "mongo-hl" ]; then
               echo "StatefulSet immutable change detected (serviceName ${CUR_SVC} -> mongo-hl). Recreating…"
               kubectl -n nat20 scale sts mongo --replicas=0 || true
-              # wait for pods to terminate
               for i in $(seq 1 60); do
                 CNT="$(kubectl -n nat20 get pods -l app=mongo --no-headers 2>/dev/null | wc -l | tr -d ' ')"
                 [ "${CNT}" = "0" ] && break
@@ -195,9 +221,6 @@ jobs:
               kubectl -n nat20 delete sts mongo --wait=true
               kubectl apply -n nat20 -f infrastructure/k8s/mongo/statefulset.yaml
             fi
-          else
-            # First-time create already handled by previous apply
-            true
           fi
 
           kubectl -n nat20 rollout status statefulset/mongo --timeout=600s
@@ -220,14 +243,14 @@ jobs:
             CURRENT="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
               --query 'cluster.resourcesVpcConfig.publicAccessCidrs' --output text | sed 's/\t/,/g')"
             if [ "${CURRENT}" = "${ORIGINAL_EKS_API_CIDRS}" ]; then
-              echo "Already at ORIGINAL_EKS_API_CIDRS (${ORIGINAL_EKS_API_CIDRS}); skipping restore."
+              echo "Already at ORIGINAL EKS_API_CIDRS; skipping restore."
             else
               if aws eks update-cluster-config --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
                 --resources-vpc-config publicAccessCidrs="${ORIGINAL_EKS_API_CIDRS}" 2>/tmp/eks_restore.err; then
                 echo "Restored publicAccessCidrs=${ORIGINAL_EKS_API_CIDRS}"
               else
                 if grep -qi "already at the desired configuration" /tmp/eks_restore.err; then
-                  echo "No-op: cluster already at desired configuration."
+                  echo "No-op: already at desired configuration."
                 else
                   cat /tmp/eks_restore.err >&2
                   exit 1
