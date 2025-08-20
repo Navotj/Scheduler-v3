@@ -42,7 +42,6 @@ jobs:
           aws sts get-caller-identity
           aws configure list
 
-
       - name: Resolve ECR URI and SSM parameters (robust)
         id: resolve
         shell: bash
@@ -87,19 +86,21 @@ jobs:
           set -euo pipefail
           sed -i "s#<ECR_URI_REPLACED_BY_CI>/backend:\${GITHUB_SHA}#${ECR_BACKEND_URI}:${GITHUB_SHA}#g" infrastructure/k8s/backend/deployment.yaml
 
-      # 🔐 Lock EKS API access to this runner + your allowlist (from SSM)
+      - name: Capture current EKS API CIDRs
+        shell: bash
+        run: |
+          set -euo pipefail
+          ORIG="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
+            --query 'cluster.resourcesVpcConfig.publicAccessCidrs' --output text | sed 's/\t/,/g')"
+          echo "ORIGINAL_EKS_API_CIDRS=${ORIG}" >> "$GITHUB_ENV"
+
       - name: Temporarily restrict EKS API to runner egress IP
         shell: bash
         run: |
           set -euo pipefail
           RUNNER_IP="$(curl -s https://checkip.amazonaws.com)/32"
-          BASE_ALLOW="$(aws ssm get-parameter --name /nat20/network/EKS_API_ALLOWED_CIDRS --query Parameter.Value --output text 2>/dev/null || true)"
-          if [ -n "${BASE_ALLOW:-}" ] && [ "${BASE_ALLOW}" != "None" ]; then
-            CIDRS="${RUNNER_IP},${BASE_ALLOW}"
-          else
-            CIDRS="${RUNNER_IP}"
-          fi
-          aws eks update-cluster-config --name "${CLUSTER_NAME}" --region "${AWS_REGION}" --resources-vpc-config publicAccessCidrs="${CIDRS}"
+          aws eks update-cluster-config --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
+            --resources-vpc-config publicAccessCidrs="${RUNNER_IP}"
 
       - name: Configure kubectl
         shell: bash
@@ -197,13 +198,14 @@ jobs:
           echo "BACKEND_ALB_DNS=${HOSTNAME}" >> "$GITHUB_ENV"
           echo "backend_alb_dns=${HOSTNAME}" >> "$GITHUB_OUTPUT"
 
-      # 🔐 Restore long-term allowlist for EKS API (from SSM)
-      - name: Restore EKS API CIDR allowlist
+      - name: Restore EKS API CIDRs to original
         if: always()
         shell: bash
         run: |
           set -euo pipefail
-          BASE_ALLOW="$(aws ssm get-parameter --name /nat20/network/EKS_API_ALLOWED_CIDRS --query Parameter.Value --output text 2>/dev/null || true)"
-          if [ -n "${BASE_ALLOW:-}" ] && [ "${BASE_ALLOW}" != "None" ]; then
-            aws eks update-cluster-config --name "${CLUSTER_NAME}" --region "${AWS_REGION}" --resources-vpc-config publicAccessCidrs="${BASE_ALLOW}"
+          if [ -n "${ORIGINAL_EKS_API_CIDRS:-}" ]; then
+            aws eks update-cluster-config --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
+              --resources-vpc-config publicAccessCidrs="${ORIGINAL_EKS_API_CIDRS}"
+          else
+            echo "No ORIGINAL_EKS_API_CIDRS captured; leaving current setting in place."
           fi
