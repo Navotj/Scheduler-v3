@@ -8,6 +8,7 @@ on:
       - "infrastructure/k8s/mongo/**"
       - "infrastructure/k8s/externalsecrets/mongo-secrets.yaml"
       - "infrastructure/k8s/secret-stores/clustersecretstore.yaml"
+      - "infrastructure/k8s/storageclasses/gp3.yaml"
   workflow_dispatch:
 
 jobs:
@@ -134,6 +135,13 @@ jobs:
           kubectl wait --for=condition=Established crd secretstores.external-secrets.io --timeout=180s
           kubectl wait --for=condition=Established crd externalsecrets.external-secrets.io --timeout=180s
 
+      - name: Ensure EBS gp3 StorageClass exists
+        shell: bash
+        run: |
+          set -euo pipefail
+          kubectl apply -f infrastructure/k8s/storageclasses/gp3.yaml
+          kubectl get sc
+
       - name: Preflight check required SSM params (diagnostic)
         shell: bash
         run: |
@@ -179,7 +187,6 @@ jobs:
           set -euo pipefail
           MANIFEST="infrastructure/k8s/mongo/statefulset.yaml"
 
-          # Ensure 'mongo' Service is ClusterIP (not headless)
           if kubectl -n nat20 get svc mongo >/dev/null 2>&1; then
             CIP="$(kubectl -n nat20 get svc mongo -o jsonpath='{.spec.clusterIP}' || true)"
             if [ "${CIP}" = "None" ]; then
@@ -231,6 +238,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          kubectl -n nat20 get sc || true
           kubectl -n nat20 get pvc -o wide || true
           kubectl -n nat20 get pv -o wide || true
           kubectl -n nat20 get svc mongo -o wide || true
@@ -243,7 +251,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          kubectl -n nat20 describe sts mongo || true
+          kubectl -n nat20 describe sc gp3 || true
+          kubectl -n nat20 describe pvc -l app=mongo || true
           kubectl -n nat20 describe pods -l app=mongo || true
           kubectl -n nat20 logs sts/mongo --tail=200 || true
           kubectl -n nat20 get events --sort-by=.lastTimestamp | tail -n 200 || true
