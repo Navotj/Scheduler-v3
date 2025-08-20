@@ -41,19 +41,27 @@ jobs:
             --query 'cluster.resourcesVpcConfig.publicAccessCidrs' --output text | sed 's/\t/,/g')"
           echo "ORIGINAL_EKS_API_CIDRS=${ORIG}" >> "$GITHUB_ENV"
 
-      - name: Temporarily restrict EKS API to runner egress IP (idempotent)
+      - name: Temporarily allow runner IP for EKS API (idempotent + union)
         shell: bash
         run: |
           set -euo pipefail
           RUNNER_IP="$(curl -s https://checkip.amazonaws.com)/32"
           CURRENT="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
             --query 'cluster.resourcesVpcConfig.publicAccessCidrs' --output text | sed 's/\t/,/g')"
-          if [ "${CURRENT}" = "${RUNNER_IP}" ]; then
-            echo "EKS API publicAccessCidrs already ${RUNNER_IP}; skipping update."
+
+          # Build union (runner + current), dedupe commas
+          if [ -n "${CURRENT}" ] && [ "${CURRENT}" != "None" ]; then
+            CIDRS="${RUNNER_IP},${CURRENT}"
+          else
+            CIDRS="${RUNNER_IP}"
+          fi
+          # If already exactly equal, skip
+          if [ "${CURRENT}" = "${CIDRS}" ]; then
+            echo "EKS API publicAccessCidrs already includes runner; skipping update."
           else
             if aws eks update-cluster-config --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
-              --resources-vpc-config publicAccessCidrs="${RUNNER_IP}" 2>/tmp/eks_update.err; then
-              echo "Set publicAccessCidrs=${RUNNER_IP}"
+              --resources-vpc-config publicAccessCidrs="${CIDRS}" 2>/tmp/eks_update.err; then
+              echo "Set publicAccessCidrs=${CIDRS}"
             else
               if grep -qi "already at the desired configuration" /tmp/eks_update.err; then
                 echo "No-op: cluster already at desired configuration."
@@ -111,27 +119,45 @@ jobs:
           rm -f /tmp/err.$$
           [ $MISSING -eq 0 ] || { echo "Required SSM parameters missing; aborting."; exit 1; }
 
-      - name: Apply ClusterSecretStore and Mongo ExternalSecret
+      - name: Apply ClusterSecretStore and Mongo ExternalSecret (robust)
         shell: bash
         run: |
           set -euo pipefail
-          kubectl apply -f infrastructure/k8s/secret-stores/clustersecretstore.yaml
-          kubectl apply -n nat20 -f infrastructure/k8s/externalsecrets/mongo-secrets.yaml
+          k_apply() {
+            local file="$1"
+            local tries=0
+            until kubectl apply --request-timeout=45s -f "$file"; do
+              tries=$((tries+1))
+              if [ $tries -ge 4 ]; then
+                echo "kubectl apply failed for $file; last attempt with --validate=false" >&2
+                kubectl apply --request-timeout=45s --validate=false -f "$file"
+                break
+              fi
+              echo "Retry $tries applying $file…"; sleep $((tries*3))
+            done
+          }
+          k_apply infrastructure/k8s/secret-stores/clustersecretstore.yaml
+          k_apply infrastructure/k8s/externalsecrets/mongo-secrets.yaml
+
+          # Wait for ExternalSecret to reconcile and create the Secret
           kubectl -n nat20 wait --for=condition=Ready externalsecret.external-secrets.io/mongo-root --timeout=300s
           for i in $(seq 1 60); do
             if kubectl -n nat20 get secret mongo-root >/dev/null 2>&1; then
-              echo "mongo-root Secret exists"
-              break
+              echo "mongo-root Secret exists"; break
             fi
-            echo "Waiting for mongo-root Secret... ($i/60)"
-            sleep 5
+            echo "Waiting for mongo-root Secret... ($i/60)"; sleep 5
           done
 
-      - name: Deploy MongoDB StatefulSet (persistent)
+      - name: Deploy MongoDB StatefulSet (persistent, robust)
         shell: bash
         run: |
           set -euo pipefail
-          kubectl apply -n nat20 -f infrastructure/k8s/mongo/statefulset.yaml
+          tries=0
+          until kubectl apply --request-timeout=60s -n nat20 -f infrastructure/k8s/mongo/statefulset.yaml; do
+            tries=$((tries+1))
+            [ $tries -ge 4 ] && { echo "apply statefulset failed"; exit 1; }
+            echo "Retry $tries applying statefulset…"; sleep $((tries*3))
+          done
           kubectl -n nat20 rollout status statefulset/mongo --timeout=600s
 
       - name: Output Mongo service
@@ -139,6 +165,7 @@ jobs:
         run: |
           set -euo pipefail
           kubectl -n nat20 get svc mongo -o wide || true
+          kubectl -n nat20 get pods -l app=mongo -o wide || true
 
       - name: Restore EKS API CIDRs to original (idempotent)
         if: always()
