@@ -17,6 +17,7 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+
     permissions:
       id-token: write
       contents: read
@@ -24,8 +25,8 @@ jobs:
     env:
       AWS_REGION: eu-central-1
       CLUSTER_NAME: nat20-eks
-      # Optional override if you want narrower than 0.0.0.0/0 during the job
-      # EKS_JOB_PUBLIC_CIDRS: 0.0.0.0/0
+      # Leave empty to auto-detect runner /32. Set to a CIDR list to override.
+      EKS_JOB_PUBLIC_CIDRS: ""
 
     steps:
       - name: Checkout
@@ -33,56 +34,65 @@ jobs:
         timeout-minutes: 2
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v2
+        uses: aws-actions/configure-aws-credentials@v4
         timeout-minutes: 2
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: whoami
-        timeout-minutes: 2
+      - name: WhoAmI
         shell: bash
+        timeout-minutes: 2
         run: |
           set -euo pipefail
           aws sts get-caller-identity
           aws configure list
 
-      # --- widen API allowlist (job only) + capture original + connectivity gate ---
-      - name: Capture current EKS API CIDRs + endpoint
-        timeout-minutes: 2
+      - name: Capture current EKS API CIDRs and endpoint (safe outputs)
         shell: bash
+        timeout-minutes: 2
         run: |
           set -euo pipefail
-          ORIG="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
-            --query 'cluster.resourcesVpcConfig.publicAccessCidrs' --output text | sed 's/\t/,/g')"
-          ENDPOINT="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
-            --query 'cluster.endpoint' --output text)"
-          echo "ORIGINAL_EKS_API_CIDRS=${ORIG}" >> "$GITHUB_ENV"
+          ENDPOINT="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}" --query 'cluster.endpoint' --output text)"
           echo "EKS_ENDPOINT=${ENDPOINT}" >> "$GITHUB_ENV"
 
-      - name: Widen EKS API allowlist for this job + 3-try connectivity
-        timeout-minutes: 4
+          CUR_JSON="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
+            --query 'cluster.resourcesVpcConfig.publicAccessCidrs' --output json || echo '[]')"
+          ORIG_B64="$(printf '%s' "${CUR_JSON}" | base64 -w0)"
+          echo "EKS_ORIG_CIDRS_B64=${ORIG_B64}" >> "$GITHUB_ENV"
+
+      - name: Open EKS API temporarily (runner /32 preferred) and quick probe
         shell: bash
+        timeout-minutes: 4
         run: |
           set -euo pipefail
-          TARGET="${EKS_JOB_PUBLIC_CIDRS:-0.0.0.0/0}"
+          if [ -z "${EKS_JOB_PUBLIC_CIDRS:-}" ]; then
+            RIP="$(curl -s https://checkip.amazonaws.com/ | tr -d '\r')"
+            if printf '%s' "$RIP" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
+              TARGET="${RIP}/32"
+            else
+              TARGET="0.0.0.0/0"
+            fi
+          else
+            TARGET="${EKS_JOB_PUBLIC_CIDRS}"
+          fi
 
-          CURRENT="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
-            --query 'cluster.resourcesVpcConfig.publicAccessCidrs' --output text | sed 's/\t/,/g')"
+          CUR_JSON="$(printf '%s' "${EKS_ORIG_CIDRS_B64:-}" | base64 -d 2>/dev/null || echo '[]')"
+          CUR_JOIN="$(printf '%s' "${CUR_JSON}" | jq -r 'join(",")')"
 
-          if [ "${CURRENT}" != "${TARGET}" ]; then
+          if [ -z "${CUR_JOIN}" ] || [ "${CUR_JOIN}" != "${TARGET}" ]; then
             set +e
-            RESP="$(aws eks update-cluster-config --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
-              --resources-vpc-config publicAccessCidrs="${TARGET}" --output json 2>/tmp/eks_update.err)"
-            RC=$?
+            aws eks update-cluster-config --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
+              --resources-vpc-config publicAccessCidrs="${TARGET}" >/dev/null 2>err.txt
+            rc=$?
             set -e
-            if [ $RC -ne 0 ] && ! grep -qi "already at the desired configuration" /tmp/eks_update.err; then
-              echo "EKS update failed:"; cat /tmp/eks_update.err; exit 1
+            if [ $rc -ne 0 ] && ! grep -qi "already at the desired configuration" err.txt; then
+              echo "Failed to set temporary EKS API CIDRs:"; cat err.txt; exit 1
             fi
           fi
 
-          HOST="$(echo "${EKS_ENDPOINT}" | sed -E 's#https?://##g')"
+          HOST="$(echo "${EKS_ENDPOINT}" | sed -E 's#https?://##')"
           for i in 1 2 3; do
             if timeout 3 bash -lc "exec 3<>/dev/tcp/${HOST}/443" 2>/dev/null; then
               exec 3>&-
@@ -94,30 +104,26 @@ jobs:
           echo "EKS endpoint NOT reachable after 3 tries."
           exit 1
 
-      - name: Configure kubectl (3 tries)
-        timeout-minutes: 3
+      - name: Configure kubectl and wait until API responds
         shell: bash
+        timeout-minutes: 4
         run: |
           set -euo pipefail
-          for i in 1 2 3; do
-            if aws eks update-kubeconfig --name "${CLUSTER_NAME}" --region "${AWS_REGION}" --alias "${CLUSTER_NAME}"; then
-              break
+          aws eks update-kubeconfig --name "${CLUSTER_NAME}" --region "${AWS_REGION}"
+          echo "Current context: $(kubectl config current-context || true)"
+          OK=0
+          for i in {1..12}; do
+            if kubectl version --short >/dev/null 2>&1 && kubectl get --raw='/readyz?verbose' >/dev/null 2>&1; then
+              OK=1; break
             fi
-            sleep $((i*2))
-            [ $i -eq 3 ] && exit 1
+            sleep 5
           done
-          for i in 1 2 3; do
-            if kubectl --request-timeout=8s version --short >/dev/null 2>&1; then
-              exit 0
-            fi
-            sleep 2
-          done
-          echo "kubectl never became ready (3 tries)."; exit 1
+          [ $OK -eq 1 ] || { echo "kubectl not ready"; kubectl cluster-info dump | head -n 200 || true; exit 1; }
 
-      - name: Resolve ECR URI and SSM parameters (robust)
+      - name: Resolve ECR URI and SSM parameters
         id: resolve
-        timeout-minutes: 3
         shell: bash
+        timeout-minutes: 3
         env:
           API_HOST: api.nat20scheduling.com
         run: |
@@ -136,12 +142,8 @@ jobs:
 
           API_CERT_ARN="$(aws ssm get-parameter --name /nat20/network/API_CERT_ARN --query Parameter.Value --output text 2>/dev/null || true)"
           ALB_BACKEND_SG_ID="$(aws ssm get-parameter --name /nat20/network/ALB_BACKEND_SG_ID --query Parameter.Value --output text 2>/dev/null || true)"
-          if [ -z "${API_CERT_ARN:-}" ] || [ "${API_CERT_ARN}" = "None" ]; then
-            echo "Missing SSM parameter: /nat20/network/API_CERT_ARN" >&2; exit 1
-          fi
-          if [ -z "${ALB_BACKEND_SG_ID:-}" ] || [ "${ALB_BACKEND_SG_ID}" = "None" ]; then
-            echo "Missing SSM parameter: /nat20/network/ALB_BACKEND_SG_ID" >&2; exit 1
-          fi
+          [ -n "${API_CERT_ARN:-}" ] && [ "${API_CERT_ARN}" != "None" ] || { echo "Missing /nat20/network/API_CERT_ARN"; exit 1; }
+          [ -n "${ALB_BACKEND_SG_ID:-}" ] && [ "${ALB_BACKEND_SG_ID}" != "None" ] || { echo "Missing /nat20/network/ALB_BACKEND_SG_ID"; exit 1; }
           echo "API_CERT_ARN=${API_CERT_ARN}" >> "$GITHUB_ENV"
           echo "ALB_BACKEND_SG_ID=${ALB_BACKEND_SG_ID}" >> "$GITHUB_ENV"
           echo "API_HOST=${API_HOST}" >> "$GITHUB_ENV"
@@ -151,8 +153,8 @@ jobs:
         timeout-minutes: 2
 
       - name: Build and push backend image
-        timeout-minutes: 10
         shell: bash
+        timeout-minutes: 12
         run: |
           set -euo pipefail
           docker build -t "${ECR_BACKEND_URI}:${GITHUB_SHA}" -f infrastructure/docker/backend/Dockerfile .
@@ -160,15 +162,15 @@ jobs:
           echo "BACKEND_IMAGE=${ECR_BACKEND_URI}:${GITHUB_SHA}" >> "$GITHUB_ENV"
 
       - name: Update image in k8s manifest
-        timeout-minutes: 1
         shell: bash
+        timeout-minutes: 1
         run: |
           set -euo pipefail
           sed -i "s#<ECR_URI_REPLACED_BY_CI>/backend:\${GITHUB_SHA}#${ECR_BACKEND_URI}:${GITHUB_SHA}#g" infrastructure/k8s/backend/deployment.yaml
 
-      - name: Ensure namespaces + PSS (restricted)
-        timeout-minutes: 2
+      - name: Ensure namespaces + PSS labels
         shell: bash
+        timeout-minutes: 2
         run: |
           set -euo pipefail
           kubectl get ns nat20 >/dev/null 2>&1 || kubectl create ns nat20
@@ -180,8 +182,8 @@ jobs:
             --overwrite || true
 
       - name: Ensure External Secrets CRDs (pinned)
-        timeout-minutes: 3
         shell: bash
+        timeout-minutes: 3
         run: |
           set -euo pipefail
           kubectl apply --server-side -f https://raw.githubusercontent.com/external-secrets/external-secrets/v0.19.2/deploy/crds/bundle.yaml
@@ -190,51 +192,46 @@ jobs:
           kubectl wait --for=condition=Established crd externalsecrets.external-secrets.io --timeout=90s
 
       - name: Resolve ALB subnets for this cluster
-        timeout-minutes: 1
         shell: bash
+        timeout-minutes: 1
         run: |
           set -euo pipefail
           SUBNETS_CSV="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}" --query 'cluster.resourcesVpcConfig.subnetIds' --output text | sed 's/\t/,/g')"
-          [ -z "${SUBNETS_CSV:-}" ] && { echo "Could not resolve cluster subnets" >&2; exit 1; }
+          [ -n "${SUBNETS_CSV:-}" ] || { echo "Could not resolve cluster subnets"; exit 1; }
           echo "ALB_PUBLIC_SUBNET_IDS=${SUBNETS_CSV}" >> "$GITHUB_ENV"
 
       - name: Preflight SSM for ExternalSecret
-        timeout-minutes: 1
         shell: bash
+        timeout-minutes: 1
         run: |
           set -euo pipefail
           M=0; for K in /nat20/backend/JWT_SECRET /nat20/mongo/USER /nat20/mongo/PASSWORD /nat20/mongo/DB; do
-            aws ssm get-parameter --name "$K" >/dev/null 2>&1 || { echo "Missing $K" >&2; M=1; }
+            aws ssm get-parameter --name "$K" >/dev/null 2>&1 || { echo "Missing $K"; M=1; }
           done
-          [ $M -eq 0 ] || { echo "Required SSM parameters missing; aborting." >&2; exit 1; }
+          [ $M -eq 0 ] || { echo "Required SSM parameters missing"; exit 1; }
 
       - name: Apply ClusterSecretStore and ExternalSecret
-        timeout-minutes: 4
         shell: bash
+        timeout-minutes: 4
         run: |
           set -euo pipefail
           kubectl apply -f infrastructure/k8s/secret-stores/clustersecretstore.yaml
-          kubectl -n nat20 delete externalsecret backend-secrets --ignore-not-found=true
           kubectl apply -n nat20 -f infrastructure/k8s/externalsecrets/backend-secrets.yaml
-
-          # wait for generated Secret (retry-based)
-          for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
-            if kubectl -n nat20 get secret backend-env >/dev/null 2>&1; then
-              exit 0
-            fi
+          for i in {1..24}; do
+            kubectl -n nat20 get secret backend-env >/dev/null 2>&1 && break
             sleep 5
           done
-          echo "backend-env Secret not materialized (ExternalSecrets)"; exit 1
+          kubectl -n nat20 get secret backend-env >/dev/null 2>&1 || { echo "backend-env Secret not materialized"; exit 1; }
 
       - name: Render backend ingress (envsubst)
-        timeout-minutes: 1
         shell: bash
+        timeout-minutes: 1
         run: |
           set -euo pipefail
-          : "${ALB_PUBLIC_SUBNET_IDS:?ALB_PUBLIC_SUBNET_IDS is not set}"
-          : "${API_CERT_ARN:?API_CERT_ARN is not set}"
-          : "${ALB_BACKEND_SG_ID:?ALB_BACKEND_SG_ID is not set}"
-          : "${API_HOST:?API_HOST is not set}"
+          : "${ALB_PUBLIC_SUBNET_IDS:?}"
+          : "${API_CERT_ARN:?}"
+          : "${ALB_BACKEND_SG_ID:?}"
+          : "${API_HOST:?}"
           API_CERT_ARN="${API_CERT_ARN}" \
           ALB_BACKEND_SG_ID="${ALB_BACKEND_SG_ID}" \
           API_HOST="${API_HOST}" \
@@ -242,18 +239,18 @@ jobs:
           envsubst < infrastructure/k8s/ingress/backend-ingress.yaml > /tmp/backend-ingress.rendered.yaml
 
       - name: Apply backend Service/Deployment and Ingress
-        timeout-minutes: 8
         shell: bash
+        timeout-minutes: 8
         run: |
           set -euo pipefail
           kubectl apply -n nat20 -f infrastructure/k8s/backend/deployment.yaml
           kubectl apply -f /tmp/backend-ingress.rendered.yaml
-          kubectl rollout status deployment/backend -n nat20 --timeout=5m
+          kubectl -n nat20 rollout status deployment/backend --timeout=5m
 
-      - name: Wait (short) for Backend Ingress hostname (ALB)
+      - name: Wait for Backend Ingress hostname (ALB)
         id: alb
-        timeout-minutes: 3
         shell: bash
+        timeout-minutes: 3
         run: |
           set -euo pipefail
           for i in {1..18}; do
@@ -261,29 +258,19 @@ jobs:
             [ -n "${HOST:-}" ] && [ "${HOST}" != "<no value>" ] && break
             sleep 5
           done
-          [ -z "${HOST:-}" ] || [ "${HOST}" = "<no value>" ] && { kubectl -n nat20 describe ingress backend || true; exit 1; }
+          [ -n "${HOST:-}" ] && [ "${HOST}" != "<no value>" ] || { kubectl -n nat20 describe ingress backend || true; exit 1; }
           echo "BACKEND_ALB_DNS=${HOST}" >> "$GITHUB_ENV"
           echo "backend_alb_dns=${HOST}" >> "$GITHUB_OUTPUT"
 
-      - name: Restore EKS API CIDRs to original (always, idempotent)
+      - name: Restore original EKS API CIDRs
         if: always()
-        timeout-minutes: 3
         shell: bash
+        timeout-minutes: 3
         run: |
           set -euo pipefail
-          if [ -n "${ORIGINAL_EKS_API_CIDRS:-}" ]; then
-            CUR="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
-              --query 'cluster.resourcesVpcConfig.publicAccessCidrs' --output text | sed 's/\t/,/g')"
-            if [ "${CUR}" != "${ORIGINAL_EKS_API_CIDRS}" ]; then
-              set +e
-              aws eks update-cluster-config --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
-                --resources-vpc-config publicAccessCidrs="${ORIGINAL_EKS_API_CIDRS}" 2>/tmp/eks_restore.err
-              RC=$?
-              set -e
-              if [ $RC -ne 0 ] && ! grep -qi "already at the desired configuration" /tmp/eks_restore.err; then
-                echo "Restore failed:"; cat /tmp/eks_restore.err; exit 1
-              fi
-            fi
-          else
-            echo "No ORIGINAL_EKS_API_CIDRS captured; leaving current setting."
+          ORIG_JSON="$(printf '%s' "${EKS_ORIG_CIDRS_B64:-}" | base64 -d 2>/dev/null || echo '[]')"
+          WANT="$(printf '%s' "${ORIG_JSON}" | jq -r 'join(",")')"
+          if [ -n "${WANT}" ]; then
+            aws eks update-cluster-config --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
+              --resources-vpc-config publicAccessCidrs="${WANT}" >/dev/null || true
           fi

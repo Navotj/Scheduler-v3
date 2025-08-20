@@ -16,7 +16,6 @@ metadata:
     alb.ingress.kubernetes.io/subnets: ${ALB_PUBLIC_SUBNET_IDS}
 spec:
   ingressClassName: alb
-  tls: []
   rules:
     - host: ${API_HOST}
       http:
