@@ -13,7 +13,6 @@ metadata:
     alb.ingress.kubernetes.io/security-groups: ${ALB_FRONTEND_SG_ID}
     alb.ingress.kubernetes.io/healthcheck-path: /index.html
     alb.ingress.kubernetes.io/load-balancer-attributes: routing.http.drop_invalid_header_fields.enabled=true
-    # IMMEDIATE FIX: pin subnets so the controller doesn't need auto-discovery tags
     alb.ingress.kubernetes.io/subnets: ${ALB_PUBLIC_SUBNET_IDS}
 spec:
   ingressClassName: alb

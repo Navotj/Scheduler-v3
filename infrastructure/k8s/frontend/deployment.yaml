@@ -4,11 +4,12 @@ metadata:
   name: frontend
   namespace: nat20
 spec:
-  selector: { app: frontend }
+  selector:
+    app: frontend
   ports:
     - name: http
-      port: 80          # cluster-facing port
-      targetPort: 8080  # container’s unprivileged port
+      port: 80
+      targetPort: 8080
   type: ClusterIP
 ---
 apiVersion: apps/v1
@@ -20,7 +21,8 @@ spec:
   replicas: 2
   revisionHistoryLimit: 2
   selector:
-    matchLabels: { app: frontend }
+    matchLabels:
+      app: frontend
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -28,9 +30,9 @@ spec:
       maxSurge: 1
   template:
     metadata:
-      labels: { app: frontend }
+      labels:
+        app: frontend
     spec:
-      # Satisfy Pod Security "restricted"
       securityContext:
         runAsNonRoot: true
         seccompProfile:
@@ -39,26 +41,47 @@ spec:
         - maxSkew: 1
           topologyKey: topology.kubernetes.io/zone
           whenUnsatisfiable: DoNotSchedule
-          labelSelector: { matchLabels: { app: frontend } }
+          labelSelector:
+            matchLabels:
+              app: frontend
       containers:
-        - name: nginx
+        - name: frontend
           image: <ECR_URI_REPLACED_BY_CI>/frontend:${GITHUB_SHA}
           imagePullPolicy: IfNotPresent
-          ports: [{ containerPort: 8080, name: http }]
-          readinessProbe:
-            httpGet: { path: /index.html, port: http }
-            initialDelaySeconds: 5
-            periodSeconds: 10
-          livenessProbe:
-            httpGet: { path: /index.html, port: http }
-            initialDelaySeconds: 10
-            periodSeconds: 20
-          resources:
-            requests: { cpu: "50m", memory: "128Mi" }
-            limits:   { cpu: "250m", memory: "256Mi" }
+          ports:
+            - containerPort: 8080
+              name: http
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
               drop: ["ALL"]
+            runAsUser: 101
+            runAsGroup: 101
             readOnlyRootFilesystem: true
-            runAsNonRoot: true
+          readinessProbe:
+            httpGet:
+              path: /index.html
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /index.html
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "256Mi"
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
