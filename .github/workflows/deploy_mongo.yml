@@ -13,9 +13,11 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+
     permissions:
       id-token: write
       contents: read
+
     env:
       AWS_REGION: eu-central-1
       CLUSTER_NAME: nat20-eks
@@ -39,39 +41,66 @@ jobs:
             --query 'cluster.resourcesVpcConfig.publicAccessCidrs' --output text | sed 's/\t/,/g')"
           echo "ORIGINAL_EKS_API_CIDRS=${ORIG}" >> "$GITHUB_ENV"
 
-      - name: Temporarily allow runner IP for EKS API (idempotent + union)
+      - name: Temporarily allow runner IP for EKS API (union + wait)
         shell: bash
         run: |
           set -euo pipefail
           RUNNER_IP="$(curl -s https://checkip.amazonaws.com)/32"
           CURRENT="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
             --query 'cluster.resourcesVpcConfig.publicAccessCidrs' --output text | sed 's/\t/,/g')"
+
           if [ -n "${CURRENT}" ] && [ "${CURRENT}" != "None" ]; then
             CIDRS="${RUNNER_IP},${CURRENT}"
           else
             CIDRS="${RUNNER_IP}"
           fi
+
+          # Normalize duplicates
+          CIDRS="$(tr ',' '\n' <<< "${CIDRS}" | awk 'NF{print $0}' | sort -u | paste -sd, -)"
+
           if [ "${CURRENT}" = "${CIDRS}" ]; then
-            echo "EKS API publicAccessCidrs already includes runner; skipping update."
+            echo "EKS API already allows: ${CIDRS}"
           else
-            if aws eks update-cluster-config --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
-              --resources-vpc-config publicAccessCidrs="${CIDRS}" 2>/tmp/eks_update.err; then
-              echo "Set publicAccessCidrs=${CIDRS}"
-            else
+            echo "Updating publicAccessCidrs to: ${CIDRS}"
+            UPDATE_ID="$(aws eks update-cluster-config --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
+              --resources-vpc-config publicAccessCidrs="${CIDRS}" \
+              --query 'update.id' --output text 2>/tmp/eks_update.err || true)"
+            if [ -z "${UPDATE_ID}" ] || [ "${UPDATE_ID}" = "None" ]; then
               if grep -qi "already at the desired configuration" /tmp/eks_update.err; then
-                echo "No-op: cluster already at desired configuration."
+                echo "No-op: already at desired configuration."
               else
                 cat /tmp/eks_update.err >&2
                 exit 1
               fi
+            else
+              echo "Update ID: ${UPDATE_ID}"
+              # Wait for update to complete (avoid race leading to kubectl i/o timeout)
+              for i in $(seq 1 60); do
+                STATUS="$(aws eks describe-update --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
+                  --update-id "${UPDATE_ID}" --query 'update.status' --output text || true)"
+                echo "EKS update status: ${STATUS} (try ${i}/60)"
+                if [ "${STATUS}" = "Successful" ]; then break; fi
+                if [ "${STATUS}" = "Failed" ] || [ "${STATUS}" = "Cancelled" ]; then
+                  aws eks describe-update --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
+                    --update-id "${UPDATE_ID}" --output json >&2
+                  exit 1
+                fi
+                sleep 5
+              done
             fi
           fi
 
-      - name: Configure kubectl
+      - name: Configure kubectl (with retries)
         shell: bash
         run: |
           set -euo pipefail
-          aws eks update-kubeconfig --name "${CLUSTER_NAME}" --region "${AWS_REGION}"
+          for i in 1 2 3; do
+            if aws eks update-kubeconfig --name "${CLUSTER_NAME}" --region "${AWS_REGION}"; then
+              exit 0
+            fi
+            echo "Retry kubeconfig (${i}/3)"; sleep $((i*5))
+          done
+          echo "Failed to configure kubeconfig"; exit 1
 
       - name: Ensure namespaces exist + enforce PSS (restricted)
         shell: bash
@@ -146,12 +175,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # NOTE: we now ship BOTH headless (mongo-hl) and client (mongo) Services.
-          # If an old "mongo" Service exists as ClusterIP, we keep it. If it's headless by mistake, recreate it.
+          # If an old 'mongo' Service exists as headless, delete so we can create proper ClusterIP + separate headless.
           if kubectl -n nat20 get svc mongo >/dev/null 2>&1; then
-            TYPE="$(kubectl -n nat20 get svc mongo -o jsonpath='{.spec.clusterIP}')"
-            if [ "${TYPE}" = "None" ]; then
-              echo "Existing 'mongo' is headless; recreating as ClusterIP for clients."
+            CIP="$(kubectl -n nat20 get svc mongo -o jsonpath='{.spec.clusterIP}' || true)"
+            if [ "${CIP}" = "None" ]; then
+              echo "Existing 'mongo' is headless; deleting to re-create split services."
               kubectl -n nat20 delete svc mongo
             fi
           fi
