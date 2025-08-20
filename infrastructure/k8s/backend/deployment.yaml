@@ -33,6 +33,10 @@ spec:
       labels:
         app: backend
     spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       topologySpreadConstraints:
         - maxSkew: 1
           topologyKey: topology.kubernetes.io/zone
@@ -47,18 +51,25 @@ spec:
           ports:
             - containerPort: 3000
               name: http
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            runAsUser: 1000
+            runAsGroup: 1000
+            readOnlyRootFilesystem: true
           readinessProbe:
-            httpGet:
-              path: /health
+            tcpSocket:
               port: http
             initialDelaySeconds: 10
             periodSeconds: 10
+            failureThreshold: 6
           livenessProbe:
-            httpGet:
-              path: /health
+            tcpSocket:
               port: http
             initialDelaySeconds: 20
             periodSeconds: 20
+            failureThreshold: 6
           resources:
             requests:
               cpu: "100m"
@@ -76,3 +87,9 @@ spec:
               value: "true"
             - name: MONGO_URI
               value: mongodb://$(MONGO_USER):$(MONGO_PASS)@mongo.nat20.svc.cluster.local:27017/$(MONGO_DB)?authSource=admin
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
