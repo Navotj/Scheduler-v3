@@ -136,24 +136,29 @@ jobs:
             aws eks update-addon  --cluster-name "$CLUSTER" --addon-name eks-pod-identity-agent --resolve-conflicts OVERWRITE || true
           fi
 
-          # Create role (trust = Pod Identity)
+          # Create/Update role with CORRECT Pod Identity trust policy
+          TRUST_JSON="$(jq -n --arg acc "$ACC_ID" --arg region "$REGION" --arg cluster "$CLUSTER" '{
+            Version: "2012-10-17",
+            Statement: [{
+              Sid: "AllowEksAuthToAssumeRoleForPodIdentity",
+              Effect: "Allow",
+              Principal: { Service: "pods.eks.amazonaws.com" },
+              Action: ["sts:AssumeRole","sts:TagSession"],
+              Condition: {
+                "StringEquals": { "aws:SourceAccount": $acc },
+                "ArnLike": { "aws:SourceArn": ("arn:aws:eks:" + $region + ":" + $acc + ":podidentityassociation/" + $cluster + "/*") }
+              }
+            }]
+          }')"
+          printf '%s' "$TRUST_JSON" > trust.json
+
           if ! aws iam get-role --role-name "$ROLE_NAME" >/dev/null 2>&1; then
-            jq -n --arg acc "$ACC_ID" --arg region "$REGION" --arg cluster "$CLUSTER" '{
-              Version: "2012-10-17",
-              Statement: [{
-                Effect: "Allow",
-                Principal: { Service: "pods.eks.amazonaws.com" },
-                Action: "sts:AssumeRole",
-                Condition: {
-                  "StringEquals": { "aws:SourceAccount": $acc },
-                  "ArnLike": { "aws:SourceArn": ("arn:aws:eks:" + $region + ":" + $acc + ":cluster/" + $cluster) }
-                }
-              }]
-            }' > trust.json
             aws iam create-role --role-name "$ROLE_NAME" --assume-role-policy-document file://trust.json >/dev/null
           fi
+          # Always enforce the latest (valid) trust policy
+          aws iam update-assume-role-policy --role-name "$ROLE_NAME" --policy-document file://trust.json >/dev/null
 
-          # Attach policy
+          # Attach policy (idempotent)
           HAS=$(aws iam list-attached-role-policies --role-name "$ROLE_NAME" \
                --query "AttachedPolicies[?PolicyArn=='${POLICY_ARN}'] | length(@)" --output text || echo 0)
           if [ "${HAS}" != "1" ]; then
@@ -231,7 +236,6 @@ jobs:
             sleep 5
           done
 
-
       - name: Reset stuck Mongo PVC (safe)
         shell: bash
         run: |
@@ -303,7 +307,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          kubectl -n nat20 get sc gp3
+          kubectl get sc gp3
           kubectl -n nat20 get pvc mongo-data-mongo-0 -o wide || true
           kubectl -n nat20 get svc mongo -o wide || true
           kubectl -n nat20 get pods -l app=mongo -o wide || true
