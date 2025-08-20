@@ -181,6 +181,7 @@ jobs:
           }
           k_apply infrastructure/k8s/secret-stores/clustersecretstore.yaml
           k_apply infrastructure/k8s/externalsecrets/mongo-secrets.yaml
+
           kubectl -n nat20 wait --for=condition=Ready externalsecret.external-secrets.io/mongo-root --timeout=300s
           for i in $(seq 1 60); do
             if kubectl -n nat20 get secret mongo-root >/dev/null 2>&1; then
@@ -195,21 +196,36 @@ jobs:
           set -euo pipefail
           MANIFEST="infrastructure/k8s/mongo/statefulset.yaml"
 
-          # Render desired objects client-side to JSON
-          LIST_JSON="$(kubectl create -f "${MANIFEST}" --dry-run=client -o json)"
+          # Ensure client Service is ClusterIP (not headless)
+          if kubectl -n nat20 get svc mongo >/dev/null 2>&1; then
+            CIP="$(kubectl -n nat20 get svc mongo -o jsonpath='{.spec.clusterIP}' || true)"
+            if [ "${CIP}" = "None" ]; then
+              echo "Existing 'mongo' is headless; deleting to re-create as ClusterIP."
+              kubectl -n nat20 delete svc mongo
+            fi
+          fi
 
-          # Apply only the Service objects first (safe/idempotent)
-          echo "${LIST_JSON}" | jq -c '.items[] | select(.kind=="Service")' | while read -r SVC; do
+          # Render desired objects with apply (supports multi-doc) and normalize to an array
+          RAW_JSON="$(kubectl apply -n nat20 --dry-run=client -f "${MANIFEST}" -o json)"
+          ITEMS_JSON="$(echo "${RAW_JSON}" | jq -c 'if .kind=="List" then .items else [.] end')"
+
+          # Apply Service objects first (idempotent)
+          echo "${ITEMS_JSON}" | jq -c '.[] | select(.kind=="Service")' | while read -r SVC; do
             echo "${SVC}" | kubectl -n nat20 apply -f -
           done
 
           # Extract desired StatefulSet JSON
-          DESIRED_STS="$(echo "${LIST_JSON}" | jq '.items[] | select(.kind=="StatefulSet")')"
+          DESIRED_STS="$(echo "${ITEMS_JSON}" | jq '.[] | select(.kind=="StatefulSet")')"
+          if [ -z "${DESIRED_STS}" ] || [ "${DESIRED_STS}" = "null" ]; then
+            echo "ERROR: No StatefulSet found in ${MANIFEST}" >&2
+            exit 1
+          fi
+
           DES_SVC_NAME="$(echo "${DESIRED_STS}" | jq -r '.spec.serviceName')"
           DES_SELECTOR="$(echo "${DESIRED_STS}" | jq -c '.spec.selector')"
           DES_VCT="$(echo "${DESIRED_STS}" | jq -c '.spec.volumeClaimTemplates')"
 
-          # If current STS exists, detect immutable drift BEFORE applying
+          # Detect immutable drift BEFORE applying
           if kubectl -n nat20 get sts mongo >/dev/null 2>&1; then
             CUR_JSON="$(kubectl -n nat20 get sts mongo -o json)"
             CUR_SVC_NAME="$(echo "${CUR_JSON}" | jq -r '.spec.serviceName')"
