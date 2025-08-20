@@ -48,20 +48,15 @@ jobs:
           RUNNER_IP="$(curl -s https://checkip.amazonaws.com)/32"
           CURRENT="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
             --query 'cluster.resourcesVpcConfig.publicAccessCidrs' --output text | sed 's/\t/,/g')"
-
           if [ -n "${CURRENT}" ] && [ "${CURRENT}" != "None" ]; then
             CIDRS="${RUNNER_IP},${CURRENT}"
           else
             CIDRS="${RUNNER_IP}"
           fi
-
-          # Normalize duplicates
           CIDRS="$(tr ',' '\n' <<< "${CIDRS}" | awk 'NF{print $0}' | sort -u | paste -sd, -)"
-
           if [ "${CURRENT}" = "${CIDRS}" ]; then
             echo "EKS API already allows: ${CIDRS}"
           else
-            echo "Updating publicAccessCidrs to: ${CIDRS}"
             UPDATE_ID="$(aws eks update-cluster-config --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
               --resources-vpc-config publicAccessCidrs="${CIDRS}" \
               --query 'update.id' --output text 2>/tmp/eks_update.err || true)"
@@ -73,13 +68,11 @@ jobs:
                 exit 1
               fi
             else
-              echo "Update ID: ${UPDATE_ID}"
-              # Wait for update to complete (avoid race leading to kubectl i/o timeout)
               for i in $(seq 1 60); do
                 STATUS="$(aws eks describe-update --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
                   --update-id "${UPDATE_ID}" --query 'update.status' --output text || true)"
                 echo "EKS update status: ${STATUS} (try ${i}/60)"
-                if [ "${STATUS}" = "Successful" ]; then break; fi
+                [ "${STATUS}" = "Successful" ] && break
                 if [ "${STATUS}" = "Failed" ] || [ "${STATUS}" = "Cancelled" ]; then
                   aws eks describe-update --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
                     --update-id "${UPDATE_ID}" --output json >&2
@@ -171,28 +164,51 @@ jobs:
             echo "Waiting for mongo-root Secret... ($i/60)"; sleep 5
           done
 
-      - name: Deploy MongoDB StatefulSet (persistent, robust)
+      - name: Deploy MongoDB Services + StatefulSet (recreate if needed)
         shell: bash
         run: |
           set -euo pipefail
-          # If an old 'mongo' Service exists as headless, delete so we can create proper ClusterIP + separate headless.
+          # Ensure client Service is ClusterIP (not headless)
           if kubectl -n nat20 get svc mongo >/dev/null 2>&1; then
             CIP="$(kubectl -n nat20 get svc mongo -o jsonpath='{.spec.clusterIP}' || true)"
             if [ "${CIP}" = "None" ]; then
-              echo "Existing 'mongo' is headless; deleting to re-create split services."
+              echo "Existing 'mongo' is headless; deleting to re-create as ClusterIP."
               kubectl -n nat20 delete svc mongo
             fi
           fi
 
+          # Apply Services (headless + client)
           kubectl apply -n nat20 -f infrastructure/k8s/mongo/statefulset.yaml
+
+          # Recreate StatefulSet if immutable fields changed
+          if kubectl -n nat20 get sts mongo >/dev/null 2>&1; then
+            CUR_SVC="$(kubectl -n nat20 get sts mongo -o jsonpath='{.spec.serviceName}' || true)"
+            if [ "${CUR_SVC}" != "mongo-hl" ]; then
+              echo "StatefulSet immutable change detected (serviceName ${CUR_SVC} -> mongo-hl). Recreating…"
+              kubectl -n nat20 scale sts mongo --replicas=0 || true
+              # wait for pods to terminate
+              for i in $(seq 1 60); do
+                CNT="$(kubectl -n nat20 get pods -l app=mongo --no-headers 2>/dev/null | wc -l | tr -d ' ')"
+                [ "${CNT}" = "0" ] && break
+                echo "Waiting for mongo pods to terminate… ($i/60)"; sleep 5
+              done
+              kubectl -n nat20 delete sts mongo --wait=true
+              kubectl apply -n nat20 -f infrastructure/k8s/mongo/statefulset.yaml
+            fi
+          else
+            # First-time create already handled by previous apply
+            true
+          fi
+
           kubectl -n nat20 rollout status statefulset/mongo --timeout=600s
 
-      - name: Output Mongo service
+      - name: Output Mongo resources
         shell: bash
         run: |
           set -euo pipefail
           kubectl -n nat20 get svc mongo -o wide || true
           kubectl -n nat20 get svc mongo-hl -o wide || true
+          kubectl -n nat20 get sts mongo -o wide || true
           kubectl -n nat20 get pods -l app=mongo -o wide || true
 
       - name: Restore EKS API CIDRs to original (idempotent)

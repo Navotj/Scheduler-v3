@@ -6,7 +6,6 @@ metadata:
   labels:
     app: mongo
 spec:
-  # Headless service ONLY for StatefulSet stable DNS (mongo-0.mongo-hl.nat20.svc.cluster.local)
   clusterIP: None
   selector:
     app: mongo
@@ -23,7 +22,6 @@ metadata:
   labels:
     app: mongo
 spec:
-  # Client-facing ClusterIP service (used by your backend at mongo.nat20.svc.cluster.local:27017)
   type: ClusterIP
   selector:
     app: mongo
