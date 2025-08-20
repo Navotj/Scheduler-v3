@@ -58,15 +58,14 @@ jobs:
           fi
           CIDRS="$(tr ',' '\n' <<< "${CIDRS}" | awk 'NF{print $0}' | sort -u | paste -sd, -)"
           if [ "${CURRENT}" != "${CIDRS}" ]; then
-            UPDATE_ID="$(aws eks update-cluster-config --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
-              --resources-vpc-config publicAccessCidrs="${CIDRS}" \
-              --query 'update.id' --output text 2>/tmp/eks_update.err || true)"
-            if [ -z "${UPDATE_ID}" ] || [ "${UPDATE_ID}" = "None" ]; then
+            UPDATE_JSON="$(aws eks update-cluster-config --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
+              --resources-vpc-config publicAccessCidrs="${CIDRS}" --output json 2>/tmp/eks_update.err || true)"
+            if [ -z "${UPDATE_JSON}" ]; then
               if ! grep -qi "already at the desired configuration" /tmp/eks_update.err; then
-                cat /tmp/eks_update.err >&2
-                exit 1
+                cat /tmp/eks_update.err >&2; exit 1
               fi
             else
+              UPDATE_ID="$(jq -r '.update.id' <<<"${UPDATE_JSON}")"
               for i in $(seq 1 60); do
                 STATUS="$(aws eks describe-update --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
                   --update-id "${UPDATE_ID}" --query 'update.status' --output text || true)"
@@ -119,73 +118,122 @@ jobs:
             pod-security.kubernetes.io/warn=restricted \
             --overwrite || true
 
-      - name: Ensure External Secrets CRDs (server-side, pinned, retries)
+      - name: Ensure External Secrets CRDs (server-side, pinned)
         shell: bash
         run: |
           set -euo pipefail
-          for i in 1 2 3; do
-            if kubectl apply --server-side -f https://raw.githubusercontent.com/external-secrets/external-secrets/v0.19.2/deploy/crds/bundle.yaml; then
-              break
-            fi
-            sleep $((i*5))
-            [ $i -eq 3 ] && exit 1
-          done
+          kubectl apply --server-side -f https://raw.githubusercontent.com/external-secrets/external-secrets/v0.19.2/deploy/crds/bundle.yaml
           kubectl wait --for=condition=Established crd clustersecretstores.external-secrets.io --timeout=180s
           kubectl wait --for=condition=Established crd secretstores.external-secrets.io --timeout=180s
           kubectl wait --for=condition=Established crd externalsecrets.external-secrets.io --timeout=180s
 
-      - name: Preflight check required SSM params (diagnostic)
+      - name: Preflight check required SSM params
         shell: bash
         run: |
           set -euo pipefail
-          KEYS=(/nat20/mongo/USER /nat20/mongo/PASSWORD)
           MISSING=0
-          for KEY in "${KEYS[@]}"; do
-            if ! aws ssm get-parameter --region "${AWS_REGION}" --name "$KEY" >/dev/null 2>&1; then
-              echo "Missing SSM parameter: $KEY" >&2
-              MISSING=$((MISSING+1))
+          for KEY in /nat20/mongo/USER /nat20/mongo/PASSWORD; do
+            if ! aws ssm get-parameter --name "$KEY" >/dev/null 2>&1; then
+              echo "Missing SSM parameter: $KEY" >&2; MISSING=1
             fi
           done
           [ $MISSING -eq 0 ] || { echo "Required SSM parameters missing; aborting." >&2; exit 1; }
 
-      - name: Apply ClusterSecretStore and Mongo ExternalSecret (robust)
+      - name: Ensure AWS EBS CSI driver add-on (IRSA + add-on)
         shell: bash
         run: |
           set -euo pipefail
-          k_apply() {
-            local file="$1"
-            local tries=0
-            until kubectl apply --request-timeout=45s -f "$file"; do
-              tries=$((tries+1))
-              if [ $tries -ge 4 ]; then
-                kubectl apply --request-timeout=45s --validate=false -f "$file"
-                break
-              fi
-              sleep $((tries*3))
-            done
-          }
-          k_apply infrastructure/k8s/secret-stores/clustersecretstore.yaml
-          k_apply infrastructure/k8s/externalsecrets/mongo-secrets.yaml
+          export AWS_PAGER=""
+          ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
+          OIDC_ISSUER="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}" --query 'cluster.identity.oidc.issuer' --output text)"
+          OIDC_HOST="${OIDC_ISSUER#https://}"
 
+          # Find matching IAM OIDC provider ARN
+          PROVIDER_ARN=""
+          for ARN in $(aws iam list-open-id-connect-providers --query 'OpenIDConnectProviderList[].Arn' --output text); do
+            URL="$(aws iam get-open-id-connect-provider --open-id-connect-provider-arn "$ARN" --query 'Url' --output text 2>/dev/null || true)"
+            if [ "${URL}" = "${OIDC_HOST}" ]; then
+              PROVIDER_ARN="$ARN"; break
+            fi
+          done
+          [ -n "${PROVIDER_ARN}" ] || { echo "ERROR: Cluster OIDC provider not found in IAM for ${OIDC_HOST}" >&2; exit 1; }
+
+          ROLE_NAME="nat20-eks-ebs-csi-driver"
+          if ! aws iam get-role --role-name "${ROLE_NAME}" >/dev/null 2>&1; then
+            cat > /tmp/ebs-csi-trust.json <<JSON
+          {
+            "Version": "2012-10-17",
+            "Statement": [
+              {
+                "Effect": "Allow",
+                "Principal": { "Federated": "${PROVIDER_ARN}" },
+                "Action": "sts:AssumeRoleWithWebIdentity",
+                "Condition": {
+                  "StringEquals": {
+                    "${OIDC_HOST}:aud": "sts.amazonaws.com",
+                    "${OIDC_HOST}:sub": "system:serviceaccount:kube-system:ebs-csi-controller-sa"
+                  }
+                }
+              }
+            ]
+          }
+          JSON
+            aws iam create-role --role-name "${ROLE_NAME}" --assume-role-policy-document "file:///tmp/ebs-csi-trust.json" >/dev/null
+            aws iam attach-role-policy --role-name "${ROLE_NAME}" --policy-arn arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy
+          fi
+          ROLE_ARN="$(aws iam get-role --role-name "${ROLE_NAME}" --query 'Role.Arn' --output text)"
+
+          # Create or update add-on
+          if aws eks describe-addon --cluster-name "${CLUSTER_NAME}" --region "${AWS_REGION}" --addon-name aws-ebs-csi-driver >/dev/null 2>&1; then
+            aws eks update-addon --cluster-name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
+              --addon-name aws-ebs-csi-driver --resolve-conflicts OVERWRITE --service-account-role-arn "${ROLE_ARN}" >/dev/null || true
+          else
+            aws eks create-addon --cluster-name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
+              --addon-name aws-ebs-csi-driver --service-account-role-arn "${ROLE_ARN}" >/dev/null
+          fi
+
+          # Wait for ACTIVE
+          for i in $(seq 1 60); do
+            STATUS="$(aws eks describe-addon --cluster-name "${CLUSTER_NAME}" --region "${AWS_REGION}" --addon-name aws-ebs-csi-driver --query 'addon.status' --output text 2>/dev/null || true)"
+            [ "${STATUS}" = "ACTIVE" ] && break
+            sleep 5
+          done
+          [ "${STATUS}" = "ACTIVE" ] || { echo "EBS CSI add-on not ACTIVE (status=${STATUS:-unknown})" >&2; exit 1; }
+
+          # Ensure gp3 StorageClass exists (idempotent)
+          if ! kubectl get sc gp3 >/dev/null 2>&1; then
+            cat <<'YAML' | kubectl apply -f -
+          apiVersion: storage.k8s.io/v1
+          kind: StorageClass
+          metadata:
+            name: gp3
+          provisioner: ebs.csi.aws.com
+          volumeBindingMode: WaitForFirstConsumer
+          reclaimPolicy: Delete
+          allowVolumeExpansion: true
+          parameters:
+            type: gp3
+            fsType: ext4
+            encrypted: "true"
+          YAML
+          fi
+
+      - name: Apply ClusterSecretStore and Mongo ExternalSecret
+        shell: bash
+        run: |
+          set -euo pipefail
+          kubectl apply -f infrastructure/k8s/secret-stores/clustersecretstore.yaml
+          kubectl apply -n nat20 -f infrastructure/k8s/externalsecrets/mongo-secrets.yaml
           kubectl -n nat20 wait --for=condition=Ready externalsecret.external-secrets.io/mongo-root --timeout=300s
           for i in $(seq 1 60); do
             kubectl -n nat20 get secret mongo-root >/dev/null 2>&1 && break
             sleep 5
           done
 
-      - name: Force gp2 usage and clean any stale PVC
+      - name: Clean stale PVC if unbound (then deploy STS)
         shell: bash
         run: |
           set -euo pipefail
-          # Make gp2 the default (harmless if already)
-          if kubectl get sc gp2 >/dev/null 2>&1; then
-            kubectl annotate sc gp2 storageclass.kubernetes.io/is-default-class="true" --overwrite || true
-          fi
-          # Remove default annotation from gp3 if present to avoid silent defaulting
-          if kubectl get sc gp3 >/dev/null 2>&1; then
-            kubectl annotate sc gp3 storageclass.kubernetes.io/is-default-class- || true
-          fi
-          # Delete a Pending/unbound PVC if present
           if kubectl -n nat20 get pvc mongo-data-mongo-0 >/dev/null 2>&1; then
             PHASE="$(kubectl -n nat20 get pvc mongo-data-mongo-0 -o jsonpath='{.status.phase}' || true)"
             PVNAME="$(kubectl -n nat20 get pvc mongo-data-mongo-0 -o jsonpath='{.spec.volumeName}' || true)"
@@ -194,57 +242,16 @@ jobs:
             fi
           fi
 
-      - name: Deploy MongoDB Services + StatefulSet (gp2, immutable-safe)
-        shell: bash
-        run: |
-          set -euo pipefail
-          MANIFEST="infrastructure/k8s/mongo/statefulset.yaml"
+          # Ensure Services first
+          kubectl -n nat20 apply -f infrastructure/k8s/mongo/statefulset.yaml --server-side=false --force-conflicts=false
 
-          # Ensure 'mongo' Service is ClusterIP (not headless)
-          if kubectl -n nat20 get svc mongo >/dev/null 2>&1; then
-            CIP="$(kubectl -n nat20 get svc mongo -o jsonpath='{.spec.clusterIP}' || true)"
-            if [ "${CIP}" = "None" ]; then
-              kubectl -n nat20 delete svc mongo
-            fi
-          fi
-
-          RAW_JSON="$(kubectl apply -n nat20 --dry-run=client -f "${MANIFEST}" -o json)"
-          ITEMS_JSON="$(echo "${RAW_JSON}" | jq -c 'if .kind=="List" then .items else [.] end')"
-
-          echo "${ITEMS_JSON}" | jq -c '.[] | select(.kind=="Service")' | while read -r SVC; do
-            echo "${SVC}" | kubectl -n nat20 apply -f -
+          # Wait for PVC to bind
+          for i in $(seq 1 120); do
+            PHASE="$(kubectl -n nat20 get pvc mongo-data-mongo-0 -o jsonpath='{.status.phase}' 2>/dev/null || true)"
+            [ "${PHASE}" = "Bound" ] && break
+            sleep 5
           done
 
-          DESIRED_STS="$(echo "${ITEMS_JSON}" | jq '.[] | select(.kind=="StatefulSet")')"
-          [ -n "${DESIRED_STS}" ] && [ "${DESIRED_STS}" != "null" ] || { echo "ERROR: No StatefulSet in ${MANIFEST}" >&2; exit 1; }
-
-          DES_SVC_NAME="$(echo "${DESIRED_STS}" | jq -r '.spec.serviceName')"
-          DES_SELECTOR="$(echo "${DESIRED_STS}" | jq -c '.spec.selector')"
-          DES_VCT="$(echo "${DESIRED_STS}" | jq -c '.spec.volumeClaimTemplates')"
-
-          if kubectl -n nat20 get sts mongo >/dev/null 2>&1; then
-            CUR_JSON="$(kubectl -n nat20 get sts mongo -o json)"
-            CUR_SVC_NAME="$(echo "${CUR_JSON}" | jq -r '.spec.serviceName')"
-            CUR_SELECTOR="$(echo "${CUR_JSON}" | jq -c '.spec.selector')"
-            CUR_VCT="$(echo "${CUR_JSON}" | jq -c '.spec.volumeClaimTemplates')"
-
-            NEED_RECREATE=0
-            [ "${CUR_SVC_NAME}" != "${DES_SVC_NAME}" ] && NEED_RECREATE=1
-            [ "${CUR_SELECTOR}" != "${DES_SELECTOR}" ] && NEED_RECREATE=1
-            [ "${CUR_VCT}" != "${DES_VCT}" ] && NEED_RECREATE=1
-
-            if [ $NEED_RECREATE -eq 1 ]; then
-              kubectl -n nat20 scale sts mongo --replicas=0 || true
-              for i in $(seq 1 60); do
-                CNT="$(kubectl -n nat20 get pods -l app=mongo --no-headers 2>/dev/null | wc -l | tr -d ' ')"
-                [ "${CNT}" = "0" ] && break
-                sleep 5
-              done
-              kubectl -n nat20 delete sts mongo --wait=true
-            fi
-          fi
-
-          echo "${DESIRED_STS}" | kubectl -n nat20 apply -f -
           kubectl -n nat20 rollout status statefulset/mongo --timeout=900s
 
       - name: Output Mongo resources
