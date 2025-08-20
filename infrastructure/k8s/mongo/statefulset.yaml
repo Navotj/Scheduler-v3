@@ -32,10 +32,13 @@ spec:
         app: mongo
     spec:
       securityContext:
+        runAsNonRoot: true
         fsGroup: 999
         runAsUser: 999
         runAsGroup: 999
         fsGroupChangePolicy: "OnRootMismatch"
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: mongo
           image: mongo:8.0
@@ -43,6 +46,15 @@ spec:
           ports:
             - name: mongo
               containerPort: 27017
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            runAsUser: 999
+            runAsGroup: 999
+            readOnlyRootFilesystem: false
+            seccompProfile:
+              type: RuntimeDefault
           envFrom:
             - secretRef:
                 name: mongo-root
@@ -57,7 +69,6 @@ spec:
               cpu: "500m"
               memory: "1Gi"
           readinessProbe:
-            # Use credentials because MONGO_INITDB_* enables auth on first init
             exec:
               command:
                 - sh
@@ -81,6 +92,7 @@ spec:
             periodSeconds: 20
             timeoutSeconds: 5
             failureThreshold: 6
+      terminationGracePeriodSeconds: 30
   volumeClaimTemplates:
     - metadata:
         name: mongo-data

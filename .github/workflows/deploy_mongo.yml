@@ -33,18 +33,54 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: Capture current EKS API CIDRs
+        shell: bash
+        run: |
+          set -euo pipefail
+          ORIG="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
+            --query 'cluster.resourcesVpcConfig.publicAccessCidrs' --output text | sed 's/\t/,/g')"
+          echo "ORIGINAL_EKS_API_CIDRS=${ORIG}" >> "$GITHUB_ENV"
+
+      - name: Temporarily restrict EKS API to runner egress IP (idempotent)
+        shell: bash
+        run: |
+          set -euo pipefail
+          RUNNER_IP="$(curl -s https://checkip.amazonaws.com)/32"
+          CURRENT="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
+            --query 'cluster.resourcesVpcConfig.publicAccessCidrs' --output text | sed 's/\t/,/g')"
+          if [ "${CURRENT}" = "${RUNNER_IP}" ]; then
+            echo "EKS API publicAccessCidrs already ${RUNNER_IP}; skipping update."
+          else
+            if aws eks update-cluster-config --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
+              --resources-vpc-config publicAccessCidrs="${RUNNER_IP}" 2>/tmp/eks_update.err; then
+              echo "Set publicAccessCidrs=${RUNNER_IP}"
+            else
+              if grep -qi "already at the desired configuration" /tmp/eks_update.err; then
+                echo "No-op: cluster already at desired configuration."
+              else
+                cat /tmp/eks_update.err >&2
+                exit 1
+              fi
+            fi
+          fi
+
       - name: Configure kubectl
         shell: bash
         run: |
           set -euo pipefail
           aws eks update-kubeconfig --name "${CLUSTER_NAME}" --region "${AWS_REGION}"
 
-      - name: Ensure namespaces exist
+      - name: Ensure namespaces exist + enforce PSS (restricted)
         shell: bash
         run: |
           set -euo pipefail
           kubectl get ns nat20 >/dev/null 2>&1 || kubectl create ns nat20
           kubectl get ns externalsecrets >/dev/null 2>&1 || kubectl create ns externalsecrets
+          kubectl label ns nat20 \
+            pod-security.kubernetes.io/enforce=restricted \
+            pod-security.kubernetes.io/audit=restricted \
+            pod-security.kubernetes.io/warn=restricted \
+            --overwrite || true
 
       - name: Ensure External Secrets CRDs (server-side, pinned)
         shell: bash
@@ -55,21 +91,25 @@ jobs:
           kubectl wait --for=condition=Established crd secretstores.external-secrets.io --timeout=180s
           kubectl wait --for=condition=Established crd externalsecrets.external-secrets.io --timeout=180s
 
-      - name: Preflight check required SSM params
+      - name: Preflight check required SSM params (diagnostic)
         shell: bash
         run: |
           set -euo pipefail
+          : "${AWS_REGION:?AWS_REGION not set}"
+          KEYS=(/nat20/mongo/USER /nat20/mongo/PASSWORD)
           MISSING=0
-          for KEY in /nat20/mongo/USER /nat20/mongo/PASSWORD; do
-            if ! aws ssm get-parameter --name "$KEY" >/dev/null 2>&1; then
-              echo "Missing SSM parameter: $KEY" >&2
-              MISSING=1
+          for KEY in "${KEYS[@]}"; do
+            echo "=== $KEY ==="
+            if aws ssm get-parameter --region "$AWS_REGION" --name "$KEY" >/dev/null 2>"/tmp/err.$$"; then
+              echo "OK $KEY"
+            else
+              echo "FAIL $KEY"
+              cat /tmp/err.$$ >&2 || true
+              MISSING=$((MISSING+1))
             fi
           done
-          if [ $MISSING -ne 0 ]; then
-            echo "Required SSM parameters missing; aborting." >&2
-            exit 1
-          fi
+          rm -f /tmp/err.$$
+          [ $MISSING -eq 0 ] || { echo "Required SSM parameters missing; aborting."; exit 1; }
 
       - name: Apply ClusterSecretStore and Mongo ExternalSecret
         shell: bash
@@ -99,3 +139,30 @@ jobs:
         run: |
           set -euo pipefail
           kubectl -n nat20 get svc mongo -o wide || true
+
+      - name: Restore EKS API CIDRs to original (idempotent)
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${ORIGINAL_EKS_API_CIDRS:-}" ]; then
+            CURRENT="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
+              --query 'cluster.resourcesVpcConfig.publicAccessCidrs' --output text | sed 's/\t/,/g')"
+            if [ "${CURRENT}" = "${ORIGINAL_EKS_API_CIDRS}" ]; then
+              echo "Already at ORIGINAL_EKS_API_CIDRS (${ORIGINAL_EKS_API_CIDRS}); skipping restore."
+            else
+              if aws eks update-cluster-config --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
+                --resources-vpc-config publicAccessCidrs="${ORIGINAL_EKS_API_CIDRS}" 2>/tmp/eks_restore.err; then
+                echo "Restored publicAccessCidrs=${ORIGINAL_EKS_API_CIDRS}"
+              else
+                if grep -qi "already at the desired configuration" /tmp/eks_restore.err; then
+                  echo "No-op: cluster already at desired configuration."
+                else
+                  cat /tmp/eks_restore.err >&2
+                  exit 1
+                fi
+              fi
+            fi
+          else
+            echo "No ORIGINAL_EKS_API_CIDRS captured; leaving current setting in place."
+          fi
