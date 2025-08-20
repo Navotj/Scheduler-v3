@@ -47,29 +47,18 @@ spec:
         app: mongo
     spec:
       securityContext:
-        runAsNonRoot: true
         fsGroup: 999
         runAsUser: 999
         runAsGroup: 999
         fsGroupChangePolicy: "OnRootMismatch"
-        seccompProfile:
-          type: RuntimeDefault
       containers:
         - name: mongo
           image: mongo:8.0
           imagePullPolicy: IfNotPresent
+          args: ["--bind_ip_all","--auth"]
           ports:
             - name: mongo
               containerPort: 27017
-          securityContext:
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop: ["ALL"]
-            runAsUser: 999
-            runAsGroup: 999
-            readOnlyRootFilesystem: false
-            seccompProfile:
-              type: RuntimeDefault
           envFrom:
             - secretRef:
                 name: mongo-root
@@ -85,24 +74,28 @@ spec:
               memory: "1Gi"
           readinessProbe:
             tcpSocket:
-              port: 27017
-            initialDelaySeconds: 15
+              port: mongo
+            initialDelaySeconds: 10
             periodSeconds: 10
-            timeoutSeconds: 5
-            failureThreshold: 12
+            timeoutSeconds: 1
+            failureThreshold: 3
           livenessProbe:
             tcpSocket:
-              port: 27017
-            initialDelaySeconds: 30
+              port: mongo
+            initialDelaySeconds: 20
             periodSeconds: 20
-            timeoutSeconds: 5
-            failureThreshold: 6
-      terminationGracePeriodSeconds: 30
+            timeoutSeconds: 1
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
   volumeClaimTemplates:
     - metadata:
         name: mongo-data
-        labels:
-          app: mongo
       spec:
         accessModes: ["ReadWriteOnce"]
         storageClassName: gp3
