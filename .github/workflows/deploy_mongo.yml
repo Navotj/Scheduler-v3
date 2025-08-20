@@ -85,7 +85,7 @@ jobs:
               done
             fi
           fi
-          # Extra: wait for TCP connectivity to endpoint 443 to avoid race
+          # Wait for TCP connectivity to API server
           HOST="$(echo "${EKS_ENDPOINT}" | sed -E 's#https?://##g')"
           for i in $(seq 1 60); do
             if timeout 5 bash -lc "exec 3<>/dev/tcp/${HOST}/443" 2>/dev/null; then
@@ -108,7 +108,6 @@ jobs:
             echo "Retry kubeconfig (${i}/3)"; sleep $((i*5))
             [ $i -eq 3 ] && { echo "Failed to configure kubeconfig"; exit 1; }
           done
-          # Wait until kubectl can talk to API (avoid openapi timeouts)
           for i in $(seq 1 30); do
             if kubectl --request-timeout=10s version --short >/dev/null 2>&1; then
               echo "kubectl connectivity OK"; break
@@ -182,7 +181,6 @@ jobs:
           }
           k_apply infrastructure/k8s/secret-stores/clustersecretstore.yaml
           k_apply infrastructure/k8s/externalsecrets/mongo-secrets.yaml
-
           kubectl -n nat20 wait --for=condition=Ready externalsecret.external-secrets.io/mongo-root --timeout=300s
           for i in $(seq 1 60); do
             if kubectl -n nat20 get secret mongo-root >/dev/null 2>&1; then
@@ -191,27 +189,48 @@ jobs:
             echo "Waiting for mongo-root Secret... ($i/60)"; sleep 5
           done
 
-      - name: Deploy MongoDB Services + StatefulSet (recreate if needed)
+      - name: Deploy MongoDB Services + StatefulSet (immutable-safe)
         shell: bash
         run: |
           set -euo pipefail
-          # Ensure 'mongo' client Service is ClusterIP; if it's headless, recreate it.
-          if kubectl -n nat20 get svc mongo >/dev/null 2>&1; then
-            CIP="$(kubectl -n nat20 get svc mongo -o jsonpath='{.spec.clusterIP}' || true)"
-            if [ "${CIP}" = "None" ]; then
-              echo "Existing 'mongo' is headless; deleting to re-create as ClusterIP."
-              kubectl -n nat20 delete svc mongo
-            fi
-          fi
+          MANIFEST="infrastructure/k8s/mongo/statefulset.yaml"
 
-          # Apply Services (mongo-hl headless + mongo client) and attempt StatefulSet create/update
-          kubectl apply -n nat20 -f infrastructure/k8s/mongo/statefulset.yaml
+          # Render desired objects client-side to JSON
+          LIST_JSON="$(kubectl create -f "${MANIFEST}" --dry-run=client -o json)"
 
-          # If immutable fields of StatefulSet changed (e.g., serviceName), recreate it safely
+          # Apply only the Service objects first (safe/idempotent)
+          echo "${LIST_JSON}" | jq -c '.items[] | select(.kind=="Service")' | while read -r SVC; do
+            echo "${SVC}" | kubectl -n nat20 apply -f -
+          done
+
+          # Extract desired StatefulSet JSON
+          DESIRED_STS="$(echo "${LIST_JSON}" | jq '.items[] | select(.kind=="StatefulSet")')"
+          DES_SVC_NAME="$(echo "${DESIRED_STS}" | jq -r '.spec.serviceName')"
+          DES_SELECTOR="$(echo "${DESIRED_STS}" | jq -c '.spec.selector')"
+          DES_VCT="$(echo "${DESIRED_STS}" | jq -c '.spec.volumeClaimTemplates')"
+
+          # If current STS exists, detect immutable drift BEFORE applying
           if kubectl -n nat20 get sts mongo >/dev/null 2>&1; then
-            CUR_SVC="$(kubectl -n nat20 get sts mongo -o jsonpath='{.spec.serviceName}' || true)"
-            if [ "${CUR_SVC}" != "mongo-hl" ]; then
-              echo "StatefulSet immutable change detected (serviceName ${CUR_SVC} -> mongo-hl). Recreating…"
+            CUR_JSON="$(kubectl -n nat20 get sts mongo -o json)"
+            CUR_SVC_NAME="$(echo "${CUR_JSON}" | jq -r '.spec.serviceName')"
+            CUR_SELECTOR="$(echo "${CUR_JSON}" | jq -c '.spec.selector')"
+            CUR_VCT="$(echo "${CUR_JSON}" | jq -c '.spec.volumeClaimTemplates')"
+
+            NEED_RECREATE=0
+            REASONS=()
+
+            if [ "${CUR_SVC_NAME}" != "${DES_SVC_NAME}" ]; then
+              NEED_RECREATE=1; REASONS+=("serviceName: ${CUR_SVC_NAME} -> ${DES_SVC_NAME}")
+            fi
+            if [ "${CUR_SELECTOR}" != "${DES_SELECTOR}" ]; then
+              NEED_RECREATE=1; REASONS+=("selector changed")
+            fi
+            if [ "${CUR_VCT}" != "${DES_VCT}" ]; then
+              NEED_RECREATE=1; REASONS+=("volumeClaimTemplates changed")
+            fi
+
+            if [ $NEED_RECREATE -eq 1 ]; then
+              echo "Recreating StatefulSet due to immutable changes: ${REASONS[*]}"
               kubectl -n nat20 scale sts mongo --replicas=0 || true
               for i in $(seq 1 60); do
                 CNT="$(kubectl -n nat20 get pods -l app=mongo --no-headers 2>/dev/null | wc -l | tr -d ' ')"
@@ -219,10 +238,11 @@ jobs:
                 echo "Waiting for mongo pods to terminate… ($i/60)"; sleep 5
               done
               kubectl -n nat20 delete sts mongo --wait=true
-              kubectl apply -n nat20 -f infrastructure/k8s/mongo/statefulset.yaml
             fi
           fi
 
+          # Create/Update the StatefulSet (now safe)
+          echo "${DESIRED_STS}" | kubectl -n nat20 apply -f -
           kubectl -n nat20 rollout status statefulset/mongo --timeout=600s
 
       - name: Output Mongo resources
@@ -243,7 +263,7 @@ jobs:
             CURRENT="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
               --query 'cluster.resourcesVpcConfig.publicAccessCidrs' --output text | sed 's/\t/,/g')"
             if [ "${CURRENT}" = "${ORIGINAL_EKS_API_CIDRS}" ]; then
-              echo "Already at ORIGINAL EKS_API_CIDRS; skipping restore."
+              echo "Already at ORIGINAL_EKS_API_CIDRS (${ORIGINAL_EKS_API_CIDRS}); skipping restore."
             else
               if aws eks update-cluster-config --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
                 --resources-vpc-config publicAccessCidrs="${ORIGINAL_EKS_API_CIDRS}" 2>/tmp/eks_restore.err; then
