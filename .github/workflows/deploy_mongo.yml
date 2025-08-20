@@ -111,11 +111,16 @@ jobs:
         run: |
           set -euo pipefail
           if ! aws eks describe-addon --cluster-name "${CLUSTER_NAME}" --addon-name aws-ebs-csi-driver >/dev/null 2>&1; then
-            aws eks create-addon --cluster-name "${CLUSTER_NAME}" --addon-name aws-ebs-csi-driver --resolve-conflicts OVERWRITE
+            aws eks create-addon --cluster-name "${CLUSTER_NAME}" --addon-name aws-ebs-csi-driver --resolve-conflicts OVERWRITE >/dev/null
           else
-            aws eks update-addon  --cluster-name "${CLUSTER_NAME}" --addon-name aws-ebs-csi-driver --resolve-conflicts OVERWRITE || true
+            aws eks update-addon  --cluster-name "${CLUSTER_NAME}" --addon-name aws-ebs-csi-driver --resolve-conflicts OVERWRITE >/dev/null || true
           fi
-          echo "aws-ebs-csi-driver $(aws eks describe-addon --cluster-name "${CLUSTER_NAME}" --addon-name aws-ebs-csi-driver --query 'addon.status' --output text)"
+          for i in {1..60}; do
+            ST=$(aws eks describe-addon --cluster-name "${CLUSTER_NAME}" --addon-name aws-ebs-csi-driver --query 'addon.status' --output text || echo "")
+            [ "${ST}" = "ACTIVE" ] && { echo "aws-ebs-csi-driver ACTIVE"; break; }
+            [ $i -eq 60 ] && { echo "aws-ebs-csi-driver not ACTIVE in time (last=${ST})"; exit 1; }
+            sleep 5
+          done
 
       - name: Grant EBS CSI creds via EKS Pod Identity (and restart driver)
         shell: bash
@@ -131,12 +136,18 @@ jobs:
 
           # Ensure pod identity agent
           if ! aws eks describe-addon --cluster-name "$CLUSTER" --addon-name eks-pod-identity-agent >/dev/null 2>&1; then
-            aws eks create-addon --cluster-name "$CLUSTER" --addon-name eks-pod-identity-agent --resolve-conflicts OVERWRITE
+            aws eks create-addon --cluster-name "$CLUSTER" --addon-name eks-pod-identity-agent --resolve-conflicts OVERWRITE >/dev/null
           else
-            aws eks update-addon  --cluster-name "$CLUSTER" --addon-name eks-pod-identity-agent --resolve-conflicts OVERWRITE || true
+            aws eks update-addon  --cluster-name "$CLUSTER" --addon-name eks-pod-identity-agent --resolve-conflicts OVERWRITE >/dev/null || true
           fi
+          for i in {1..60}; do
+            ST=$(aws eks describe-addon --cluster-name "$CLUSTER" --addon-name eks-pod-identity-agent --query 'addon.status' --output text || echo "")
+            [ "${ST}" = "ACTIVE" ] && { echo "eks-pod-identity-agent ACTIVE"; break; }
+            [ $i -eq 60 ] && { echo "eks-pod-identity-agent not ACTIVE in time (last=${ST})"; exit 1; }
+            sleep 5
+          done
 
-          # Create/Update role with CORRECT Pod Identity trust policy
+          # Create/Update role with correct EKS Pod Identity trust policy
           TRUST_JSON="$(jq -n --arg acc "$ACC_ID" --arg region "$REGION" --arg cluster "$CLUSTER" '{
             Version: "2012-10-17",
             Statement: [{
@@ -155,14 +166,12 @@ jobs:
           if ! aws iam get-role --role-name "$ROLE_NAME" >/dev/null 2>&1; then
             aws iam create-role --role-name "$ROLE_NAME" --assume-role-policy-document file://trust.json >/dev/null
           fi
-          # Always enforce the latest (valid) trust policy
           aws iam update-assume-role-policy --role-name "$ROLE_NAME" --policy-document file://trust.json >/dev/null
 
-          # Attach policy (idempotent)
           HAS=$(aws iam list-attached-role-policies --role-name "$ROLE_NAME" \
                --query "AttachedPolicies[?PolicyArn=='${POLICY_ARN}'] | length(@)" --output text || echo 0)
           if [ "${HAS}" != "1" ]; then
-            aws iam attach-role-policy --role-name "$ROLE_NAME" --policy-arn "$POLICY_ARN"
+            aws iam attach-role-policy --role-name "$ROLE_NAME" --policy-arn "$POLICY_ARN" >/dev/null
           fi
           ROLE_ARN="$(aws iam get-role --role-name "$ROLE_NAME" --query 'Role.Arn' --output text)"
 
@@ -182,7 +191,7 @@ jobs:
           kubectl -n kube-system rollout restart deploy ebs-csi-controller || true
           kubectl -n kube-system rollout restart ds ebs-csi-node || true
 
-          # Wait short for readiness
+          # Wait for the EBS CSI pods to be Ready
           for i in {1..30}; do
             DS_READY=$(kubectl -n kube-system get ds ebs-csi-node -o jsonpath='{.status.numberReady}' 2>/dev/null || echo 0)
             DS_DESIRED=$(kubectl -n kube-system get ds ebs-csi-node -o jsonpath='{.status.desiredNumberScheduled}' 2>/dev/null || echo 0)
@@ -195,10 +204,28 @@ jobs:
             sleep 2
           done
 
-          # Force CSINode refresh to fix missing topology keys
-          for NODE in $(kubectl get nodes -o name | sed 's#node/##'); do
-            kubectl delete csinode "$NODE" --ignore-not-found || true
+      - name: Wait for CSINode registration (per node) with topology keys
+        shell: bash
+        run: |
+          set -euo pipefail
+          NODES=$(kubectl get nodes -o name | sed 's#node/##')
+          if [ -z "$NODES" ]; then
+            echo "No nodes found"; exit 1
+          fi
+          for NODE in $NODES; do
+            echo "Waiting for CSINode $NODE to register ebs.csi.aws.com with topology..."
+            OK=0
+            for i in {1..60}; do
+              NAME=$(kubectl get csinode "$NODE" -o jsonpath='{.spec.drivers[?(@.name=="ebs.csi.aws.com")].name}' 2>/dev/null || echo "")
+              KEYS=$(kubectl get csinode "$NODE" -o jsonpath='{.spec.drivers[?(@.name=="ebs.csi.aws.com")].topologyKeys}' 2>/dev/null || echo "")
+              if [ "$NAME" = "ebs.csi.aws.com" ] && (echo "$KEYS" | grep -q "topology.kubernetes.io/zone\|topology.ebs.csi.aws.com/zone"); then
+                OK=1; break
+              fi
+              sleep 2
+            done
+            [ $OK -eq 1 ] || { echo "CSINode $NODE not ready with topology keys"; kubectl get csinode "$NODE" -o yaml || true; exit 1; }
           done
+          echo "All CSINode objects are ready."
 
       - name: Ensure gp3 StorageClass exists (no heredoc)
         shell: bash
