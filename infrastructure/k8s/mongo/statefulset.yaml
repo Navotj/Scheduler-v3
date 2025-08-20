@@ -1,13 +1,30 @@
 apiVersion: v1
 kind: Service
 metadata:
+  name: mongo-hl
+  namespace: nat20
+  labels:
+    app: mongo
+spec:
+  # Headless service ONLY for StatefulSet stable DNS (mongo-0.mongo-hl.nat20.svc.cluster.local)
+  clusterIP: None
+  selector:
+    app: mongo
+  ports:
+    - name: mongo
+      port: 27017
+      targetPort: 27017
+---
+apiVersion: v1
+kind: Service
+metadata:
   name: mongo
   namespace: nat20
   labels:
     app: mongo
 spec:
-  # Headless service for stable DNS to the StatefulSet pod
-  clusterIP: None
+  # Client-facing ClusterIP service (used by your backend at mongo.nat20.svc.cluster.local:27017)
+  type: ClusterIP
   selector:
     app: mongo
   ports:
@@ -21,7 +38,7 @@ metadata:
   name: mongo
   namespace: nat20
 spec:
-  serviceName: mongo
+  serviceName: mongo-hl
   replicas: 1
   selector:
     matchLabels:

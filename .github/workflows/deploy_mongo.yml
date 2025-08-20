@@ -13,11 +13,9 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-
     permissions:
       id-token: write
       contents: read
-
     env:
       AWS_REGION: eu-central-1
       CLUSTER_NAME: nat20-eks
@@ -48,14 +46,11 @@ jobs:
           RUNNER_IP="$(curl -s https://checkip.amazonaws.com)/32"
           CURRENT="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
             --query 'cluster.resourcesVpcConfig.publicAccessCidrs' --output text | sed 's/\t/,/g')"
-
-          # Build union (runner + current), dedupe commas
           if [ -n "${CURRENT}" ] && [ "${CURRENT}" != "None" ]; then
             CIDRS="${RUNNER_IP},${CURRENT}"
           else
             CIDRS="${RUNNER_IP}"
           fi
-          # If already exactly equal, skip
           if [ "${CURRENT}" = "${CIDRS}" ]; then
             echo "EKS API publicAccessCidrs already includes runner; skipping update."
           else
@@ -139,7 +134,6 @@ jobs:
           k_apply infrastructure/k8s/secret-stores/clustersecretstore.yaml
           k_apply infrastructure/k8s/externalsecrets/mongo-secrets.yaml
 
-          # Wait for ExternalSecret to reconcile and create the Secret
           kubectl -n nat20 wait --for=condition=Ready externalsecret.external-secrets.io/mongo-root --timeout=300s
           for i in $(seq 1 60); do
             if kubectl -n nat20 get secret mongo-root >/dev/null 2>&1; then
@@ -152,12 +146,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          tries=0
-          until kubectl apply --request-timeout=60s -n nat20 -f infrastructure/k8s/mongo/statefulset.yaml; do
-            tries=$((tries+1))
-            [ $tries -ge 4 ] && { echo "apply statefulset failed"; exit 1; }
-            echo "Retry $tries applying statefulset…"; sleep $((tries*3))
-          done
+          # NOTE: we now ship BOTH headless (mongo-hl) and client (mongo) Services.
+          # If an old "mongo" Service exists as ClusterIP, we keep it. If it's headless by mistake, recreate it.
+          if kubectl -n nat20 get svc mongo >/dev/null 2>&1; then
+            TYPE="$(kubectl -n nat20 get svc mongo -o jsonpath='{.spec.clusterIP}')"
+            if [ "${TYPE}" = "None" ]; then
+              echo "Existing 'mongo' is headless; recreating as ClusterIP for clients."
+              kubectl -n nat20 delete svc mongo
+            fi
+          fi
+
+          kubectl apply -n nat20 -f infrastructure/k8s/mongo/statefulset.yaml
           kubectl -n nat20 rollout status statefulset/mongo --timeout=600s
 
       - name: Output Mongo service
@@ -165,6 +164,7 @@ jobs:
         run: |
           set -euo pipefail
           kubectl -n nat20 get svc mongo -o wide || true
+          kubectl -n nat20 get svc mongo-hl -o wide || true
           kubectl -n nat20 get pods -l app=mongo -o wide || true
 
       - name: Restore EKS API CIDRs to original (idempotent)
