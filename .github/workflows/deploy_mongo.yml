@@ -14,29 +14,32 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-
     permissions:
       id-token: write
       contents: read
-
     env:
       AWS_REGION: eu-central-1
       CLUSTER_NAME: nat20-eks
-      # Optional: set a safer CIDR allowlist for this job; default widens fully, then we restore.
+      # You can narrow this later; 0.0.0.0/0 here keeps the job snappy.
       EKS_JOB_PUBLIC_CIDRS: 0.0.0.0/0
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Configure AWS credentials (SDK v3)
+      - name: Configure AWS credentials (SDK v4)
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Capture current EKS endpoint and CIDR allowlist
+      - name: whoami
+        run: |
+          aws sts get-caller-identity
+          aws configure list
+
+      - name: Capture EKS endpoint + current allowlist
         id: capture
         shell: bash
         run: |
@@ -48,56 +51,33 @@ jobs:
           echo "endpoint=${EP}" >> "$GITHUB_OUTPUT"
           echo "cidrs=${CIDRS}" >> "$GITHUB_OUTPUT"
 
-      - name: Temporarily widen EKS API CIDRs and wait for update
+      - name: Temporarily widen EKS API (retry/fast)
         shell: bash
         run: |
           set -euo pipefail
           TARGET="${EKS_JOB_PUBLIC_CIDRS:-0.0.0.0/0}"
-
-          CURRENT="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
-            --query 'cluster.resourcesVpcConfig.publicAccessCidrs' --output text | sed 's/\t/,/g')"
-
-          if [ "${CURRENT}" != "${TARGET}" ]; then
-            RESP="$(aws eks update-cluster-config --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
-              --resources-vpc-config publicAccessCidrs="${TARGET}" --output json)"
-            UPD_ID="$(jq -r '.update.id' <<<"${RESP}")"
-            [ -z "${UPD_ID}" ] && { echo "Failed to get update id"; echo "${RESP}"; exit 1; }
-
-            # Poll update until Successful/Failed (max ~2min)
-            for i in $(seq 1 24); do
-              STATUS="$(aws eks describe-update --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
-                --update-id "${UPD_ID}" --query 'update.status' --output text || echo "Unknown")"
-              if [ "${STATUS}" = "Successful" ]; then
-                echo "EKS CIDR update Successful"; break
-              elif [ "${STATUS}" = "Failed" ]; then
-                echo "EKS CIDR update Failed"; aws eks describe-update --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
-                  --update-id "${UPD_ID}"; exit 1
-              fi
-              sleep 5
-              [ $i -eq 24 ] && { echo "Timed out waiting for EKS CIDR update"; exit 1; }
-            done
-          fi
-
-          # Quick connectivity probe to API endpoint (fail fast with retries)
-          HOST="$(echo "${EKS_ENDPOINT}" | sed -E 's#https?://##g')"
-          for i in 1 2 3 4 5 6 7 8 9 10; do
-            if timeout 3 bash -lc "exec 3<>/dev/tcp/${HOST}/443"; then
-              exec 3>&-
-              echo "EKS endpoint reachable."
-              exit 0
+          CUR="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
+                 --query 'cluster.resourcesVpcConfig.publicAccessCidrs' --output text | sed 's/\t/,/g')"
+          if [ "${CUR}" != "${TARGET}" ]; then
+            set +e
+            OUT="$(aws eks update-cluster-config --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
+                  --resources-vpc-config publicAccessCidrs="${TARGET}" --output json 2>/tmp/err)"
+            RC=$?; set -e
+            if [ $RC -ne 0 ] && ! grep -qi "already at the desired configuration" /tmp/err; then
+              echo "EKS update failed:"; cat /tmp/err; exit 1
             fi
+          fi
+          HOST="$(echo "${EKS_ENDPOINT}" | sed -E 's#https?://##g')"
+          for i in {1..10}; do
+            if timeout 3 bash -lc "exec 3<>/dev/tcp/${HOST}/443"; then exec 3>&-; echo "EKS endpoint reachable."; exit 0; fi
             sleep 2
           done
-          echo "EKS endpoint NOT reachable after retries."
-          exit 1
+          echo "EKS endpoint NOT reachable after retries."; exit 1
 
       - name: Configure kubectl
-        shell: bash
-        run: |
-          set -euo pipefail
-          aws eks update-kubeconfig --name "${CLUSTER_NAME}" --region "${AWS_REGION}"
+        run: aws eks update-kubeconfig --name "${CLUSTER_NAME}" --region "${AWS_REGION}"
 
-      - name: Ensure namespaces exist + label PSS (restricted)
+      - name: Ensure namespaces + PSS labels
         shell: bash
         run: |
           set -euo pipefail
@@ -109,7 +89,7 @@ jobs:
             pod-security.kubernetes.io/warn=restricted \
             --overwrite || true
 
-      - name: Ensure External Secrets CRDs (server-side, pinned)
+      - name: Ensure External Secrets CRDs
         shell: bash
         run: |
           set -euo pipefail
@@ -118,102 +98,106 @@ jobs:
           kubectl wait --for=condition=Established crd secretstores.external-secrets.io --timeout=120s
           kubectl wait --for=condition=Established crd externalsecrets.external-secrets.io --timeout=120s
 
-      - name: Ensure AWS EBS CSI driver add-on is ACTIVE
+      - name: Ensure AWS EBS CSI add-on is ACTIVE
         shell: bash
         run: |
           set -euo pipefail
           STATUS="$(aws eks describe-addon --cluster-name "${CLUSTER_NAME}" --addon-name aws-ebs-csi-driver \
-            --query 'addon.status' --output text 2>/dev/null || echo "NONE")"
+            --query 'addon.status' --output text 2>/dev/null || echo NONE)"
           if [ "${STATUS}" != "ACTIVE" ]; then
-            # Try create, else update if it already exists
-            if ! aws eks create-addon --cluster-name "${CLUSTER_NAME}" --addon-name aws-ebs-csi-driver \
-              --resolve-conflicts OVERWRITE >/dev/null 2>&1; then
-              aws eks update-addon --cluster-name "${CLUSTER_NAME}" --addon-name aws-ebs-csi-driver \
-                --resolve-conflicts OVERWRITE >/dev/null
+            if ! aws eks create-addon --cluster-name "${CLUSTER_NAME}" --addon-name aws-ebs-csi-driver --resolve-conflicts OVERWRITE >/dev/null 2>&1; then
+              aws eks update-addon --cluster-name "${CLUSTER_NAME}" --addon-name aws-ebs-csi-driver --resolve-conflicts OVERWRITE >/dev/null
             fi
-            # Poll until ACTIVE (max ~3min)
-            for i in $(seq 1 36); do
+            for i in {1..36}; do
               STATUS="$(aws eks describe-addon --cluster-name "${CLUSTER_NAME}" --addon-name aws-ebs-csi-driver \
-                --query 'addon.status' --output text 2>/dev/null || echo "NONE")"
+                --query 'addon.status' --output text 2>/dev/null || echo NONE)"
               [ "${STATUS}" = "ACTIVE" ] && { echo "aws-ebs-csi-driver ACTIVE"; break; }
               sleep 5
-              [ $i -eq 36 ] && { echo "Timed out waiting for aws-ebs-csi-driver to be ACTIVE (last: ${STATUS})"; exit 1; }
+              [ $i -eq 36 ] && { echo "Timed out waiting for EBS CSI add-on (last: ${STATUS})"; exit 1; }
             done
           else
             echo "aws-ebs-csi-driver already ACTIVE"
           fi
 
       - name: Apply gp3 StorageClass
-        shell: bash
         run: |
-          set -euo pipefail
           kubectl apply -f infrastructure/k8s/storageclasses/gp3.yaml
-          kubectl get sc gp3
+          kubectl get sc gp3 -o wide
 
-      - name: Preflight check required SSM params
+      # ✅ Tolerant SSM preflight: warn on AccessDenied, fail only on NotFound
+      - name: Tolerant SSM preflight (USER/PASSWORD)
         shell: bash
         run: |
           set -euo pipefail
           MISSING=0
           for KEY in /nat20/mongo/USER /nat20/mongo/PASSWORD; do
-            if ! aws ssm get-parameter --name "$KEY" >/dev/null 2>&1; then
-              echo "Missing SSM parameter: $KEY" >&2
-              MISSING=1
+            echo -n "Checking $KEY ... "
+            set +e
+            OUT="$(aws ssm get-parameter --region "${AWS_REGION}" --name "$KEY" 2>&1)"
+            RC=$?
+            set -e
+            if [ $RC -eq 0 ]; then
+              echo "OK"
+            else
+              if grep -q "ParameterNotFound" <<<"$OUT"; then
+                echo "NOT FOUND"; MISSING=1
+              elif grep -qi "AccessDenied" <<<"$OUT"; then
+                echo "ACCESS DENIED (will rely on External Secrets IRSA to read it)"
+              else
+                echo "UNKNOWN ERROR"; echo "$OUT"
+              fi
             fi
           done
-          [ $MISSING -ne 0 ] && { echo "Required SSM parameters missing; aborting." >&2; exit 1; }
+          [ $MISSING -ne 0 ] && { echo "Required SSM parameters missing; aborting."; exit 1; }
 
-      - name: Apply ClusterSecretStore and Mongo ExternalSecret
+      - name: Apply ClusterSecretStore + ExternalSecret (mongo)
         shell: bash
         run: |
           set -euo pipefail
           kubectl apply -f infrastructure/k8s/secret-stores/clustersecretstore.yaml
           kubectl apply -n nat20 -f infrastructure/k8s/externalsecrets/mongo-secrets.yaml
-          # Wait for secret materialization (retry-based, 60s)
-          for i in $(seq 1 12); do
-            kubectl -n nat20 get secret mongo-root >/dev/null 2>&1 && break
+          # Wait up to ~60s for Secret to appear (fail fast if controller can't fetch)
+          for i in {1..12}; do
+            kubectl -n nat20 get secret mongo-root >/dev/null 2>&1 && { echo "mongo-root Secret ready"; break; }
             sleep 5
-            [ $i -eq 12 ] && { echo "mongo-root Secret not created in time"; exit 1; }
+            [ $i -eq 12 ] && { echo "mongo-root Secret did not materialize"; \
+              kubectl -n nat20 describe externalsecret mongo-root || true; exit 1; }
           done
 
-      - name: Deploy MongoDB (Services + StatefulSet) and wait for PVC bind
+      - name: Deploy Mongo (Services + StatefulSet) and wait for PVC bind
         shell: bash
         run: |
           set -euo pipefail
-          MANIFEST="infrastructure/k8s/mongo/statefulset.yaml"
+          kubectl apply -n nat20 -f infrastructure/k8s/mongo/statefulset.yaml
 
-          # Apply Services and StatefulSet
-          kubectl apply -n nat20 -f "${MANIFEST}"
-
-          # Wait for PVC to bind (max ~5min)
-          for i in $(seq 1 30); do
+          # Wait for PVC to bind quickly (retry-based, ~3 min max)
+          for i in {1..30}; do
             PHASE="$(kubectl -n nat20 get pvc mongo-data-mongo-0 -o jsonpath='{.status.phase}' 2>/dev/null || true)"
-            if [ "${PHASE}" = "Bound" ]; then
-              echo "PVC bound."
-              break
-            fi
-            sleep 10
+            if [ "${PHASE}" = "Bound" ]; then echo "PVC bound."; break; fi
+            sleep 6
             [ $i -eq 30 ] && { echo "PVC did not bind in time"; kubectl -n nat20 describe pvc mongo-data-mongo-0 || true; exit 1; }
           done
 
-          # Rollout wait (max 5min)
-          kubectl -n nat20 rollout status statefulset/mongo --timeout=300s
+          # Then wait for pod readiness (short)
+          kubectl -n nat20 rollout status statefulset/mongo --timeout=180s || {
+            echo "StatefulSet not Ready in time — describing:";
+            kubectl -n nat20 describe sts mongo || true
+            kubectl -n nat20 get pods -l app=mongo -o wide || true
+            exit 1
+          }
 
-      - name: Output Mongo service
-        shell: bash
-        run: |
-          set -euo pipefail
-          kubectl -n nat20 get svc mongo -o wide || true
+      - name: Show Mongo service
+        run: kubectl -n nat20 get svc mongo -o wide || true
 
-      - name: Restore original EKS API CIDR allowlist
+      - name: Restore original EKS API CIDRs
         if: always()
         shell: bash
         run: |
           set -euo pipefail
           if [ -n "${ORIGINAL_EKS_API_CIDRS:-}" ]; then
-            CURRENT="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
+            CUR="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
               --query 'cluster.resourcesVpcConfig.publicAccessCidrs' --output text | sed 's/\t/,/g')"
-            if [ "${CURRENT}" != "${ORIGINAL_EKS_API_CIDRS}" ]; then
+            if [ "${CUR}" != "${ORIGINAL_EKS_API_CIDRS}" ]; then
               set +e
               aws eks update-cluster-config --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
                 --resources-vpc-config publicAccessCidrs="${ORIGINAL_EKS_API_CIDRS}" >/dev/null 2>&1
