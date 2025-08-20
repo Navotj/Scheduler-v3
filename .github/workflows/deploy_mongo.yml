@@ -173,7 +173,28 @@ jobs:
             sleep 5
           done
 
-      - name: Deploy MongoDB Services + StatefulSet (immutable-safe + PVC cleanup)
+      - name: Force gp2 usage and clean any stale PVC
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Make gp2 the default (harmless if already)
+          if kubectl get sc gp2 >/dev/null 2>&1; then
+            kubectl annotate sc gp2 storageclass.kubernetes.io/is-default-class="true" --overwrite || true
+          fi
+          # Remove default annotation from gp3 if present to avoid silent defaulting
+          if kubectl get sc gp3 >/dev/null 2>&1; then
+            kubectl annotate sc gp3 storageclass.kubernetes.io/is-default-class- || true
+          fi
+          # Delete a Pending/unbound PVC if present
+          if kubectl -n nat20 get pvc mongo-data-mongo-0 >/dev/null 2>&1; then
+            PHASE="$(kubectl -n nat20 get pvc mongo-data-mongo-0 -o jsonpath='{.status.phase}' || true)"
+            PVNAME="$(kubectl -n nat20 get pvc mongo-data-mongo-0 -o jsonpath='{.spec.volumeName}' || true)"
+            if [ "${PHASE}" != "Bound" ] && [ -z "${PVNAME}" ]; then
+              kubectl -n nat20 delete pvc mongo-data-mongo-0 --wait=true
+            fi
+          fi
+
+      - name: Deploy MongoDB Services + StatefulSet (gp2, immutable-safe)
         shell: bash
         run: |
           set -euo pipefail
@@ -184,15 +205,6 @@ jobs:
             CIP="$(kubectl -n nat20 get svc mongo -o jsonpath='{.spec.clusterIP}' || true)"
             if [ "${CIP}" = "None" ]; then
               kubectl -n nat20 delete svc mongo
-            fi
-          fi
-
-          # If a stale PVC exists (Pending/unbound), delete it before applying STS
-          if kubectl -n nat20 get pvc mongo-data-mongo-0 >/dev/null 2>&1; then
-            PHASE="$(kubectl -n nat20 get pvc mongo-data-mongo-0 -o jsonpath='{.status.phase}' || true)"
-            PVNAME="$(kubectl -n nat20 get pvc mongo-data-mongo-0 -o jsonpath='{.spec.volumeName}' || true)"
-            if [ "${PHASE}" != "Bound" ] && [ -z "${PVNAME}" ]; then
-              kubectl -n nat20 delete pvc mongo-data-mongo-0 --wait=true
             fi
           fi
 
@@ -233,7 +245,7 @@ jobs:
           fi
 
           echo "${DESIRED_STS}" | kubectl -n nat20 apply -f -
-          kubectl -n nat20 rollout status statefulset/mongo --timeout=600s
+          kubectl -n nat20 rollout status statefulset/mongo --timeout=900s
 
       - name: Output Mongo resources
         if: always()
@@ -247,14 +259,7 @@ jobs:
           kubectl -n nat20 get svc mongo-hl -o wide || true
           kubectl -n nat20 get sts mongo -o wide || true
           kubectl -n nat20 get pods -l app=mongo -o wide || true
-
-      - name: Debug on failure (describe + events)
-        if: failure()
-        shell: bash
-        run: |
-          set -euo pipefail
-          kubectl -n nat20 describe pvc -l app=mongo || true
-          kubectl -n nat20 describe pods -l app=mongo || true
+          kubectl -n nat20 describe pvc mongo-data-mongo-0 || true
           kubectl -n nat20 get events --sort-by=.lastTimestamp | tail -n 200 || true
 
       - name: Restore EKS API CIDRs to original (idempotent)
