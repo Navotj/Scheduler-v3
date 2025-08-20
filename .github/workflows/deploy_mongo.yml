@@ -35,25 +35,28 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Capture current EKS API CIDRs and endpoint
-        id: eks_meta
+      - name: Capture current EKS API CIDRs and endpoint (safe outputs)
         shell: bash
         run: |
           set -euo pipefail
           ENDPOINT="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}" --query 'cluster.endpoint' --output text)"
           echo "EKS_ENDPOINT=${ENDPOINT}" >> "$GITHUB_ENV"
-          CUR=$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}" --query 'cluster.resourcesVpcConfig.publicAccessCidrs' --output json)
-          echo "original_cidrs=${CUR}" >> "$GITHUB_OUTPUT"
 
-      - name: Open EKS API temporarily and quick probe
+          CUR_JSON="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
+            --query 'cluster.resourcesVpcConfig.publicAccessCidrs' --output json || echo '[]')"
+          ORIG_B64="$(printf '%s' "${CUR_JSON}" | base64 -w0)"
+          echo "EKS_ORIG_CIDRS_B64=${ORIG_B64}" >> "$GITHUB_ENV"
+
+      - name: Open EKS API temporarily and quick probe (3× fast retries)
         shell: bash
         run: |
           set -euo pipefail
           TARGET="${EKS_JOB_PUBLIC_CIDRS:-0.0.0.0/0}"
-          CUR_JSON='${{ steps.eks_meta.outputs.original_cidrs }}'
-          CUR="$(jq -r 'join(",")' <<<"${CUR_JSON}")"
 
-          if [ -z "${CUR}" ] || [ "${CUR}" != "${TARGET}" ]; then
+          CUR_JSON="$(printf '%s' "${EKS_ORIG_CIDRS_B64:-}" | base64 -d 2>/dev/null || echo '[]')"
+          CUR_JOIN="$(printf '%s' "${CUR_JSON}" | jq -r 'join(",")')"
+
+          if [ -z "${CUR_JOIN}" ] || [ "${CUR_JOIN}" != "${TARGET}" ]; then
             set +e
             aws eks update-cluster-config --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
               --resources-vpc-config publicAccessCidrs="${TARGET}" >/dev/null 2>err.txt
@@ -114,7 +117,7 @@ jobs:
           fi
           echo "aws-ebs-csi-driver $(aws eks describe-addon --cluster-name "${CLUSTER_NAME}" --addon-name aws-ebs-csi-driver --query 'addon.status' --output text)"
 
-      - name: Give EBS CSI driver credentials via EKS Pod Identity
+      - name: Grant EBS CSI creds via EKS Pod Identity (and restart driver)
         shell: bash
         env:
           EKS_EBS_ROLE_NAME: nat20-eks-ebs-csi-pod-id
@@ -133,35 +136,32 @@ jobs:
             aws eks update-addon  --cluster-name "$CLUSTER" --addon-name eks-pod-identity-agent --resolve-conflicts OVERWRITE || true
           fi
 
-          # Create role if missing
+          # Create role (trust = Pod Identity)
           if ! aws iam get-role --role-name "$ROLE_NAME" >/dev/null 2>&1; then
-            cat > trust.json <<EOF
-          {
-            "Version": "2012-10-17",
-            "Statement": [
-              {
-                "Effect": "Allow",
-                "Principal": { "Service": "pods.eks.amazonaws.com" },
-                "Action": "sts:AssumeRole",
-                "Condition": {
-                  "StringEquals": { "aws:SourceAccount": "${ACC_ID}" },
-                  "ArnLike": { "aws:SourceArn": "arn:aws:eks:${REGION}:${ACC_ID}:cluster/${CLUSTER}" }
+            jq -n --arg acc "$ACC_ID" --arg region "$REGION" --arg cluster "$CLUSTER" '{
+              Version: "2012-10-17",
+              Statement: [{
+                Effect: "Allow",
+                Principal: { Service: "pods.eks.amazonaws.com" },
+                Action: "sts:AssumeRole",
+                Condition: {
+                  "StringEquals": { "aws:SourceAccount": $acc },
+                  "ArnLike": { "aws:SourceArn": ("arn:aws:eks:" + $region + ":" + $acc + ":cluster/" + $cluster) }
                 }
-              }
-            ]
-          }
-          EOF
+              }]
+            }' > trust.json
             aws iam create-role --role-name "$ROLE_NAME" --assume-role-policy-document file://trust.json >/dev/null
           fi
 
           # Attach policy
-          if ! aws iam list-attached-role-policies --role-name "$ROLE_NAME" \
-               --query "AttachedPolicies[?PolicyArn=='${POLICY_ARN}'] | length(@)" --output text | grep -q '^1$'; then
+          HAS=$(aws iam list-attached-role-policies --role-name "$ROLE_NAME" \
+               --query "AttachedPolicies[?PolicyArn=='${POLICY_ARN}'] | length(@)" --output text || echo 0)
+          if [ "${HAS}" != "1" ]; then
             aws iam attach-role-policy --role-name "$ROLE_NAME" --policy-arn "$POLICY_ARN"
           fi
           ROLE_ARN="$(aws iam get-role --role-name "$ROLE_NAME" --query 'Role.Arn' --output text)"
 
-          # Associate to ebs-csi-controller service account
+          # Associate to controller SA
           ASSOC_ID="$(aws eks list-pod-identity-associations --cluster-name "$CLUSTER" \
             --query "associations[?namespace=='kube-system' && serviceAccount=='ebs-csi-controller-sa'].associationId" \
             --output text || true)"
@@ -173,7 +173,11 @@ jobs:
               --association-id "$ASSOC_ID" --role-arn "$ROLE_ARN" >/dev/null
           fi
 
-          # Wait for controller/node ready (short loop)
+          # Restart driver to pick up creds + topology
+          kubectl -n kube-system rollout restart deploy ebs-csi-controller || true
+          kubectl -n kube-system rollout restart ds ebs-csi-node || true
+
+          # Wait short for readiness
           for i in {1..30}; do
             DS_READY=$(kubectl -n kube-system get ds ebs-csi-node -o jsonpath='{.status.numberReady}' 2>/dev/null || echo 0)
             DS_DESIRED=$(kubectl -n kube-system get ds ebs-csi-node -o jsonpath='{.status.desiredNumberScheduled}' 2>/dev/null || echo 0)
@@ -182,33 +186,33 @@ jobs:
               echo "EBS CSI node/controller ready."
               break
             fi
-            [ $i -eq 30 ] && { echo "EBS CSI driver not ready; abort."; kubectl -n kube-system get all -l app.kubernetes.io/name=aws-ebs-csi-driver || true; exit 1; }
+            [ $i -eq 30 ] && { echo "EBS CSI driver not ready; abort."; kubectl -n kube-system get pods -l app.kubernetes.io/name=aws-ebs-csi-driver -o wide || true; exit 1; }
             sleep 2
           done
 
-          # Nudge CSINode to refresh topology (safe)
+          # Force CSINode refresh to fix missing topology keys
           for NODE in $(kubectl get nodes -o name | sed 's#node/##'); do
             kubectl delete csinode "$NODE" --ignore-not-found || true
           done
 
-      - name: Ensure gp3 StorageClass exists
+      - name: Ensure gp3 StorageClass exists (no heredoc)
         shell: bash
         run: |
           set -euo pipefail
           if ! kubectl get sc gp3 >/dev/null 2>&1; then
-            cat <<'EOF' | kubectl apply -f -
-          apiVersion: storage.k8s.io/v1
-          kind: StorageClass
-          metadata:
-            name: gp3
-          provisioner: ebs.csi.aws.com
-          volumeBindingMode: WaitForFirstConsumer
-          allowVolumeExpansion: true
-          parameters:
-            type: gp3
-            fsType: ext4
-            encrypted: "true"
-          EOF
+            printf '%s\n' \
+              'apiVersion: storage.k8s.io/v1' \
+              'kind: StorageClass' \
+              'metadata:' \
+              '  name: gp3' \
+              'provisioner: ebs.csi.aws.com' \
+              'volumeBindingMode: WaitForFirstConsumer' \
+              'allowVolumeExpansion: true' \
+              'parameters:' \
+              '  type: gp3' \
+              '  fsType: ext4' \
+              '  encrypted: "true"' \
+            | kubectl apply -f -
           fi
           kubectl get sc gp3
 
@@ -218,7 +222,6 @@ jobs:
           set -euo pipefail
           kubectl apply -f infrastructure/k8s/secret-stores/clustersecretstore.yaml
           kubectl apply -n nat20 -f infrastructure/k8s/externalsecrets/mongo-secrets.yaml
-          # Wait (fast retry) for resulting Secret to appear
           for i in {1..36}; do
             if kubectl -n nat20 get secret mongo-root >/dev/null 2>&1; then
               echo "mongo-root Secret present."
@@ -227,6 +230,7 @@ jobs:
             [ $i -eq 36 ] && { echo "mongo-root Secret missing; abort."; exit 1; }
             sleep 5
           done
+
 
       - name: Reset stuck Mongo PVC (safe)
         shell: bash
@@ -299,6 +303,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          kubectl -n nat20 get sc gp3
+          kubectl -n nat20 get pvc mongo-data-mongo-0 -o wide || true
           kubectl -n nat20 get svc mongo -o wide || true
           kubectl -n nat20 get pods -l app=mongo -o wide || true
 
@@ -307,9 +313,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ORIG='${{ steps.eks_meta.outputs.original_cidrs }}'
-          if [ -n "${ORIG}" ] && [ "${ORIG}" != "null" ]; then
-            WANT="$(jq -r 'join(",")' <<<"${ORIG}")"
+          ORIG_JSON="$(printf '%s' "${EKS_ORIG_CIDRS_B64:-}" | base64 -d 2>/dev/null || echo '[]')"
+          WANT="$(printf '%s' "${ORIG_JSON}" | jq -r 'join(",")')"
+          if [ -n "${WANT}" ]; then
             aws eks update-cluster-config --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
               --resources-vpc-config publicAccessCidrs="${WANT}" >/dev/null || true
           fi
