@@ -94,13 +94,29 @@ jobs:
             --query 'cluster.resourcesVpcConfig.publicAccessCidrs' --output text | sed 's/\t/,/g')"
           echo "ORIGINAL_EKS_API_CIDRS=${ORIG}" >> "$GITHUB_ENV"
 
-      - name: Temporarily restrict EKS API to runner egress IP
+      - name: Temporarily restrict EKS API to runner egress IP (idempotent)
         shell: bash
         run: |
           set -euo pipefail
           RUNNER_IP="$(curl -s https://checkip.amazonaws.com)/32"
-          aws eks update-cluster-config --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
-            --resources-vpc-config publicAccessCidrs="${RUNNER_IP}"
+          # Skip if already equal (avoid AWS InvalidParameterException noise)
+          CURRENT="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
+            --query 'cluster.resourcesVpcConfig.publicAccessCidrs' --output text | sed 's/\t/,/g')"
+          if [ "${CURRENT}" = "${RUNNER_IP}" ]; then
+            echo "EKS API publicAccessCidrs already ${RUNNER_IP}; skipping update."
+          else
+            if aws eks update-cluster-config --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
+              --resources-vpc-config publicAccessCidrs="${RUNNER_IP}" 2>/tmp/eks_update.err; then
+              echo "Set publicAccessCidrs=${RUNNER_IP}"
+            else
+              if grep -qi "already at the desired configuration" /tmp/eks_update.err; then
+                echo "No-op: cluster already at desired configuration."
+              else
+                cat /tmp/eks_update.err >&2
+                exit 1
+              fi
+            fi
+          fi
 
       - name: Configure kubectl
         shell: bash
@@ -118,7 +134,7 @@ jobs:
             pod-security.kubernetes.io/enforce=restricted \
             pod-security.kubernetes.io/audit=restricted \
             pod-security.kubernetes.io/warn=restricted \
-            --overwrite
+            --overwrite || true
 
       - name: Ensure External Secrets CRDs (server-side, pinned)
         shell: bash
@@ -198,14 +214,29 @@ jobs:
           echo "BACKEND_ALB_DNS=${HOSTNAME}" >> "$GITHUB_ENV"
           echo "backend_alb_dns=${HOSTNAME}" >> "$GITHUB_OUTPUT"
 
-      - name: Restore EKS API CIDRs to original
+      - name: Restore EKS API CIDRs to original (idempotent)
         if: always()
         shell: bash
         run: |
           set -euo pipefail
           if [ -n "${ORIGINAL_EKS_API_CIDRS:-}" ]; then
-            aws eks update-cluster-config --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
-              --resources-vpc-config publicAccessCidrs="${ORIGINAL_EKS_API_CIDRS}"
+            CURRENT="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
+              --query 'cluster.resourcesVpcConfig.publicAccessCidrs' --output text | sed 's/\t/,/g')"
+            if [ "${CURRENT}" = "${ORIGINAL_EKS_API_CIDRS}" ]; then
+              echo "Already at ORIGINAL_EKS_API_CIDRS (${ORIGINAL_EKS_API_CIDRS}); skipping restore."
+            else
+              if aws eks update-cluster-config --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
+                --resources-vpc-config publicAccessCidrs="${ORIGINAL_EKS_API_CIDRS}" 2>/tmp/eks_restore.err; then
+                echo "Restored publicAccessCidrs=${ORIGINAL_EKS_API_CIDRS}"
+              else
+                if grep -qi "already at the desired configuration" /tmp/eks_restore.err; then
+                  echo "No-op: cluster already at desired configuration."
+                else
+                  cat /tmp/eks_restore.err >&2
+                  exit 1
+                fi
+              fi
+            fi
           else
             echo "No ORIGINAL_EKS_API_CIDRS captured; leaving current setting in place."
           fi
