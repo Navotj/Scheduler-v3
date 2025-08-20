@@ -35,6 +35,14 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: whoami
+        shell: bash
+        run: |
+          set -euo pipefail
+          aws sts get-caller-identity
+          aws configure list
+
+
       - name: Resolve ECR URI and SSM parameters (robust)
         id: resolve
         shell: bash
