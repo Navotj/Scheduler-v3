@@ -84,26 +84,16 @@ spec:
               cpu: "500m"
               memory: "1Gi"
           readinessProbe:
-            exec:
-              command:
-                - sh
-                - -c
-                - >
-                  mongosh --quiet -u "$MONGO_INITDB_ROOT_USERNAME" -p "$MONGO_INITDB_ROOT_PASSWORD"
-                  --authenticationDatabase admin --eval 'db.adminCommand({ ping: 1 })'
-            initialDelaySeconds: 20
+            tcpSocket:
+              port: 27017
+            initialDelaySeconds: 15
             periodSeconds: 10
             timeoutSeconds: 5
-            failureThreshold: 6
+            failureThreshold: 12
           livenessProbe:
-            exec:
-              command:
-                - sh
-                - -c
-                - >
-                  mongosh --quiet -u "$MONGO_INITDB_ROOT_USERNAME" -p "$MONGO_INITDB_ROOT_PASSWORD"
-                  --authenticationDatabase admin --eval 'db.adminCommand({ ping: 1 })'
-            initialDelaySeconds: 40
+            tcpSocket:
+              port: 27017
+            initialDelaySeconds: 30
             periodSeconds: 20
             timeoutSeconds: 5
             failureThreshold: 6
@@ -113,7 +103,7 @@ spec:
         name: mongo-data
       spec:
         accessModes: ["ReadWriteOnce"]
-        storageClassName: gp3
+        storageClassName: gp3  # if your cluster doesn't have 'gp3', either create it or remove this line to use the default StorageClass
         resources:
           requests:
             storage: 20Gi

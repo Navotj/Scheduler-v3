@@ -57,16 +57,12 @@ jobs:
             CIDRS="${RUNNER_IP}"
           fi
           CIDRS="$(tr ',' '\n' <<< "${CIDRS}" | awk 'NF{print $0}' | sort -u | paste -sd, -)"
-          if [ "${CURRENT}" = "${CIDRS}" ]; then
-            echo "EKS API already allows: ${CIDRS}"
-          else
+          if [ "${CURRENT}" != "${CIDRS}" ]; then
             UPDATE_ID="$(aws eks update-cluster-config --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
               --resources-vpc-config publicAccessCidrs="${CIDRS}" \
               --query 'update.id' --output text 2>/tmp/eks_update.err || true)"
             if [ -z "${UPDATE_ID}" ] || [ "${UPDATE_ID}" = "None" ]; then
-              if grep -qi "already at the desired configuration" /tmp/eks_update.err; then
-                echo "No-op: already at desired configuration."
-              else
+              if ! grep -qi "already at the desired configuration" /tmp/eks_update.err; then
                 cat /tmp/eks_update.err >&2
                 exit 1
               fi
@@ -74,7 +70,6 @@ jobs:
               for i in $(seq 1 60); do
                 STATUS="$(aws eks describe-update --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
                   --update-id "${UPDATE_ID}" --query 'update.status' --output text || true)"
-                echo "EKS update status: ${STATUS} (try ${i}/60)"
                 [ "${STATUS}" = "Successful" ] && break
                 if [ "${STATUS}" = "Failed" ] || [ "${STATUS}" = "Cancelled" ]; then
                   aws eks describe-update --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
@@ -85,15 +80,12 @@ jobs:
               done
             fi
           fi
-          # Wait for TCP connectivity to API server
           HOST="$(echo "${EKS_ENDPOINT}" | sed -E 's#https?://##g')"
           for i in $(seq 1 60); do
             if timeout 5 bash -lc "exec 3<>/dev/tcp/${HOST}/443" 2>/dev/null; then
               exec 3>&-
-              echo "EKS endpoint reachable on port 443."
               break
             fi
-            echo "Waiting for EKS endpoint TCP readiness… (${i}/60)"
             sleep 2
           done
 
@@ -105,14 +97,14 @@ jobs:
             if aws eks update-kubeconfig --name "${CLUSTER_NAME}" --region "${AWS_REGION}"; then
               break
             fi
-            echo "Retry kubeconfig (${i}/3)"; sleep $((i*5))
-            [ $i -eq 3 ] && { echo "Failed to configure kubeconfig"; exit 1; }
+            sleep $((i*5))
+            [ $i -eq 3 ] && exit 1
           done
           for i in $(seq 1 30); do
             if kubectl --request-timeout=10s version --short >/dev/null 2>&1; then
-              echo "kubectl connectivity OK"; break
+              break
             fi
-            echo "Waiting for kubectl connectivity… (${i}/30)"; sleep 3
+            sleep 3
           done
 
       - name: Ensure namespaces exist + enforce PSS (restricted)
@@ -135,7 +127,7 @@ jobs:
             if kubectl apply --server-side -f https://raw.githubusercontent.com/external-secrets/external-secrets/v0.19.2/deploy/crds/bundle.yaml; then
               break
             fi
-            echo "Retry CRD apply (${i}/3)"; sleep $((i*5))
+            sleep $((i*5))
             [ $i -eq 3 ] && exit 1
           done
           kubectl wait --for=condition=Established crd clustersecretstores.external-secrets.io --timeout=180s
@@ -146,21 +138,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          : "${AWS_REGION:?AWS_REGION not set}"
           KEYS=(/nat20/mongo/USER /nat20/mongo/PASSWORD)
           MISSING=0
           for KEY in "${KEYS[@]}"; do
-            echo "=== $KEY ==="
-            if aws ssm get-parameter --region "$AWS_REGION" --name "$KEY" >/dev/null 2>"/tmp/err.$$"; then
-              echo "OK $KEY"
-            else
-              echo "FAIL $KEY"
-              cat /tmp/err.$$ >&2 || true
+            if ! aws ssm get-parameter --region "${AWS_REGION}" --name "$KEY" >/dev/null 2>&1; then
+              echo "Missing SSM parameter: $KEY" >&2
               MISSING=$((MISSING+1))
             fi
           done
-          rm -f /tmp/err.$$
-          [ $MISSING -eq 0 ] || { echo "Required SSM parameters missing; aborting."; exit 1; }
+          [ $MISSING -eq 0 ] || { echo "Required SSM parameters missing; aborting." >&2; exit 1; }
 
       - name: Apply ClusterSecretStore and Mongo ExternalSecret (robust)
         shell: bash
@@ -172,11 +158,10 @@ jobs:
             until kubectl apply --request-timeout=45s -f "$file"; do
               tries=$((tries+1))
               if [ $tries -ge 4 ]; then
-                echo "kubectl apply failed for $file; last attempt with --validate=false" >&2
                 kubectl apply --request-timeout=45s --validate=false -f "$file"
                 break
               fi
-              echo "Retry $tries applying $file…"; sleep $((tries*3))
+              sleep $((tries*3))
             done
           }
           k_apply infrastructure/k8s/secret-stores/clustersecretstore.yaml
@@ -184,10 +169,8 @@ jobs:
 
           kubectl -n nat20 wait --for=condition=Ready externalsecret.external-secrets.io/mongo-root --timeout=300s
           for i in $(seq 1 60); do
-            if kubectl -n nat20 get secret mongo-root >/dev/null 2>&1; then
-              echo "mongo-root Secret exists"; break
-            fi
-            echo "Waiting for mongo-root Secret... ($i/60)"; sleep 5
+            kubectl -n nat20 get secret mongo-root >/dev/null 2>&1 && break
+            sleep 5
           done
 
       - name: Deploy MongoDB Services + StatefulSet (immutable-safe)
@@ -196,36 +179,28 @@ jobs:
           set -euo pipefail
           MANIFEST="infrastructure/k8s/mongo/statefulset.yaml"
 
-          # Ensure client Service is ClusterIP (not headless)
+          # Ensure 'mongo' Service is ClusterIP (not headless)
           if kubectl -n nat20 get svc mongo >/dev/null 2>&1; then
             CIP="$(kubectl -n nat20 get svc mongo -o jsonpath='{.spec.clusterIP}' || true)"
             if [ "${CIP}" = "None" ]; then
-              echo "Existing 'mongo' is headless; deleting to re-create as ClusterIP."
               kubectl -n nat20 delete svc mongo
             fi
           fi
 
-          # Render desired objects with apply (supports multi-doc) and normalize to an array
           RAW_JSON="$(kubectl apply -n nat20 --dry-run=client -f "${MANIFEST}" -o json)"
           ITEMS_JSON="$(echo "${RAW_JSON}" | jq -c 'if .kind=="List" then .items else [.] end')"
 
-          # Apply Service objects first (idempotent)
           echo "${ITEMS_JSON}" | jq -c '.[] | select(.kind=="Service")' | while read -r SVC; do
             echo "${SVC}" | kubectl -n nat20 apply -f -
           done
 
-          # Extract desired StatefulSet JSON
           DESIRED_STS="$(echo "${ITEMS_JSON}" | jq '.[] | select(.kind=="StatefulSet")')"
-          if [ -z "${DESIRED_STS}" ] || [ "${DESIRED_STS}" = "null" ]; then
-            echo "ERROR: No StatefulSet found in ${MANIFEST}" >&2
-            exit 1
-          fi
+          [ -n "${DESIRED_STS}" ] && [ "${DESIRED_STS}" != "null" ] || { echo "ERROR: No StatefulSet in ${MANIFEST}" >&2; exit 1; }
 
           DES_SVC_NAME="$(echo "${DESIRED_STS}" | jq -r '.spec.serviceName')"
           DES_SELECTOR="$(echo "${DESIRED_STS}" | jq -c '.spec.selector')"
           DES_VCT="$(echo "${DESIRED_STS}" | jq -c '.spec.volumeClaimTemplates')"
 
-          # Detect immutable drift BEFORE applying
           if kubectl -n nat20 get sts mongo >/dev/null 2>&1; then
             CUR_JSON="$(kubectl -n nat20 get sts mongo -o json)"
             CUR_SVC_NAME="$(echo "${CUR_JSON}" | jq -r '.spec.serviceName')"
@@ -233,42 +208,45 @@ jobs:
             CUR_VCT="$(echo "${CUR_JSON}" | jq -c '.spec.volumeClaimTemplates')"
 
             NEED_RECREATE=0
-            REASONS=()
-
-            if [ "${CUR_SVC_NAME}" != "${DES_SVC_NAME}" ]; then
-              NEED_RECREATE=1; REASONS+=("serviceName: ${CUR_SVC_NAME} -> ${DES_SVC_NAME}")
-            fi
-            if [ "${CUR_SELECTOR}" != "${DES_SELECTOR}" ]; then
-              NEED_RECREATE=1; REASONS+=("selector changed")
-            fi
-            if [ "${CUR_VCT}" != "${DES_VCT}" ]; then
-              NEED_RECREATE=1; REASONS+=("volumeClaimTemplates changed")
-            fi
+            [ "${CUR_SVC_NAME}" != "${DES_SVC_NAME}" ] && NEED_RECREATE=1
+            [ "${CUR_SELECTOR}" != "${DES_SELECTOR}" ] && NEED_RECREATE=1
+            [ "${CUR_VCT}" != "${DES_VCT}" ] && NEED_RECREATE=1
 
             if [ $NEED_RECREATE -eq 1 ]; then
-              echo "Recreating StatefulSet due to immutable changes: ${REASONS[*]}"
               kubectl -n nat20 scale sts mongo --replicas=0 || true
               for i in $(seq 1 60); do
                 CNT="$(kubectl -n nat20 get pods -l app=mongo --no-headers 2>/dev/null | wc -l | tr -d ' ')"
                 [ "${CNT}" = "0" ] && break
-                echo "Waiting for mongo pods to terminate… ($i/60)"; sleep 5
+                sleep 5
               done
               kubectl -n nat20 delete sts mongo --wait=true
             fi
           fi
 
-          # Create/Update the StatefulSet (now safe)
           echo "${DESIRED_STS}" | kubectl -n nat20 apply -f -
           kubectl -n nat20 rollout status statefulset/mongo --timeout=600s
 
       - name: Output Mongo resources
+        if: always()
         shell: bash
         run: |
           set -euo pipefail
+          kubectl -n nat20 get pvc -o wide || true
+          kubectl -n nat20 get pv -o wide || true
           kubectl -n nat20 get svc mongo -o wide || true
           kubectl -n nat20 get svc mongo-hl -o wide || true
           kubectl -n nat20 get sts mongo -o wide || true
           kubectl -n nat20 get pods -l app=mongo -o wide || true
+
+      - name: Debug on failure (describe + logs + events)
+        if: failure()
+        shell: bash
+        run: |
+          set -euo pipefail
+          kubectl -n nat20 describe sts mongo || true
+          kubectl -n nat20 describe pods -l app=mongo || true
+          kubectl -n nat20 logs sts/mongo --tail=200 || true
+          kubectl -n nat20 get events --sort-by=.lastTimestamp | tail -n 200 || true
 
       - name: Restore EKS API CIDRs to original (idempotent)
         if: always()
@@ -278,21 +256,13 @@ jobs:
           if [ -n "${ORIGINAL_EKS_API_CIDRS:-}" ]; then
             CURRENT="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
               --query 'cluster.resourcesVpcConfig.publicAccessCidrs' --output text | sed 's/\t/,/g')"
-            if [ "${CURRENT}" = "${ORIGINAL_EKS_API_CIDRS}" ]; then
-              echo "Already at ORIGINAL_EKS_API_CIDRS (${ORIGINAL_EKS_API_CIDRS}); skipping restore."
-            else
-              if aws eks update-cluster-config --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
+            if [ "${CURRENT}" != "${ORIGINAL_EKS_API_CIDRS}" ]; then
+              if ! aws eks update-cluster-config --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
                 --resources-vpc-config publicAccessCidrs="${ORIGINAL_EKS_API_CIDRS}" 2>/tmp/eks_restore.err; then
-                echo "Restored publicAccessCidrs=${ORIGINAL_EKS_API_CIDRS}"
-              else
-                if grep -qi "already at the desired configuration" /tmp/eks_restore.err; then
-                  echo "No-op: already at desired configuration."
-                else
+                if ! grep -qi "already at the desired configuration" /tmp/eks_restore.err; then
                   cat /tmp/eks_restore.err >&2
                   exit 1
                 fi
               fi
             fi
-          else
-            echo "No ORIGINAL_EKS_API_CIDRS captured; leaving current setting in place."
           fi
