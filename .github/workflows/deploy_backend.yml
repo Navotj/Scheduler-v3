@@ -106,19 +106,24 @@ jobs:
 
       - name: Configure kubectl and wait until API responds
         shell: bash
-        timeout-minutes: 4
+        timeout-minutes: 5
         run: |
           set -euo pipefail
           aws eks update-kubeconfig --name "${CLUSTER_NAME}" --region "${AWS_REGION}"
           echo "Current context: $(kubectl config current-context || true)"
           OK=0
-          for i in {1..12}; do
-            if kubectl version --short >/dev/null 2>&1 && kubectl get --raw='/readyz?verbose' >/dev/null 2>&1; then
+          for i in {1..24}; do
+            if kubectl --request-timeout=8s get nodes >/dev/null 2>&1; then
               OK=1; break
             fi
             sleep 5
           done
-          [ $OK -eq 1 ] || { echo "kubectl not ready"; kubectl cluster-info dump | head -n 200 || true; exit 1; }
+          if [ $OK -ne 1 ]; then
+            echo "kubectl not ready; basic diagnostics:"
+            kubectl get nodes -o wide || true
+            kubectl config view --minify || true
+            exit 1
+          fi
 
       - name: Resolve ECR URI and SSM parameters
         id: resolve
