@@ -101,9 +101,11 @@ spec:
   volumeClaimTemplates:
     - metadata:
         name: mongo-data
+        labels:
+          app: mongo
       spec:
         accessModes: ["ReadWriteOnce"]
-        storageClassName: gp3  # if your cluster doesn't have 'gp3', either create it or remove this line to use the default StorageClass
+        storageClassName: gp2
         resources:
           requests:
             storage: 20Gi
