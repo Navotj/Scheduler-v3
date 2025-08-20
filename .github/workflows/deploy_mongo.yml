@@ -155,12 +155,41 @@ jobs:
             fi
           done
 
-      - name: Apply Mongo Services + StatefulSet
+      - name: Apply Mongo Services + StatefulSet (recreate on immutable drift)
         shell: bash
         run: |
           set -euo pipefail
-          # Apply services first (idempotent)
-          kubectl -n nat20 apply -f infrastructure/k8s/mongo/statefulset.yaml --server-side=false
+
+          FILE="infrastructure/k8s/mongo/statefulset.yaml"
+
+          # First try a normal apply (this also keeps Services in sync)
+          set +e
+          OUT="$(kubectl -n nat20 apply -f "${FILE}" 2>&1)"
+          RC=$?
+          set -e
+
+          if [ $RC -ne 0 ] && echo "$OUT" | grep -q "StatefulSet .* is invalid: spec: Forbidden: updates to statefulset spec"; then
+            echo "Detected immutable field change; recreating StatefulSet 'mongo'..."
+
+            # Make sure Services exist before recreating
+            kubectl -n nat20 get svc mongo-hl >/dev/null 2>&1 || kubectl -n nat20 apply -f "${FILE}"
+
+            # Drain the STS cleanly, then delete only the STS object
+            kubectl -n nat20 scale sts mongo --replicas=0 || true
+            # Wait up to ~60s for pods to terminate
+            for i in {1..30}; do
+              CNT="$(kubectl -n nat20 get pods -l app=mongo --no-headers 2>/dev/null | wc -l | tr -d ' ')"
+              [ "$CNT" = "0" ] && break
+              sleep 2
+            done
+            kubectl -n nat20 delete sts mongo --wait=true || true
+
+            # Recreate with the new immutable fields
+            kubectl -n nat20 apply -f "${FILE}"
+          else
+            echo "$OUT"
+          fi
+
 
       - name: Wait for PVC bound (fast retry, early diagnostics)
         shell: bash
