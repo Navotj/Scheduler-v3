@@ -147,18 +147,14 @@ jobs:
             sleep 5
           done
 
-          # Create/Update role with correct EKS Pod Identity trust policy
-          TRUST_JSON="$(jq -n --arg acc "$ACC_ID" --arg region "$REGION" --arg cluster "$CLUSTER" '{
+          # Create/Update role with MINIMAL Pod Identity trust policy (no conditions)
+          TRUST_JSON="$(jq -n '{
             Version: "2012-10-17",
             Statement: [{
               Sid: "AllowEksAuthToAssumeRoleForPodIdentity",
               Effect: "Allow",
               Principal: { Service: "pods.eks.amazonaws.com" },
-              Action: ["sts:AssumeRole","sts:TagSession"],
-              Condition: {
-                "StringEquals": { "aws:SourceAccount": $acc },
-                "ArnLike": { "aws:SourceArn": ("arn:aws:eks:" + $region + ":" + $acc + ":podidentityassociation/" + $cluster + "/*") }
-              }
+              Action: ["sts:AssumeRole","sts:TagSession"]
             }]
           }')"
           printf '%s' "$TRUST_JSON" > trust.json
@@ -166,8 +162,10 @@ jobs:
           if ! aws iam get-role --role-name "$ROLE_NAME" >/dev/null 2>&1; then
             aws iam create-role --role-name "$ROLE_NAME" --assume-role-policy-document file://trust.json >/dev/null
           fi
+          # Always enforce the latest trust policy
           aws iam update-assume-role-policy --role-name "$ROLE_NAME" --policy-document file://trust.json >/dev/null
 
+          # Attach policy (idempotent)
           HAS=$(aws iam list-attached-role-policies --role-name "$ROLE_NAME" \
                --query "AttachedPolicies[?PolicyArn=='${POLICY_ARN}'] | length(@)" --output text || echo 0)
           if [ "${HAS}" != "1" ]; then
