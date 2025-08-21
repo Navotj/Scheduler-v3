@@ -14,16 +14,13 @@ env:
 jobs:
   tf-apply:
     runs-on: ubuntu-latest
-    concurrency:
-      group: terraform-infra
-      cancel-in-progress: true
     permissions:
-      id-token: write     # OIDC
+      id-token: write
       contents: read
 
-    # Make TF var available to all steps (used by eks_access_entries.tf)
+    # put it here (job-level), not at the top-level
     env:
-      TF_VAR_admin_principal_arn: ${{ secrets.EKS_ADMIN_PRINCIPAL_ARN }}
+      TF_PLUGIN_CACHE_DIR: ${{ runner.temp }}/tf-plugin-cache
 
     defaults:
       run:
@@ -44,25 +41,35 @@ jobs:
       - name: Who am I?
         run: aws sts get-caller-identity
 
-      # Kill any leftover ~/.terraformrc and use a runner-temp cache directory
-      - name: Prep Terraform plugin cache
+      - name: Prepare Terraform plugin cache
         run: |
-          rm -f ~/.terraformrc ~/.terraform.d/terraform.rc
-          echo "TF_PLUGIN_CACHE_DIR=$RUNNER_TEMP/tf-plugin-cache" >> "$GITHUB_ENV"
-          mkdir -p "$RUNNER_TEMP/tf-plugin-cache"
+          mkdir -p "$TF_PLUGIN_CACHE_DIR"
+          echo "TF_PLUGIN_CACHE_DIR=$TF_PLUGIN_CACHE_DIR"
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: "1.8.5"
+          terraform_version: 1.8.5
 
       - name: Terraform Init
         run: terraform init -input=false
 
       - name: Terraform Plan (no refresh)
+        env:
+          TF_VAR_admin_principal_arn: ${{ secrets.EKS_ADMIN_PRINCIPAL_ARN }}
         run: terraform plan -refresh=false -lock-timeout=2m -out=tfplan-norefresh
 
-      # Stage 1: only the EKS cluster, so we can then grant access.
+      # Stage 0 — ensure the CI role has perms before touching the cluster
+      - name: Apply CI IAM attachments first
+        run: |
+          terraform apply -input=false -lock-timeout=2m -auto-approve \
+            -target=aws_iam_role_policy_attachment.github_ci_eks \
+            -target=aws_iam_role_policy_attachment.github_ci_ec2ro \
+            -target=aws_iam_policy.ci_eks_updates \
+            -target=aws_iam_role_policy_attachment.github_ci_eks_updates \
+            -target=aws_iam_role_policy_attachment.ci_attach_backend_access || true
+
+      # Stage 1 — update EKS API CIDRs
       - name: Apply EKS cluster only
         run: terraform apply -input=false -lock-timeout=2m -auto-approve -target=aws_eks_cluster.this
 
@@ -73,7 +80,6 @@ jobs:
           set -euo pipefail
           ENDPOINT="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --query 'cluster.endpoint' --output text)"
           HOST="$(printf '%s\n' "$ENDPOINT" | sed -E 's#^https?://##; s#/.*$##')"
-          echo "EKS endpoint host: ${HOST}"
           for i in $(seq 1 60); do
             if timeout 5 bash -lc "echo | openssl s_client -connect ${HOST}:443 -servername ${HOST} >/dev/null 2>&1"; then
               echo "EKS API reachable on ${HOST}:443"
@@ -82,10 +88,9 @@ jobs:
             echo "Waiting for EKS API to accept new CIDR... (${i}/60)"
             sleep 5
           done
-          echo "EKS API not reachable"
-          exit 1
+          echo "EKS API not reachable"; exit 1
 
-      # Stage 2: grant EKS access to your admin and to the CI role
+      # Stage 2 — grant EKS access to admin + CI
       - name: Apply EKS access entries (admin + CI)
         run: |
           terraform apply -input=false -lock-timeout=2m -auto-approve \
@@ -94,7 +99,7 @@ jobs:
             -target=aws_eks_access_entry.github_ci \
             -target=aws_eks_access_policy_association.github_ci
 
-      # Stage 3: everything else (Helm, controllers, etc.)
+      # Stage 3 — everything else
       - name: Terraform Apply (rest)
         run: terraform apply -input=false -lock-timeout=2m -auto-approve
 
