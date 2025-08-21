@@ -1,18 +1,15 @@
-############################################################
-# WAFv2 for CloudFront (Frontend) - CLOUDFRONT scope
-# Toggle with var.attach_frontend_waf (true by default).
-# - Allows CORS preflight
-# - Rate limit 1000 req/5min/IP
-# - Common managed rule groups + Anonymous IP list
-############################################################
-
 resource "aws_wafv2_web_acl" "frontend" {
   provider = aws.us_east_1
   count    = var.attach_frontend_waf ? 1 : 0
 
-  name        = var.frontend_waf_name
+  # use name_prefix + create_before_destroy so TF can attach the new ACL first, then delete the old one
+  name_prefix = "${var.frontend_waf_name}-"
   scope       = "CLOUDFRONT"
   description = "Frontend WAF: managed rule groups + OPTIONS allow + tightened rate limit + anonymous IP block"
+
+  lifecycle {
+    create_before_destroy = true
+  }
 
   default_action {
     allow {}
