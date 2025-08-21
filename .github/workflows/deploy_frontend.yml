@@ -25,14 +25,14 @@ env:
   PROJECT_NAME: nat20
   NAMESPACE: nat20
   ECR_REPO: nat20/frontend
-  KUBECTL_TIMEOUT: 20s
+  KUBECTL_TIMEOUT: 30s
   AWS_RETRY_MODE: standard
   AWS_MAX_ATTEMPTS: "6"
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
       - name: Checkout
@@ -90,7 +90,8 @@ jobs:
           echo "ORIGIN_CERT_ARN=${ORIGIN_CERT_ARN}" >> "$GITHUB_ENV"
           echo "ALB_FRONTEND_SG_ID=${ALB_FRONTEND_SG_ID}" >> "$GITHUB_ENV"
 
-      - name: Configure kubectl
+      - name: Configure kubeconfig
+        id: kubeconfig
         shell: bash
         env:
           AWS_REGION: ${{ env.AWS_REGION }}
@@ -100,73 +101,110 @@ jobs:
           aws eks update-kubeconfig --name "${CLUSTER_NAME}" --region "${AWS_REGION}"
           kubectl version --client
 
-      - name: Fast preflight to EKS API (fail fast if unreachable)
+      - name: "Preflight: try API quickly (no mutations)"
+        id: preflight
+        continue-on-error: true
+        shell: bash
+        env:
+          KUBECTL_TIMEOUT: ${{ env.KUBECTL_TIMEOUT }}
+        run: |
+          set -euo pipefail
+          for i in {1..6}; do
+            if kubectl --request-timeout="${KUBECTL_TIMEOUT}" get --raw=/version >/dev/null 2>&1; then
+              echo "ok=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "Attempt $i/6: API not reachable; retrying..."
+            sleep 10
+          done
+          echo "ok=false" >> "$GITHUB_OUTPUT"
+          exit 1
+
+      - name: "Fallback: temporarily allow this runner CIDR"
+        if: steps.preflight.outcome == 'failure'
+        id: open_eks
         shell: bash
         env:
           AWS_REGION: ${{ env.AWS_REGION }}
           CLUSTER_NAME: ${{ env.CLUSTER_NAME }}
-          KUBECTL_TIMEOUT: ${{ env.KUBECTL_TIMEOUT }}
         run: |
           set -euo pipefail
 
-          # Try up to 6 quick attempts (~60s total) to contact the API. Do NOT mutate cluster CIDRs here.
-          for i in {1..6}; do
-            if kubectl --request-timeout="${KUBECTL_TIMEOUT}" get --raw=/version >/dev/null 2>&1; then
-              echo "Kubernetes API reachable."
+          retry() { n=1; tries="$1"; delay="$2"; shift 2; until "$@"; do (( n>=tries )) && exit 1; sleep "$delay"; n=$((n+1)); done; }
+
+          RUNNER_IP="$(curl -s https://checkip.amazonaws.com | tr -d '\n\r')"
+          RUNNER_CIDR="${RUNNER_IP}/32"
+          echo "runner_cidr=${RUNNER_CIDR}" >> "$GITHUB_OUTPUT"
+
+          DESC="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}")"
+          EP_PUBLIC="$(jq -r '.cluster.resourcesVpcConfig.endpointPublicAccess' <<< "${DESC}")"
+          CUR_JSON="$(jq -c '.cluster.resourcesVpcConfig.publicAccessCidrs // []' <<< "${DESC}")"
+          echo "original_cidrs=${CUR_JSON}" >> "$GITHUB_OUTPUT"
+          echo "original_ep=${EP_PUBLIC}" >> "$GITHUB_OUTPUT"
+
+          UPDATED_JSON="$(jq -cn --arg ip "${RUNNER_CIDR}" --argjson cur "${CUR_JSON:-null}" '((($cur // []) | map(tostring)) + [$ip]) | unique')"
+          UPDATED_CSV="$(jq -r 'join(",")' <<< "${UPDATED_JSON}")"
+
+          UPDATE_JSON="$(aws eks update-cluster-config \
+            --name "${CLUSTER_NAME}" \
+            --region "${AWS_REGION}" \
+            --resources-vpc-config "endpointPublicAccess=true,publicAccessCidrs=${UPDATED_CSV}" \
+            --output json)"
+          UPDATE_ID="$(jq -r '.update.id' <<< "${UPDATE_JSON}")"
+
+          retry 120 5 bash -c '
+            set -e
+            S=$(aws eks describe-update --name "'"${CLUSTER_NAME}"'" --update-id "'"${UPDATE_ID}"'" --region "'"${AWS_REGION}"'" --query "update.status" --output text)
+            test "$S" = Successful && exit 0
+            test "$S" = Failed && exit 1
+            exit 2
+          '
+
+          ENDPOINT="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}" --query 'cluster.endpoint' --output text)"
+          HOST="${ENDPOINT#https://}"
+          for i in {1..60}; do
+            code="$(curl -sk -o /dev/null -w "%{http_code}" --connect-timeout 5 --max-time 10 "https://${HOST}/version")" || code="000"
+            if [[ "$code" == "200" || "$code" == "401" || "$code" == "403" || "$code" == "404" || "$code" == "405" ]]; then
+              echo "api_ok=true" >> "$GITHUB_OUTPUT"
               exit 0
             fi
-            echo "Attempt $i/6: API not reachable yet; retrying..."
-            sleep 10
+            sleep 5
           done
+          echo "api_ok=false" >> "$GITHUB_OUTPUT"
+          exit 1
 
-          echo "ERROR: Kubernetes API is not reachable from this runner." >&2
-          echo "HINT: Run the Terraform workflow first so it updates endpoint publicAccessCidrs (Stage 1) for this runner IP." >&2
-          exit 78
-
-      - name: Ensure namespace exists
+      - name: Apply namespace
         shell: bash
         run: |
           set -euo pipefail
           for i in {1..5}; do
-            if kubectl apply -f infrastructure/k8s/namespaces/nat20.yaml --request-timeout="${KUBECTL_TIMEOUT}"; then
-              break
-            fi
-            echo "Retry $i/5: waiting before re-apply namespace..."
+            if kubectl apply -f infrastructure/k8s/namespaces/nat20.yaml --request-timeout="${KUBECTL_TIMEOUT}"; then break; fi
             sleep 10
           done
 
-      - name: Apply frontend Deployment/Service
+      - name: Apply frontend (image templated)
         shell: bash
         run: |
           set -euo pipefail
+          export IMAGE_URI
+          TMP="$(mktemp)"
+          envsubst < infrastructure/k8s/frontend/deployment.yaml > "${TMP}"
           for i in {1..5}; do
-            if kubectl apply -f infrastructure/k8s/frontend/deployment.yaml --request-timeout="${KUBECTL_TIMEOUT}"; then
-              break
-            fi
-            echo "Retry $i/5: waiting before re-apply deployment..."
+            if kubectl apply -f "${TMP}" --request-timeout="${KUBECTL_TIMEOUT}"; then break; fi
             sleep 10
           done
 
-      - name: Apply frontend Ingress (envsubst)
+      - name: Apply frontend Ingress (cert/sg templated)
         shell: bash
         run: |
           set -euo pipefail
           export ORIGIN_CERT_ARN ALB_FRONTEND_SG_ID
-          TMP_FILE="$(mktemp)"
-          envsubst < infrastructure/k8s/ingress/frontend-ingress.yaml > "${TMP_FILE}"
+          TMP="$(mktemp)"
+          envsubst < infrastructure/k8s/ingress/frontend-ingress.yaml > "${TMP}"
           for i in {1..5}; do
-            if kubectl apply -f "${TMP_FILE}" --request-timeout="${KUBECTL_TIMEOUT}"; then
-              break
-            fi
-            echo "Retry $i/5: waiting before re-apply ingress..."
+            if kubectl apply -f "${TMP}" --request-timeout="${KUBECTL_TIMEOUT}"; then break; fi
             sleep 10
           done
-
-      - name: Set image on Deployment
-        shell: bash
-        run: |
-          set -euo pipefail
-          kubectl -n "${NAMESPACE}" set image deployment/frontend frontend="${IMAGE_URI}" --request-timeout="${KUBECTL_TIMEOUT}"
 
       - name: Rollout status
         shell: bash
@@ -174,12 +212,40 @@ jobs:
           set -euo pipefail
           kubectl -n "${NAMESPACE}" rollout status deployment/frontend --timeout=300s
 
-      - name: Debug on failure
+      - name: "On failure: collect diagnostics"
         if: failure()
         shell: bash
         run: |
           set -euo pipefail
-          kubectl -n "${NAMESPACE}" get all -o wide --request-timeout="${KUBECTL_TIMEOUT}" || true
+          kubectl -n "${NAMESPACE}" get all -o wide || true
           kubectl -n "${NAMESPACE}" describe deployment frontend || true
-          kubectl -n "${NAMESPACE}" get ingress frontend -o yaml || true
           kubectl -n "${NAMESPACE}" get events --sort-by=.lastTimestamp | tail -n 200 || true
+          POD="$(kubectl -n "${NAMESPACE}" get pods -l app=frontend -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+          if [[ -n "${POD}" ]]; then
+            echo "--- logs ${POD} (previous) ---"
+            kubectl -n "${NAMESPACE}" logs "${POD}" --previous || true
+            echo "--- logs ${POD} (current) ---"
+            kubectl -n "${NAMESPACE}" logs "${POD}" || true
+            echo "--- describe ${POD} ---"
+            kubectl -n "${NAMESPACE}" describe pod "${POD}" || true
+          fi
+
+      - name: Restore CIDRs (if modified)
+        if: always() && steps.preflight.outcome == 'failure'
+        shell: bash
+        env:
+          AWS_REGION: ${{ env.AWS_REGION }}
+          CLUSTER_NAME: ${{ env.CLUSTER_NAME }}
+          ORIGINAL_CIDRS: ${{ steps.open_eks.outputs.original_cidrs }}
+          RUNNER_CIDR: ${{ steps.open_eks.outputs.runner_cidr }}
+          ORIGINAL_EP: ${{ steps.open_eks.outputs.original_ep }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${ORIGINAL_CIDRS:-}" || -z "${RUNNER_CIDR:-}" || -z "${ORIGINAL_EP:-}" ]]; then exit 0; fi
+          CLEAN_JSON="$(jq -cn --arg ip "${RUNNER_CIDR}" --argjson cur "${ORIGINAL_CIDRS:-null}" '(($cur // []) | map(tostring) | map(select(. != $ip))) | unique')"
+          CLEAN_CSV="$(jq -r 'join(",")' <<< "${CLEAN_JSON}")"
+          if [[ "${ORIGINAL_EP}" == "false" ]]; then
+            aws eks update-cluster-config --name "${CLUSTER_NAME}" --region "${AWS_REGION}" --resources-vpc-config "endpointPublicAccess=false" >/dev/null
+          elif [[ -n "${CLEAN_CSV}" ]]; then
+            aws eks update-cluster-config --name "${CLUSTER_NAME}" --region "${AWS_REGION}" --resources-vpc-config "endpointPublicAccess=true,publicAccessCidrs=${CLEAN_CSV}" >/dev/null
+          fi
