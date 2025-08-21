@@ -7,37 +7,28 @@ metadata:
     app: frontend
 spec:
   replicas: 2
-  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: frontend
   strategy:
     type: RollingUpdate
     rollingUpdate:
       maxUnavailable: 25%
       maxSurge: 25%
-  selector:
-    matchLabels:
-      app: frontend
   template:
     metadata:
       labels:
         app: frontend
     spec:
-      # Pod-level security context to satisfy PodSecurity "restricted"
       securityContext:
         runAsNonRoot: true
         runAsUser: 101
-        runAsGroup: 101
         fsGroup: 101
-        fsGroupChangePolicy: OnRootMismatch
         seccompProfile:
           type: RuntimeDefault
-
-      # Removed the init container that attempted chown/chmod. It violated
-      # restricted PodSecurity and caused FailedCreate. fsGroup handles volume
-      # permissions for the mounted EmptyDir volumes below.
-
       containers:
         - name: frontend
-          image: "${IMAGE_URI}"
+          image: REPLACED-BY-CI
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -45,34 +36,6 @@ spec:
           env:
             - name: api_host
               value: "api.nat20scheduling.com"
-          volumeMounts:
-            - name: confd
-              mountPath: /etc/nginx/conf.d
-            - name: cache
-              mountPath: /var/cache/nginx
-            - name: run
-              mountPath: /var/run
-          # Container-level hardening to comply with "restricted"
-          securityContext:
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
-            capabilities:
-              drop: ["ALL"]
-          resources:
-            requests:
-              cpu: 50m
-              memory: 64Mi
-            limits:
-              cpu: 500m
-              memory: 256Mi
-          readinessProbe:
-            httpGet:
-              path: /index.html
-              port: http
-            initialDelaySeconds: 10
-            timeoutSeconds: 3
-            periodSeconds: 10
-            failureThreshold: 6
           livenessProbe:
             httpGet:
               path: /index.html
@@ -81,6 +44,35 @@ spec:
             timeoutSeconds: 3
             periodSeconds: 20
             failureThreshold: 6
+          readinessProbe:
+            httpGet:
+              path: /index.html
+              port: http
+            initialDelaySeconds: 10
+            timeoutSeconds: 3
+            periodSeconds: 10
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ "ALL" ]
+          volumeMounts:
+            - name: confd
+              mountPath: /etc/nginx/conf.d
+            - name: cache
+              mountPath: /var/cache/nginx
+            - name: run
+              mountPath: /var/run
+      # EmptyDir volumes are writable even with readOnlyRootFilesystem=true.
+      # fsGroup above ensures group-write semantics under "restricted" policy.
       volumes:
         - name: confd
           emptyDir: {}
@@ -88,19 +80,3 @@ spec:
           emptyDir: {}
         - name: run
           emptyDir: {}
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: frontend
-  namespace: nat20
-  labels:
-    app: frontend
-spec:
-  type: NodePort
-  selector:
-    app: frontend
-  ports:
-    - name: http
-      port: 80
-      targetPort: 8080
