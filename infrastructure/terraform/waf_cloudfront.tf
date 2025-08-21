@@ -1,25 +1,30 @@
 ############################################################
 # WAFv2 for CloudFront (Frontend) - CLOUDFRONT scope
-# - Tightened rate limit
+# - Tightened rate limit (1000)
 # - Adds AWSManagedRulesAnonymousIpList
 # - Creation is toggleable via var.attach_frontend_waf
 ############################################################
 
 resource "aws_wafv2_web_acl" "frontend" {
-  provider  = aws.us_east_1
-  count     = var.attach_frontend_waf ? 1 : 0
-  name      = var.frontend_waf_name
-  scope     = "CLOUDFRONT"
+  provider = aws.us_east_1
+  count    = var.attach_frontend_waf ? 1 : 0
+
+  name        = var.frontend_waf_name
+  scope       = "CLOUDFRONT"
   description = "Frontend WAF: managed rule groups + OPTIONS allow + tightened rate limit + anonymous IP block"
 
-  default_action { allow {} }
+  default_action {
+    allow {}
+  }
 
   # Allow CORS preflight so browsers can probe freely
   rule {
     name     = "AllowCORSPreflight"
     priority = 0
 
-    action { allow {} }
+    action {
+      allow {}
+    }
 
     statement {
       byte_match_statement {
@@ -47,7 +52,9 @@ resource "aws_wafv2_web_acl" "frontend" {
     name     = "RateLimitPerIP"
     priority = 5
 
-    action { block {} }
+    action {
+      block {}
+    }
 
     statement {
       rate_based_statement {
@@ -84,7 +91,7 @@ resource "aws_wafv2_web_acl" "frontend" {
     }
   }
 
-  # NEW: block anonymous / VPN / proxy sources
+  # Block anonymous / VPN / proxy sources
   rule {
     name     = "AWS-AWSManagedRulesAnonymousIpList"
     priority = 15
