@@ -3,7 +3,7 @@
 # Attaches ONE policy to the existing GitHub OIDC role.
 ############################################################
 
-# These already exist in your repo (data.tf). Don't redeclare elsewhere.
+# These already exist once in data.tf. Do not duplicate elsewhere.
 # data "aws_caller_identity" "current" {}
 # data "aws_region" "current" {}
 
@@ -36,18 +36,16 @@ data "aws_iam_role" "ci" {
   name = var.ci_role_name
 }
 
-# Build ARNs for the backend resources
 locals {
-  state_bucket_arn  = "arn:aws:s3:::${var.tf_state_bucket}"
-  state_prefix      = trim(var.tf_state_key_prefix, "/")
-  state_objects_arn = length(local.state_prefix) > 0
-    ? "${local.state_bucket_arn}/${local.state_prefix}/*"
-    : "${local.state_bucket_arn}/*"
+  state_bucket_arn = "arn:aws:s3:::${var.tf_state_bucket}"
+  state_prefix     = trim(var.tf_state_key_prefix, "/")
+
+  # If prefix is empty -> arn:aws:s3:::bucket/*, else -> arn:aws:s3:::bucket/prefix/*
+  state_objects_arn = replace("${local.state_bucket_arn}//${local.state_prefix}/*", "//", "/")
 
   lock_table_arn = "arn:aws:dynamodb:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:table/${var.tf_lock_table_name}"
 }
 
-# One policy with both S3 (state) and DynamoDB (lock) permissions
 data "aws_iam_policy_document" "ci_backend_access" {
   # S3: list bucket (backend needs this)
   statement {
@@ -59,7 +57,8 @@ data "aws_iam_policy_document" "ci_backend_access" {
       "s3:ListBucketVersions"
     ]
     resources = [local.state_bucket_arn]
-    # If a prefix is set, constrain listing to it
+
+    # Restrict list to prefix when set
     condition {
       test     = "StringLike"
       variable = "s3:prefix"
