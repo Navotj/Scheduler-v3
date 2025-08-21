@@ -11,6 +11,10 @@ on:
 env:
   AWS_REGION: eu-central-1
 
+concurrency:
+  group: terraform-state
+  cancel-in-progress: false
+
 jobs:
   tf-apply:
     runs-on: ubuntu-latest
@@ -37,10 +41,16 @@ jobs:
       - name: Who am I?
         run: aws sts get-caller-identity
 
-      - name: Prepare Terraform plugin cache
+      # Set plugin cache path via $GITHUB_ENV and create it, so Terraform won't warn.
+      - name: Prep Terraform plugin cache
         run: |
-          mkdir -p ~/.terraform.d/plugin-cache
-          echo 'plugin_cache_dir = "~/.terraform.d/plugin-cache"' > ~/.terraformrc
+          echo "TF_PLUGIN_CACHE_DIR=$RUNNER_TEMP/tf-plugin-cache" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/tf-plugin-cache"
+
+      # Export TF var for EKS admin principal via $GITHUB_ENV to avoid VSCode 'orange' on step env
+      - name: Export TF_VARs
+        run: |
+          echo "TF_VAR_admin_principal_arn=${{ secrets.EKS_ADMIN_PRINCIPAL_ARN }}" >> "$GITHUB_ENV"
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -51,8 +61,6 @@ jobs:
         run: terraform init -input=false
 
       - name: Terraform Plan (no refresh)
-        env:
-          TF_VAR_admin_principal_arn: ${{ secrets.EKS_ADMIN_PRINCIPAL_ARN }}
         run: terraform plan -refresh=false -lock-timeout=2m -out=tfplan-norefresh
 
       # Stage 1: only the EKS cluster, so we can then grant access.
