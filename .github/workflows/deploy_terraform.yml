@@ -11,16 +11,19 @@ on:
 env:
   AWS_REGION: eu-central-1
 
-concurrency:
-  group: terraform-state
-  cancel-in-progress: false
-
 jobs:
   tf-apply:
     runs-on: ubuntu-latest
+    concurrency:
+      group: terraform-infra
+      cancel-in-progress: true
     permissions:
-      id-token: write     # Required for OIDC
+      id-token: write     # OIDC
       contents: read
+
+    # Make TF var available to all steps (used by eks_access_entries.tf)
+    env:
+      TF_VAR_admin_principal_arn: ${{ secrets.EKS_ADMIN_PRINCIPAL_ARN }}
 
     defaults:
       run:
@@ -41,21 +44,17 @@ jobs:
       - name: Who am I?
         run: aws sts get-caller-identity
 
-      # Set plugin cache path via $GITHUB_ENV and create it, so Terraform won't warn.
+      # Kill any leftover ~/.terraformrc and use a runner-temp cache directory
       - name: Prep Terraform plugin cache
         run: |
+          rm -f ~/.terraformrc ~/.terraform.d/terraform.rc
           echo "TF_PLUGIN_CACHE_DIR=$RUNNER_TEMP/tf-plugin-cache" >> "$GITHUB_ENV"
           mkdir -p "$RUNNER_TEMP/tf-plugin-cache"
-
-      # Export TF var for EKS admin principal via $GITHUB_ENV to avoid VSCode 'orange' on step env
-      - name: Export TF_VARs
-        run: |
-          echo "TF_VAR_admin_principal_arn=${{ secrets.EKS_ADMIN_PRINCIPAL_ARN }}" >> "$GITHUB_ENV"
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: 1.8.5
+          terraform_version: "1.8.5"
 
       - name: Terraform Init
         run: terraform init -input=false
