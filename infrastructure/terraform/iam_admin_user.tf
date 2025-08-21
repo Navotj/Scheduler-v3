@@ -1,6 +1,6 @@
 ############################################################
 # Admin IAM user + group for interactive console use
-# - User: eks-operator   (change via var.admin_console_username if you like)
+# - User: kube-ops-admin (change via var.admin_console_username)
 # - Group: <project>-admins
 # - Group gets AdministratorAccess (bootstrap simplicity)
 # - MFA is enforced for all APIs (with minimal exceptions to enroll MFA)
@@ -14,13 +14,14 @@
 variable "admin_console_username" {
   description = "IAM username for the human console admin"
   type        = string
-  default     = "eks-operator"
+  default     = "kube-ops-admin"
 }
 
 # Uses your existing var.project_name (e.g., "nat20")
+
 resource "aws_iam_group" "admins" {
   name = "${var.project_name}-admins"
-  tags = { Name = "${var.project_name}-admins" }
+  # NOTE: aws_iam_group does NOT support tags; do not add a tags block here
 }
 
 # Bootstrap convenience; tighten later if desired
@@ -29,7 +30,7 @@ resource "aws_iam_group_policy_attachment" "admins_adminaccess" {
   policy_arn = "arn:aws:iam::aws:policy/AdministratorAccess"
 }
 
-# Deny everything unless MFA is present, except minimal IAM/STS to enroll/maintain MFA & change password
+# Deny everything unless MFA is present, except minimal IAM/STS to enroll MFA & change password
 data "aws_iam_policy_document" "mfa_enforce" {
   statement {
     sid     = "DenyAllIfNoMFA"
@@ -73,8 +74,12 @@ resource "aws_iam_group_policy_attachment" "admins_mfa_enforce" {
 
 # The human console user (no access keys are created here)
 resource "aws_iam_user" "console_admin" {
-  name = var.admin_console_username
-  tags = { Name = var.admin_console_username }
+  name          = var.admin_console_username
+  force_destroy = true
+  tags = {
+    Project = var.project_name
+    Role    = "kubernetes-admin"
+  }
 }
 
 resource "aws_iam_user_group_membership" "console_admin_groups" {
