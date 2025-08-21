@@ -1,22 +1,15 @@
 ############################################################
-# GitHub Actions OIDC -> IAM Role for CI (ECR + EKS access)
-# - Creates the GitHub OIDC provider in IAM
-# - IAM Role trusted by GitHub OIDC (branch: main by default)
-# - Minimal permissions: ECR push to a specific repo + EKS Describe
-# - Adds an EKS Access Entry to grant cluster-admin on this cluster
+# GitHub OIDC + CI Role for Navotj/Scheduler-v3
+# Grants:
+# - ECR push/pull to "frontend"
+# - eks:DescribeCluster (to build kubeconfig)
 #
-# NOTE:
-# - Uses data.aws_caller_identity.current and data.aws_region.current
-#   which you already define in data.tf (no duplicates here).
-# - No changes needed in eks.tf; the Access Entry wires RBAC.
+# Output:
+# - github_ci_role_arn
 ############################################################
 
-##########################
-# Inputs
-##########################
-
 variable "github_repo_owner" {
-  description = "GitHub org/user that owns the repository"
+  description = "GitHub owner/org"
   type        = string
   default     = "Navotj"
 }
@@ -33,197 +26,111 @@ variable "ecr_repo_frontend" {
   default     = "frontend"
 }
 
-# Optional: which branch(es) can assume the role via OIDC.
-# The 'sub' claim format is: repo:<owner>/<repo>:ref:refs/heads/<branch>
-variable "github_allowed_branches" {
-  description = "List of Git refs (branches) allowed to assume the CI role"
-  type        = list(string)
-  default     = ["refs/heads/main"]
+# Reuse your existing data sources (declared in data.tf):
+# data "aws_caller_identity" "current" {}
+# data "aws_region" "current" {}
+
+# Fetch thumbprint dynamically
+data "tls_certificate" "github" {
+  url = "https://token.actions.githubusercontent.com"
 }
-
-##########################
-# Locals
-##########################
-
-locals {
-  repo_full_name   = "${var.github_repo_owner}/${var.github_repo_name}"
-  oidc_url         = "token.actions.githubusercontent.com"
-  # GitHub OIDC root CA thumbprint (DigiCert Global Root G2)
-  # See GitHub docs: this is the current, stable thumbprint.
-  github_thumbprint = "6938fd4d98bab03faadb97b34396831e3780aea1"
-
-  # turn ["refs/heads/main","refs/heads/release-*"] into the required
-  # StringLike patterns for the token 'sub' claim
-  github_sub_patterns = [
-    for ref in var.github_allowed_branches :
-    "repo:${local.repo_full_name}:ref:${ref}"
-  ]
-
-  ecr_repo_arn = "arn:aws:ecr:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:repository/${var.ecr_repo_frontend}"
-}
-
-##########################
-# GitHub OIDC Provider
-##########################
 
 resource "aws_iam_openid_connect_provider" "github" {
-  url = "https://${local.oidc_url}"
-
+  url = "https://token.actions.githubusercontent.com"
   client_id_list = ["sts.amazonaws.com"]
 
-  # If GitHub rotates intermediates in the future, this may need updating.
-  thumbprint_list = [local.github_thumbprint]
+  # Use the first certificate's SHA1; AWS accepts this pattern for GitHub OIDC.
+  thumbprint_list = [data.tls_certificate.github.certificates[0].sha1_fingerprint]
 
   tags = {
-    Name = "github-oidc"
+    Name = "${var.project_name}-github-oidc"
   }
 }
 
-##########################
-# Trust policy for GitHub Actions
-##########################
-
+# Trust policy for the CI role (scoped to this repo)
 data "aws_iam_policy_document" "github_ci_trust" {
   statement {
-    effect = "Allow"
+    actions = ["sts:AssumeRoleWithWebIdentity"]
+    effect  = "Allow"
 
     principals {
       type        = "Federated"
       identifiers = [aws_iam_openid_connect_provider.github.arn]
     }
 
-    actions = ["sts:AssumeRoleWithWebIdentity"]
-
-    # Require the correct audience
     condition {
       test     = "StringEquals"
-      variable = "${local.oidc_url}:aud"
+      variable = "token.actions.githubusercontent.com:aud"
       values   = ["sts.amazonaws.com"]
     }
 
-    # Restrict to specific repo + allowed refs (branches)
+    # Allow any workflow in this repo (owner/repo:*).
+    # If you want to scope further (env/protected tags), we can tighten this later.
     condition {
       test     = "StringLike"
-      variable = "${local.oidc_url}:sub"
-      values   = local.github_sub_patterns
+      variable = "token.actions.githubusercontent.com:sub"
+      values   = ["repo:${var.github_repo_owner}/${var.github_repo_name}:*"]
     }
   }
 }
 
 resource "aws_iam_role" "github_ci" {
-  name               = "github-ci-${var.github_repo_owner}-${var.github_repo_name}"
+  name               = "${var.project_name}-github-ci"
   assume_role_policy = data.aws_iam_policy_document.github_ci_trust.json
-
   tags = {
-    Name        = "github-ci-role"
-    Repository  = local.repo_full_name
-    ManagedBy   = "terraform"
+    Name = "${var.project_name}-github-ci"
   }
 }
 
-##########################
-# Permissions: ECR + EKS Describe
-##########################
-
-# Minimal ECR push/pull for a single repository.
-data "aws_iam_policy_document" "github_ci_ecr" {
+# Inline policy: ECR push/pull (to the frontend repo) + DescribeCluster
+data "aws_iam_policy_document" "github_ci_inline" {
   statement {
-    sid     = "GetAuthToken"
+    sid     = "EcrToken"
     effect  = "Allow"
     actions = ["ecr:GetAuthorizationToken"]
-    resources = ["*"] # must be wildcard for this action
+    resources = ["*"]
   }
 
   statement {
-    sid    = "EcrWriteToFrontend"
-    effect = "Allow"
+    sid     = "EcrPushPullFrontend"
+    effect  = "Allow"
     actions = [
       "ecr:BatchCheckLayerAvailability",
-      "ecr:GetDownloadUrlForLayer",
       "ecr:BatchGetImage",
-      "ecr:DescribeRepositories",
-      "ecr:PutImage",
-      "ecr:InitiateLayerUpload",
-      "ecr:UploadLayerPart",
       "ecr:CompleteLayerUpload",
-      "ecr:ListImages"
+      "ecr:DescribeImages",
+      "ecr:DescribeRepositories",
+      "ecr:GetDownloadUrlForLayer",
+      "ecr:GetRepositoryPolicy",
+      "ecr:InitiateLayerUpload",
+      "ecr:ListImages",
+      "ecr:PutImage",
+      "ecr:UploadLayerPart"
     ]
-    resources = [local.ecr_repo_arn]
+    resources = [
+      "arn:aws:ecr:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:repository/${var.ecr_repo_frontend}"
+    ]
   }
-}
 
-resource "aws_iam_policy" "github_ci_ecr" {
-  name   = "github-ci-ecr-${var.github_repo_owner}-${var.github_repo_name}"
-  policy = data.aws_iam_policy_document.github_ci_ecr.json
-}
-
-resource "aws_iam_role_policy_attachment" "github_ci_ecr_attach" {
-  role       = aws_iam_role.github_ci.name
-  policy_arn = aws_iam_policy.github_ci_ecr.arn
-}
-
-# EKS: allow update-kubeconfig to DescribeCluster (and ListClusters for UX)
-data "aws_iam_policy_document" "github_ci_eks" {
   statement {
-    sid     = "DescribeCluster"
+    sid     = "EksDescribeCluster"
     effect  = "Allow"
     actions = ["eks:DescribeCluster"]
-    resources = [aws_eks_cluster.this.arn]
-  }
-
-  statement {
-    sid       = "ListClusters"
-    effect    = "Allow"
-    actions   = ["eks:ListClusters"]
     resources = ["*"]
   }
 }
 
-resource "aws_iam_policy" "github_ci_eks" {
-  name   = "github-ci-eks-${var.github_repo_owner}-${var.github_repo_name}"
-  policy = data.aws_iam_policy_document.github_ci_eks.json
+resource "aws_iam_policy" "github_ci_inline" {
+  name   = "${var.project_name}-github-ci-inline"
+  policy = data.aws_iam_policy_document.github_ci_inline.json
 }
 
-resource "aws_iam_role_policy_attachment" "github_ci_eks_attach" {
+resource "aws_iam_role_policy_attachment" "github_ci_attach_inline" {
   role       = aws_iam_role.github_ci.name
-  policy_arn = aws_iam_policy.github_ci_eks.arn
+  policy_arn = aws_iam_policy.github_ci_inline.arn
 }
-
-##########################
-# Grant cluster-admin via EKS Access Entries
-# (no need to edit aws-auth ConfigMap)
-##########################
-
-# Ensure the access entry exists for this principal
-resource "aws_eks_access_entry" "github_ci" {
-  cluster_name  = aws_eks_cluster.this.name
-  principal_arn = aws_iam_role.github_ci.arn
-
-  # user: principal maps to a k8s user; could be 'rolearn' or 'userarn'
-  # team/namespace scoping is handled by the policy association below.
-  type = "STANDARD"
-
-  depends_on = [aws_eks_cluster.this]
-}
-
-# Associate the built-in ClusterAdmin policy to the access entry
-resource "aws_eks_access_policy_association" "github_ci_admin" {
-  cluster_name  = aws_eks_cluster.this.name
-  principal_arn = aws_iam_role.github_ci.arn
-  policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
-
-  access_scope {
-    type = "cluster"
-  }
-
-  depends_on = [aws_eks_access_entry.github_ci]
-}
-
-##########################
-# Outputs
-##########################
 
 output "github_ci_role_arn" {
-  description = "IAM Role ARN to be assumed by GitHub Actions"
+  description = "IAM Role ARN for GitHub Actions OIDC (set as AWS_ROLE_TO_ASSUME secret in GitHub)"
   value       = aws_iam_role.github_ci.arn
 }
