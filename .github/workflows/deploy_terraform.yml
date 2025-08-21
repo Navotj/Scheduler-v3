@@ -40,6 +40,7 @@ jobs:
 
       - name: Prepare Terraform plugin cache
         run: |
+          set -euo pipefail
           mkdir -p "$TF_PLUGIN_CACHE_DIR"
           printf 'plugin_cache_dir = "%s"\n' "$TF_PLUGIN_CACHE_DIR" > ~/.terraformrc
           ls -la "$TF_PLUGIN_CACHE_DIR"
@@ -67,32 +68,33 @@ jobs:
             echo "Cluster missing."
           fi
 
-      - name: Prune K8s/Helm resources from state if cluster is missing
+      - name: Prune state if cluster is missing (remove EKS/Helm/K8s/IRSA-bound)
         if: steps.probe.outputs.exists == 'false'
         run: |
           set -euo pipefail
-          echo "Listing terraform state objects..."
           terraform state list || true
-          TO_RM="$(terraform state list | grep -E '^(helm_release\.|kubernetes_)' || true)"
-          if [ -n "$TO_RM" ]; then
-            echo "Removing from state (no destroy since cluster is gone):"
-            echo "$TO_RM" | xargs -n1 -I {} sh -c 'echo "  - {}"; terraform state rm {} || true'
+          PATTERN='^(helm_release\.|kubernetes_|aws_eks_|aws_iam_openid_connect_provider\.eks$)'
+          MATCHES="$(terraform state list | grep -E "$PATTERN" || true)"
+          if [ -n "$MATCHES" ]; then
+            echo "$MATCHES" | while read -r res; do
+              echo "Removing from state: $res"
+              terraform state rm "$res" || true
+            done
           else
-            echo "No helm_release/kubernetes resources in state."
+            echo "No matching resources to remove."
           fi
 
-      # ---------- Phase A: create/repair base (no addons) when cluster is missing ----------
-      - name: Plan base (no addons) with refresh disabled
+      # -------- Phase A: create/repair base (no addons) --------
+      - name: Plan base (no addons)
         if: steps.probe.outputs.exists == 'false'
         env:
           TF_VAR_install_addons: "false"
-        run: terraform plan -lock-timeout=2m -refresh=false -out=tfplan_base
+        run: terraform plan -lock-timeout=2m -out=tfplan_base
 
       - name: Apply base (no addons)
         if: steps.probe.outputs.exists == 'false'
         run: terraform apply -input=false -lock-timeout=2m -auto-approve tfplan_base
 
-      # Open EKS API to runner IP and wait until ACTIVE/reachable (only needed before addons)
       - name: Allow runner IP to reach EKS API (post-base, idempotent)
         if: steps.probe.outputs.exists == 'false'
         env:
@@ -100,7 +102,6 @@ jobs:
           CLUSTER_NAME: ${{ env.CLUSTER_NAME }}
         run: |
           set -euo pipefail
-
           RUNNER_IP="$(curl -s https://checkip.amazonaws.com/ | tr -d '\r\n')"
           echo "Runner public IP: ${RUNNER_IP}"
 
@@ -139,7 +140,7 @@ jobs:
             sleep 5
           done
 
-      # ---------- Phase B: converge full stack (addons on) ----------
+      # -------- Phase B: converge full stack (addons enabled) --------
       - name: Plan full (addons enabled)
         env:
           TF_VAR_install_addons: "true"
