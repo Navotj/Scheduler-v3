@@ -5,18 +5,12 @@ on:
 
 env:
   AWS_REGION: eu-central-1
-  TF_IN_AUTOMATION: "true"
-  TF_INPUT: "false"
-
-concurrency:
-  group: terraform-apply
-  cancel-in-progress: false
 
 jobs:
   tf-apply:
     runs-on: ubuntu-latest
     permissions:
-      id-token: write   # for OIDC
+      id-token: write     # Required for OIDC
       contents: read
 
     defaults:
@@ -24,83 +18,46 @@ jobs:
         shell: bash
         working-directory: infrastructure/terraform
 
-    env:
-      # Optional: feed EKS Access Entry variables from repo secrets (fine if blank)
-      TF_VAR_admin_principal_arn: ${{ secrets.EKS_ADMIN_PRINCIPAL_ARN }}
-      TF_VAR_github_ci_role_arn:  ${{ secrets.AWS_ROLE_TO_ASSUME }}
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Pick OIDC (preferred) if you've set the secret; otherwise use static keys
-      - name: Select credentials mode
-        id: credmode
-        run: |
-          if [[ -n "${{ secrets.AWS_ROLE_TO_ASSUME }}" ]]; then
-            echo "mode=oidc" >> "$GITHUB_OUTPUT"
-          else
-            echo "mode=keys" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Configure AWS credentials (OIDC)
-        if: steps.credmode.outputs.mode == 'oidc'
         uses: aws-actions/configure-aws-credentials@v4
         with:
+          aws-region: ${{ env.AWS_REGION }}
           role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
-          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: gh-terraform-apply
 
-      - name: Configure AWS credentials (static keys fallback)
-      # You can delete this whole step once OIDC is set.
-        if: steps.credmode.outputs.mode == 'keys'
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
+      - name: Who am I?
+        run: aws sts get-caller-identity
+
+      - name: Prepare Terraform plugin cache
+        run: |
+          mkdir -p ~/.terraform.d/plugin-cache
+          echo 'plugin_cache_dir = "~/.terraform.d/plugin-cache"' > ~/.terraformrc
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.8.5
 
-      - name: Prepare Terraform plugin cache dir
-        run: mkdir -p ~/.terraform.d/plugin-cache
-
-      - name: Cache Terraform plugin dir
-        uses: actions/cache@v4
-        with:
-          path: ~/.terraform.d/plugin-cache
-          key: ${{ runner.os }}-tfplug-${{ hashFiles('infrastructure/terraform/.terraform.lock.hcl') }}
-
-      - name: Set plugin cache env
-        run: echo "TF_PLUGIN_CACHE_DIR=$HOME/.terraform.d/plugin-cache" >> "$GITHUB_ENV"
-
-      - name: Prepare Terraform plugin cache (optional)
-        run: |
-          mkdir -p "$HOME/.terraform.d/plugin-cache"
-        env:
-          TF_PLUGIN_CACHE_DIR: $HOME/.terraform.d/plugin-cache
-
-
       - name: Terraform Init
         run: terraform init -input=false
 
-      # Avoid contacting the cluster during planning (helm/k8s providers)
       - name: Terraform Plan (no refresh)
         run: terraform plan -refresh=false -lock-timeout=2m -out=tfplan-norefresh
 
-      # Stage 1: apply EKS cluster networking first
-      - name: Apply cluster-only changes first
-        run: terraform apply -lock-timeout=2m -auto-approve -target=aws_eks_cluster.this
+      # Stage 1: only the EKS cluster, so we can then grant access.
+      - name: Apply EKS cluster only
+        run: terraform apply -input=false -lock-timeout=2m -auto-approve -target=aws_eks_cluster.this
 
-      # Wait for API to accept updated public_access_cidrs
       - name: Wait for EKS API reachability
         env:
           CLUSTER_NAME: nat20-eks
         run: |
           set -euo pipefail
-          ENDPOINT="$(aws eks describe-cluster --name "$CLUSTER_NAME" --query 'cluster.endpoint' --output text)"
+          ENDPOINT="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --query 'cluster.endpoint' --output text)"
           HOST="$(printf '%s\n' "$ENDPOINT" | sed -E 's#^https?://##; s#/.*$##')"
           echo "EKS endpoint host: ${HOST}"
           for i in $(seq 1 60); do
@@ -111,15 +68,21 @@ jobs:
             echo "Waiting for EKS API to accept new CIDR... (${i}/60)"
             sleep 5
           done
-          echo "EKS API not reachable; dumping cluster access config..."
-          aws eks describe-cluster --name "$CLUSTER_NAME" \
-            --query 'cluster.resourcesVpcConfig.{publicAccessCidrs:publicAccessCidrs,endpointPublicAccess:endpointPublicAccess,endpointPrivateAccess:endpointPrivateAccess}' \
-            --output json || true
+          echo "EKS API not reachable"
           exit 1
 
-      # Stage 2: apply everything
-      - name: Terraform Apply (everything)
-        run: terraform apply -lock-timeout=2m -auto-approve
+      # Stage 2: grant EKS access to your admin and to the CI role
+      - name: Apply EKS access entries (admin + CI)
+        run: |
+          terraform apply -input=false -lock-timeout=2m -auto-approve \
+            -target=aws_eks_access_entry.admin \
+            -target=aws_eks_access_policy_association.admin \
+            -target=aws_eks_access_entry.github_ci \
+            -target=aws_eks_access_policy_association.github_ci
+
+      # Stage 3: everything else (Helm, controllers, etc.)
+      - name: Terraform Apply (rest)
+        run: terraform apply -input=false -lock-timeout=2m -auto-approve
 
       - name: Output
         run: terraform output -json || true
