@@ -1,8 +1,7 @@
 ############################################################
 # GitHub OIDC + CI Role for this repo
 # Owner: Navotj, Repo: Scheduler-v3
-# Grants the CI role broad perms (AdministratorAccess) so TF can manage all infra.
-# You can tighten later.
+# Grants CI broad perms (AdministratorAccess) so TF can manage infra.
 ############################################################
 
 variable "github_repo_owner" {
@@ -21,11 +20,10 @@ variable "github_repo_name" {
 # data "aws_caller_identity" "current" {}
 # data "aws_region" "current" {}
 
-# GitHub OIDC provider (token.actions.githubusercontent.com)
-# Include both current known thumbprints to avoid future rotations.
 resource "aws_iam_openid_connect_provider" "github" {
   url             = "https://token.actions.githubusercontent.com"
   client_id_list  = ["sts.amazonaws.com"]
+  # Current known thumbprints (GitHub root + intermediate). Ok to keep both.
   thumbprint_list = [
     "6938fd4d98bab03faadb97b34396831e3780aea1",
     "1c58a3a8518e8759bf075b7aa9c2e0fbb0b98e37"
@@ -35,7 +33,7 @@ resource "aws_iam_openid_connect_provider" "github" {
 
 data "aws_iam_policy_document" "github_ci_trust" {
   statement {
-    effect = "Allow"
+    effect  = "Allow"
     actions = ["sts:AssumeRoleWithWebIdentity"]
 
     principals {
@@ -64,7 +62,7 @@ resource "aws_iam_role" "github_ci" {
   tags               = { Name = "${var.project_name}-github-ci" }
 }
 
-# Broad permissions for CI. Tighten later if desired.
+# Broad perms so plan/apply can read/modify everything.
 resource "aws_iam_role_policy_attachment" "github_ci_admin" {
   role       = aws_iam_role.github_ci.name
   policy_arn = "arn:aws:iam::aws:policy/AdministratorAccess"
