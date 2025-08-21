@@ -80,11 +80,24 @@ jobs:
           echo "EKS API not reachable"
           exit 1
 
+      # Import the admin access entry if it already exists (prevents 409 ResourceInUse)
+      - name: Import admin EKS access entry (idempotent)
+        env:
+          CLUSTER_NAME: nat20-eks
+        run: |
+          set -euo pipefail
+          if [ -z "${TF_VAR_admin_principal_arn}" ]; then
+            echo "TF_VAR_admin_principal_arn is empty; cannot import admin access entry"
+            exit 1
+          fi
+          terraform state show aws_eks_access_entry.admin >/dev/null 2>&1 \
+            || terraform import -input=false aws_eks_access_entry.admin "${CLUSTER_NAME},${TF_VAR_admin_principal_arn}" \
+            || echo "Import skipped (entry may not exist yet); continuing..."
+
       # Stage 2: grant EKS access to your admin and to the CI role
-      - name: Apply EKS access entries (admin + CI)
+      - name: Apply EKS access entries (admin assoc + CI)
         run: |
           terraform apply -input=false -lock-timeout=2m -auto-approve \
-            -target=aws_eks_access_entry.admin \
             -target=aws_eks_access_policy_association.admin \
             -target=aws_eks_access_entry.github_ci \
             -target=aws_eks_access_policy_association.github_ci
