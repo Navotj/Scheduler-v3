@@ -116,7 +116,6 @@ jobs:
           done
           [ $OK -eq 1 ] || { echo "EKS endpoint NOT reachable after extended probes."; exit 1; }
 
-
       - name: Configure kubectl and wait until API responds
         shell: bash
         timeout-minutes: 5
@@ -222,17 +221,50 @@ jobs:
           ALB_PUBLIC_SUBNET_IDS="${ALB_PUBLIC_SUBNET_IDS}" \
           envsubst < infrastructure/k8s/ingress/frontend-ingress.yaml > /tmp/frontend-ingress.rendered.yaml
 
-      - name: Apply frontend and ingress
+      - name: Apply frontend and ingress (capture rollout RC)
+        id: apply
         shell: bash
         timeout-minutes: 6
         run: |
           set -euo pipefail
           kubectl apply -n nat20 -f infrastructure/k8s/frontend/deployment.yaml
           kubectl apply -f /tmp/frontend-ingress.rendered.yaml
+          set +e
           kubectl -n nat20 rollout status deployment/frontend --timeout=5m
+          RC=$?
+          echo "rollout_rc=${RC}" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Diagnostics on failure (pods/events/logs)
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "=== Pods (label app=frontend) ==="
+          kubectl -n nat20 get pods -l app=frontend -o wide || true
+          echo "=== Describe Deployment ==="
+          kubectl -n nat20 describe deploy frontend || true
+          echo "=== Recent Events (namespace nat20) ==="
+          kubectl -n nat20 get events --sort-by=.lastTimestamp | tail -n 100 || true
+          echo "=== Describe Pods ==="
+          for p in $(kubectl -n nat20 get pods -l app=frontend -o name 2>/dev/null | sed 's|pod/||'); do
+            kubectl -n nat20 describe pod "$p" || true
+            echo "--- logs $p ---"
+            kubectl -n nat20 logs "$p" --tail=200 || true
+            echo "--- previous logs $p ---"
+            kubectl -n nat20 logs "$p" --previous --tail=200 || true
+          done
+
+      - name: Fail if rollout failed
+        if: steps.apply.outputs.rollout_rc != '0'
+        shell: bash
+        run: |
+          echo "Frontend rollout failed"
+          exit 1
 
       - name: Wait for Ingress hostname (ALB provisioning)
         id: alb
+        if: steps.apply.outputs.rollout_rc == '0'
         shell: bash
         timeout-minutes: 3
         run: |
