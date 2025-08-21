@@ -1,21 +1,61 @@
-name: Clear Terraform Lock
+name: Nuke Terraform Locks
 
 on:
   workflow_dispatch:
 
+env:
+  AWS_REGION: eu-central-1
+  LOCK_TABLE: terraform-lock-table  # change if your table name differs
+
 jobs:
-  unlock:
+  nuke-locks:
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+
     steps:
-      - name: Set up AWS CLI
+      - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: eu-central-1
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }} # e.g. arn:aws:iam::637423477802:role/nat20-github-ci
+          aws-region: ${{ env.AWS_REGION }}
 
-      - name: Delete Terraform lock from DynamoDB
+      - name: Show caller identity (sanity check)
+        run: aws sts get-caller-identity
+
+      - name: List current locks
         run: |
-          aws dynamodb delete-item \
-            --table-name terraform-lock-table \
-            --key '{"LockID": {"S": "navot-terraform-state-1/mongodb/terraform.tfstate"}}'
+          aws dynamodb scan \
+            --table-name "$LOCK_TABLE" \
+            --projection-expression "LockID" \
+            --output table || true
+
+      - name: Delete all lock items
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Scanning $LOCK_TABLE for LockID values..."
+          # Grab all LockIDs (handles typical small tables; pagination rarely needed for TF locks)
+          LOCK_IDS=$(aws dynamodb scan \
+            --table-name "$LOCK_TABLE" \
+            --projection-expression "LockID" \
+            --query 'Items[].LockID.S' \
+            --output text || true)
+
+          if [ -z "${LOCK_IDS:-}" ]; then
+            echo "No lock items found."
+            exit 0
+          fi
+
+          echo "Found lock IDs:"
+          echo "$LOCK_IDS" | tr '\t' '\n'
+
+          for LOCK_ID in $LOCK_IDS; do
+            echo "Deleting LockID: $LOCK_ID"
+            aws dynamodb delete-item \
+              --table-name "$LOCK_TABLE" \
+              --key "{\"LockID\": {\"S\": \"$LOCK_ID\"}}"
+          done
+
+          echo "Done."
