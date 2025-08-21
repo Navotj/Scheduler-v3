@@ -91,7 +91,6 @@ jobs:
           echo "ALB_FRONTEND_SG_ID=${ALB_FRONTEND_SG_ID}" >> "$GITHUB_ENV"
 
       - name: Configure kubeconfig
-        id: kubeconfig
         shell: bash
         env:
           AWS_REGION: ${{ env.AWS_REGION }}
@@ -101,8 +100,7 @@ jobs:
           aws eks update-kubeconfig --name "${CLUSTER_NAME}" --region "${AWS_REGION}"
           kubectl version --client
 
-      # ===== EKS API Reachability Debug & Fix =====
-      - name: Preflight - API reachability (brief)
+      - name: 'Preflight: API reachability (brief)'
         id: preflight
         shell: bash
         continue-on-error: true
@@ -119,48 +117,66 @@ jobs:
             sleep 5
           done
           echo "ok=${ok}" >> "$GITHUB_OUTPUT"
-          test "${ok}" = true
 
-      - name: Open EKS API to this runner CIDR (if missing/closed)
-        if: steps.preflight.outputs.ok != 'true'
-        id: open_eks
+      - name: 'Fix reachability: add runner CIDR & enable public endpoint (if needed)'
+        if: ${{ steps.preflight.outputs.ok != 'true' }}
+        id: fix
         shell: bash
         env:
           AWS_REGION: ${{ env.AWS_REGION }}
           CLUSTER_NAME: ${{ env.CLUSTER_NAME }}
+          KUBECTL_TIMEOUT: ${{ env.KUBECTL_TIMEOUT }}
         run: |
           set -euo pipefail
+
           RUNNER_IP="$(curl -s https://checkip.amazonaws.com | tr -d '\n\r')"
+          if [[ -z "${RUNNER_IP}" ]]; then
+            echo "Could not determine runner public IP" >&2
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           RUNNER_CIDR="${RUNNER_IP}/32"
+
           DESC="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}")"
           CUR_JSON="$(jq -c '.cluster.resourcesVpcConfig.publicAccessCidrs // []' <<< "${DESC}")"
+
+          # merge + unique
           UPDATED_JSON="$(jq -cn --arg ip "${RUNNER_CIDR}" --argjson cur "${CUR_JSON:-[]}" '((($cur // []) | map(tostring)) + [$ip]) | unique')"
           UPDATED_CSV="$(jq -r 'join(",")' <<< "${UPDATED_JSON}")"
 
           echo "Applying EKS update: endpointPublicAccess=true, publicAccessCidrs=${UPDATED_CSV}"
-          UPDATE_JSON="$(aws eks update-cluster-config \
+          U_JSON="$(aws eks update-cluster-config \
             --name "${CLUSTER_NAME}" \
             --region "${AWS_REGION}" \
             --resources-vpc-config "endpointPublicAccess=true,publicAccessCidrs=${UPDATED_CSV}" \
             --output json)"
-          UPDATE_ID="$(jq -r '.update.id' <<< "${UPDATE_JSON}")"
+          U_ID="$(jq -r '.update.id' <<< "${U_JSON}")"
 
+          # wait up to ~3 min
           for i in {1..36}; do
-            s="$(aws eks describe-update --name "${CLUSTER_NAME}" --update-id "${UPDATE_ID}" --region "${AWS_REGION}" --query 'update.status' --output text || echo "")"
+            s="$(aws eks describe-update --name "${CLUSTER_NAME}" --update-id "${U_ID}" --region "${AWS_REGION}" --query 'update.status' --output text || echo "")"
             [[ "${s}" == "Successful" ]] && break
-            [[ "${s}" == "Failed" ]] && { echo "EKS update failed"; exit 1; }
+            [[ "${s}" == "Failed" ]] && { echo "EKS update failed"; echo "ok=false" >> "$GITHUB_OUTPUT"; exit 0; }
             sleep 5
           done
 
-          ENDPOINT="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}" --query 'cluster.endpoint' --output text)"
-          HOST="${ENDPOINT#https://}"
-          for i in {1..12}; do
-            code="$(curl -sk -o /dev/null -w "%{http_code}" --connect-timeout 5 --max-time 10 "https://${HOST}/version" || true)"
-            [[ "${code}" =~ ^(200|401|403|404|405)$ ]] && break
-            sleep 5
-          done
+          # verify with kubectl
+          if kubectl --request-timeout="${KUBECTL_TIMEOUT}" get --raw=/version >/dev/null 2>&1; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          fi
 
-      # ===== K8s apply =====
+      - name: 'Fail early: API still unreachable after remediation'
+        if: ${{ steps.preflight.outputs.ok != 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ steps.fix.outputs.ok }}" != "true" ]]; then
+            echo "EKS API is unreachable after remediation; aborting deploy." >&2
+            exit 1
+          fi
+
       - name: Ensure namespace exists
         shell: bash
         run: |
@@ -200,7 +216,7 @@ jobs:
           set -euo pipefail
           kubectl -n "${NAMESPACE}" rollout status deployment/frontend --timeout=300s
 
-      - name: On failure - collect diagnostics
+      - name: 'On failure: collect diagnostics'
         if: failure()
         shell: bash
         run: |
