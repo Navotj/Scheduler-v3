@@ -64,6 +64,8 @@ jobs:
 
       - name: Build & push image
         shell: bash
+        env:
+          DOCKER_BUILDKIT: "1"
         run: |
           set -euo pipefail
           docker build -f infrastructure/docker/frontend/Dockerfile -t "${IMAGE_URI}" .
@@ -85,7 +87,7 @@ jobs:
           aws eks update-kubeconfig --name "${CLUSTER_NAME}" --region "${AWS_REGION}"
           kubectl version --client --short || true
 
-      - name: "Preflight: API reachability (brief, treat 200/401/403 as OK)"
+      - name: "Preflight: API reachability (200/401/403 = OK)"
         id: preflight
         shell: bash
         run: |
@@ -101,28 +103,37 @@ jobs:
           done
           echo "ok=${ok}" >> "$GITHUB_OUTPUT"
 
-      - name: "Fallback: temporarily allow this runner CIDR (one attempt)"
+      - name: "Fallback: temporarily allow this runner CIDR"
         if: steps.preflight.outputs.ok != 'true'
+        id: allow-runner
         shell: bash
         run: |
           set -euo pipefail
           RUNNER_CIDR="$(curl -s https://checkip.amazonaws.com | tr -d '\r\n')/32"
+          echo "RUNNER_CIDR=${RUNNER_CIDR}" >> "$GITHUB_ENV"
+
+          # Current list of allowed CIDRs (may be null/empty)
           CUR_JSON="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --query 'cluster.resourcesVpcConfig.publicAccessCidrs' --output json)"
-          NEW_CSV="$(jq -r --arg ip "$RUNNER_CIDR" '(($CUR_JSON // []) + [$ip]) | unique | join(",")')"
-          if [[ -z "${NEW_CSV}" ]]; then
-            echo "could not compute publicAccessCidrs CSV"; exit 1
-          fi
+          if [[ -z "${CUR_JSON}" || "${CUR_JSON}" == "null" ]]; then CUR_JSON='[]'; fi
+
+          # Append runner and de-duplicate (FIX: feed JSON to jq via stdin)
+          NEW_CSV="$(printf '%s' "${CUR_JSON}" | jq -r --arg ip "$RUNNER_CIDR" '(. // []) + [$ip] | unique | join(",")')"
+
           echo "Applying EKS update: endpointPublicAccess=true, publicAccessCidrs=${NEW_CSV}"
           UPDATE_ID="$(aws eks update-cluster-config \
             --name "${CLUSTER_NAME}" \
             --resources-vpc-config "endpointPublicAccess=true,publicAccessCidrs=${NEW_CSV}" \
             --query 'update.id' --output text)"
+
+          # Wait for completion (bounded)
           for _ in {1..30}; do
             PHASE="$(aws eks describe-update --name "${CLUSTER_NAME}" --update-id "${UPDATE_ID}" --query 'update.status' --output text)"
             [[ "${PHASE}" == "Successful" ]] && break
             [[ "${PHASE}" == "Failed" ]] && { echo "EKS update failed"; exit 1; }
             sleep 10
           done
+
+          # Re-check reachability
           ENDPOINT="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --query 'cluster.endpoint' --output text)"
           code="$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 10 "${ENDPOINT}/version" || echo 000)"
           if [[ "$code" == "200" || "$code" == "401" || "$code" == "403" ]]; then
@@ -166,6 +177,34 @@ jobs:
         run: |
           set -euo pipefail
           kubectl -n "${NAMESPACE}" rollout status deployment/frontend --timeout=300s
+
+      - name: "Cleanup: remove temporary runner CIDR from EKS API"
+        if: always() && steps.preflight.outputs.ok != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # If we never set RUNNER_CIDR (e.g., job failed early), skip
+          if [[ -z "${RUNNER_CIDR:-}" ]]; then
+            echo "No RUNNER_CIDR set; skipping cleanup."; exit 0
+          fi
+
+          CUR_JSON="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --query 'cluster.resourcesVpcConfig.publicAccessCidrs' --output json)"
+          if [[ -z "${CUR_JSON}" || "${CUR_JSON}" == "null" ]]; then CUR_JSON='[]'; fi
+
+          REST_CSV="$(printf '%s' "${CUR_JSON}" | jq -r --arg ip "$RUNNER_CIDR" '(. // []) | map(select(. != $ip)) | unique | join(",")')"
+
+          echo "Reverting EKS publicAccessCidrs to: ${REST_CSV}"
+          UPDATE_ID="$(aws eks update-cluster-config \
+            --name "${CLUSTER_NAME}" \
+            --resources-vpc-config "endpointPublicAccess=true,publicAccessCidrs=${REST_CSV}" \
+            --query 'update.id' --output text)"
+
+          for _ in {1..30}; do
+            PHASE="$(aws eks describe-update --name "${CLUSTER_NAME}" --update-id "${UPDATE_ID}" --query 'update.status' --output text)"
+            [[ "${PHASE}" == "Successful" ]] && break
+            [[ "${PHASE}" == "Failed" ]] && { echo "Cleanup EKS update failed"; exit 1; }
+            sleep 10
+          done
 
       - name: "On failure: collect diagnostics"
         if: failure()
