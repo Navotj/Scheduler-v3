@@ -26,6 +26,8 @@ env:
   NAMESPACE: nat20
   ECR_REPO: nat20/frontend
   KUBECTL_TIMEOUT: 30s
+  AWS_RETRY_MODE: standard
+  AWS_MAX_ATTEMPTS: "6"
 
 jobs:
   deploy:
@@ -42,14 +44,12 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
           role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
 
-      - name: Ensure deps (jq, envsubst, openssl, curl)
+      - name: Ensure deps (jq, envsubst, curl)
         shell: bash
         run: |
           set -euo pipefail
           sudo apt-get update -y
-          sudo apt-get install -y jq gettext-base
-          command -v openssl >/dev/null 2>&1 || { echo "openssl missing"; exit 1; }
-          command -v curl >/dev/null 2>&1 || { echo "curl missing"; exit 1; }
+          sudo apt-get install -y jq gettext-base curl
 
       - name: Login to Amazon ECR
         id: ecr-login
@@ -117,7 +117,6 @@ jobs:
           fi
           RUNNER_CIDR="${RUNNER_IP}/32"
 
-          # Read current endpointPublicAccess and CIDRs (compact JSON)
           DESC="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}")"
           EP_PUBLIC="$(jq -r '.cluster.resourcesVpcConfig.endpointPublicAccess' <<<"${DESC}")"
           CUR_JSON="$(jq -c '.cluster.resourcesVpcConfig.publicAccessCidrs // []' <<<"${DESC}")"
@@ -126,16 +125,13 @@ jobs:
           echo "original_cidrs=${CUR_JSON}" >> "$GITHUB_OUTPUT"
           echo "original_ep=${EP_PUBLIC}" >> "$GITHUB_OUTPUT"
 
-          # Build updated CIDR list always including runner
           UPDATED_JSON="$(jq -cn --arg ip "${RUNNER_CIDR}" --argjson cur "${CUR_JSON:-null}" '
               ( ( ($cur // []) | map(tostring) ) + [$ip] ) | unique
           ')"
+          NEED_CIDR_UPDATE="$(jq -r --arg ip "${RUNNER_CIDR}" 'index($ip) | if . == null then "yes" else "no" end' <<<"${CUR_JSON}")"
           UPDATED_CSV="$(jq -r 'join(",")' <<<"${UPDATED_JSON}")"
 
-          NEED_CIDR_UPDATE="$(jq -r --arg ip "${RUNNER_CIDR}" 'index($ip) | if . == null then "yes" else "no" end' <<<"${CUR_JSON}")"
-          NEED_EP_ENABLE="$(test "${EP_PUBLIC}" = "false" && echo yes || echo no)"
-
-          if [[ "${NEED_CIDR_UPDATE}" == "yes" || "${NEED_EP_ENABLE}" == "yes" ]]; then
+          if [[ "${NEED_CIDR_UPDATE}" == "yes" || "${EP_PUBLIC}" == "false" ]]; then
             echo "Applying update: endpointPublicAccess=true, publicAccessCidrs=${UPDATED_CSV}"
             UPDATE_JSON="$(aws eks update-cluster-config \
               --name "${CLUSTER_NAME}" \
@@ -164,9 +160,11 @@ jobs:
             echo "Runner already allowed and endpointPublicAccess already true; no update needed."
           fi
 
-          ENDPOINT="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}" --query 'cluster.endpoint' --output text | sed -E 's#^https?://##')"
-          echo "Waiting for TLS at ${ENDPOINT}..."
-          retry 24 5 bash -c "echo | openssl s_client -connect '${ENDPOINT}:443' -servername '${ENDPOINT}' -brief 2>/dev/null | grep -q '^Protocol  *:  *TLS'"
+          # Bypass flaky TLS text parsing. Consider API reachable when HTTPS responds at any path.
+          ENDPOINT="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}" --query 'cluster.endpoint' --output text)"
+          API_HOST="${ENDPOINT#https://}"
+          echo "Probing Kubernetes API with curl (handshake-only, ignoring cert status)..."
+          retry 60 5 bash -c "curl -sSfk --connect-timeout 5 --max-time 10 https://${API_HOST}/version -o /dev/null"
 
       - name: Configure kubectl
         shell: bash
@@ -177,8 +175,16 @@ jobs:
           set -euo pipefail
           aws eks update-kubeconfig --name "${CLUSTER_NAME}" --region "${AWS_REGION}"
           kubectl version --client
-          kubectl cluster-info --request-timeout="${KUBECTL_TIMEOUT}" || true
-          kubectl get nodes -o wide --request-timeout="${KUBECTL_TIMEOUT}" || true
+
+          # Robust readiness: try cluster-info and nodes a few times before proceeding.
+          for i in {1..12}; do
+            if kubectl cluster-info --request-timeout="${KUBECTL_TIMEOUT}" >/dev/null 2>&1; then
+              kubectl get nodes -o wide --request-timeout="${KUBECTL_TIMEOUT}" || true
+              break
+            fi
+            echo "Waiting for kubectl to reach the API ($i/12)..."
+            sleep 5
+          done
 
       - name: Ensure namespace exists
         shell: bash
@@ -253,13 +259,11 @@ jobs:
           ORIGINAL_EP: ${{ steps.open-eks.outputs.original_ep }}
         run: |
           set -euo pipefail
-          # If originals are unknown, do not attempt restore.
           if [[ -z "${ORIGINAL_CIDRS:-}" || -z "${RUNNER_CIDR:-}" || -z "${ORIGINAL_EP:-}" ]]; then
             echo "Skip restore: missing ORIGINAL_CIDRS/RUNNER_CIDR/ORIGINAL_EP"
             exit 0
           fi
 
-          # Clean CIDRs
           CLEAN_JSON="$(jq -cn --arg ip "${RUNNER_CIDR}" --argjson cur "${ORIGINAL_CIDRS:-null}" '
               ( ($cur // []) | map(tostring) | map(select(. != $ip)) ) | unique
           ')"
@@ -272,7 +276,6 @@ jobs:
               --region "${AWS_REGION}" \
               --resources-vpc-config "endpointPublicAccess=false" >/dev/null
           else
-            # Restore EP=true and original CIDRs (minus runner)
             if [[ -n "${CLEAN_CSV}" ]]; then
               echo "Restoring CIDRs to: ${CLEAN_CSV}"
               aws eks update-cluster-config \
