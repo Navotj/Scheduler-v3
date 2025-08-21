@@ -15,7 +15,7 @@ jobs:
 
     env:
       AWS_REGION: eu-central-1
-      TF_PLUGIN_CACHE_DIR: ${{ github.workspace }}/.tf-plugin-cache
+      TF_PLUGIN_CACHE_DIR: ${{ github.workspace }}/.tf-plugin-cache }
       TF_VAR_admin_principal_arn: ${{ secrets.EKS_ADMIN_PRINCIPAL_ARN }}
       CLUSTER_NAME: nat20-eks
 
@@ -139,6 +139,23 @@ jobs:
             echo "Waiting for EKS API to accept new CIDR... (${i}/60)"
             sleep 5
           done
+
+      - name: Import existing EKS access entries (idempotent)
+        env:
+          CLUSTER_NAME: ${{ env.CLUSTER_NAME }}
+          ADMIN_PRINCIPAL_ARN: ${{ secrets.EKS_ADMIN_PRINCIPAL_ARN }}
+        run: |
+          set -euo pipefail
+          # Discover CI role ARN from state; or set via secret if you prefer.
+          CI_ARN="$(terraform state show aws_iam_role.github_ci 2>/dev/null | awk -F'= ' '/^arn = /{print $2}' || true)"
+
+          for P in "${ADMIN_PRINCIPAL_ARN:-}" "${CI_ARN:-}"; do
+            [ -z "$P" ] && continue
+            echo "Importing EKS access entry for $P"
+            terraform import -allow-missing-config aws_eks_access_entry.admin     "${CLUSTER_NAME},${P}" || true
+            terraform import -allow-missing-config aws_eks_access_entry.github_ci "${CLUSTER_NAME},${P}" || true
+          done
+
 
       # -------- Phase B: converge full stack (addons enabled) --------
       - name: Plan full (addons enabled)

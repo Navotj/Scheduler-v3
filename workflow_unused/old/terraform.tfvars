@@ -1,1 +1,0 @@
-frontend_domain = "nat20scheduling.com"

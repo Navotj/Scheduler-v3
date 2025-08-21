@@ -84,9 +84,9 @@ resource "kubernetes_storage_class" "gp3" {
 }
 
 # AWS Load Balancer Controller (IRSA: aws_iam_role.alb_controller)
-# Install unconditionally so Ingress provisioning always works
+# Gate on install_addons to avoid provider init when cluster doesn't exist yet
 resource "helm_release" "aws_load_balancer_controller" {
-  count      = 1
+  count      = var.install_addons ? 1 : 0
   name       = "aws-load-balancer-controller"
   repository = "https://aws.github.io/eks-charts"
   chart      = "aws-load-balancer-controller"
@@ -148,7 +148,7 @@ resource "helm_release" "aws_load_balancer_controller" {
 
 # External Secrets Operator (installs CRDs) with IRSA
 resource "helm_release" "external_secrets" {
-  count      = 1
+  count      = var.install_addons ? 1 : 0
   name       = "external-secrets"
   repository = "https://charts.external-secrets.io"
   chart      = "external-secrets"
