@@ -1,112 +1,125 @@
 name: Deploy Mongo to EKS
 
 on:
+  workflow_dispatch: {}
   push:
-    branches: ["main"]
     paths:
       - ".github/workflows/deploy_mongo.yml"
       - "infrastructure/k8s/mongo/**"
       - "infrastructure/k8s/externalsecrets/mongo-secrets.yaml"
       - "infrastructure/k8s/secret-stores/clustersecretstore.yaml"
-  workflow_dispatch:
+      - "infrastructure/k8s/storageclasses/gp3.yaml"
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: deploy-mongo
+  cancel-in-progress: true
+
+env:
+  AWS_REGION: eu-central-1
+  CLUSTER_NAME: nat20-eks
+  PROJECT_NAME: nat20
+  NAMESPACE: nat20
+  KUBECTL_TIMEOUT: 30s
+  AWS_RETRY_MODE: standard
+  AWS_MAX_ATTEMPTS: 6
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
-    permissions:
-      id-token: write
-      contents: read
-
-    env:
-      AWS_REGION: eu-central-1
-      CLUSTER_NAME: nat20-eks
-      # If empty, we'll auto-detect runner /32 and use that instead of 0.0.0.0/0
-      EKS_JOB_PUBLIC_CIDRS: ""
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Configure AWS credentials
+      - name: Configure AWS (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Capture current EKS API CIDRs and endpoint (safe outputs)
+      - name: Install tooling
         shell: bash
         run: |
           set -euo pipefail
-          ENDPOINT="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}" --query 'cluster.endpoint' --output text)"
-          echo "EKS_ENDPOINT=${ENDPOINT}" >> "$GITHUB_ENV"
+          sudo apt-get update -y
+          sudo apt-get install -y jq curl ca-certificates gettext-base
+          sudo update-ca-certificates
 
-          CUR_JSON="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
-            --query 'cluster.resourcesVpcConfig.publicAccessCidrs' --output json || echo '[]')"
-          ORIG_B64="$(printf '%s' "${CUR_JSON}" | base64 -w0)"
-          echo "EKS_ORIG_CIDRS_B64=${ORIG_B64}" >> "$GITHUB_ENV"
-
-      - name: Open EKS API temporarily (runner /32) and quick probe
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ -z "${EKS_JOB_PUBLIC_CIDRS:-}" ]; then
-            RIP="$(curl -s https://checkip.amazonaws.com/ | tr -d '\r')"
-            if printf '%s' "$RIP" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
-              TARGET="${RIP}/32"
-            else
-              TARGET="0.0.0.0/0"
-            fi
-          else
-            TARGET="${EKS_JOB_PUBLIC_CIDRS}"
-          fi
-
-          CUR_JSON="$(printf '%s' "${EKS_ORIG_CIDRS_B64:-}" | base64 -d 2>/dev/null || echo '[]')"
-          CUR_JOIN="$(printf '%s' "${CUR_JSON}" | jq -r 'join(",")')"
-
-          if [ -z "${CUR_JOIN}" ] || [ "${CUR_JOIN}" != "${TARGET}" ]; then
-            set +e
-            aws eks update-cluster-config --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
-              --resources-vpc-config publicAccessCidrs="${TARGET}" >/dev/null 2>err.txt
-            rc=$?
-            set -e
-            if [ $rc -ne 0 ] && ! grep -qi "already at the desired configuration" err.txt; then
-              echo "Failed to set temporary EKS API CIDRs:"; cat err.txt; exit 1
-            fi
-          fi
-
-          HOST="$(echo "${EKS_ENDPOINT}" | sed -E 's#https?://##')"
-          for i in 1 2 3; do
-            if timeout 3 bash -lc "exec 3<>/dev/tcp/${HOST}/443" 2>/dev/null; then
-              exec 3>&-
-              echo "EKS endpoint reachable."
-              exit 0
-            fi
-            sleep 2
-          done
-          echo "EKS endpoint NOT reachable after 3 tries."
-          exit 1
-
-      - name: Configure kubectl
+      - name: kubeconfig
         shell: bash
         run: |
           set -euo pipefail
           aws eks update-kubeconfig --name "${CLUSTER_NAME}" --region "${AWS_REGION}"
+          kubectl version --client || true
+
+      - name: "Preflight: API reachability (200/401/403 OK)"
+        id: preflight
+        shell: bash
+        run: |
+          set -euo pipefail
+          ENDPOINT="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --query 'cluster.endpoint' --output text)"
+          ok="false"
+          for i in 1 2 3; do
+            code="$(curl -k -sS -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 10 "${ENDPOINT}/version" || echo 000)"
+            if [[ "$code" == "200" || "$code" == "401" || "$code" == "403" ]]; then
+              ok="true"; break
+            fi
+            sleep 5
+          done
+          echo "ok=${ok}" >> "$GITHUB_OUTPUT"
+
+      - name: "Fallback: temporarily allow this runner CIDR"
+        if: steps.preflight.outputs.ok != 'true'
+        id: allow-runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          RUNNER_CIDR="$(curl -s https://checkip.amazonaws.com | tr -d '\r\n')/32"
+          echo "RUNNER_CIDR=${RUNNER_CIDR}" >> "$GITHUB_ENV"
+
+          CUR_JSON="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --query 'cluster.resourcesVpcConfig.publicAccessCidrs' --output json)"
+          if [[ -z "${CUR_JSON}" || "${CUR_JSON}" == "null" ]]; then CUR_JSON='[]'; fi
+          NEW_CSV="$(printf '%s' "${CUR_JSON}" | jq -r --arg ip "$RUNNER_CIDR" '(. // []) + [$ip] | unique | join(",")')"
+
+          echo "Applying EKS update: endpointPublicAccess=true, publicAccessCidrs=${NEW_CSV}"
+          UPDATE_ID="$(aws eks update-cluster-config \
+            --name "${CLUSTER_NAME}" \
+            --resources-vpc-config "endpointPublicAccess=true,publicAccessCidrs=${NEW_CSV}" \
+            --query 'update.id' --output text)"
+
+          for _ in {1..30}; do
+            PHASE="$(aws eks describe-update --name "${CLUSTER_NAME}" --update-id "${UPDATE_ID}" --query 'update.status' --output text)"
+            [[ "${PHASE}" == "Successful" ]] && break
+            [[ "${PHASE}" == "Failed" ]] && { echo "EKS update failed"; exit 1; }
+            sleep 10
+          done
+
+          ENDPOINT="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --query 'cluster.endpoint' --output text)"
+          code="$(curl -k -sS -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 10 "${ENDPOINT}/version" || echo 000)"
+          if [[ "$code" == "200" || "$code" == "401" || "$code" == "403" ]]; then
+            echo "API now reachable (HTTP ${code})."
+          else
+            echo "API still not reachable (HTTP ${code}). Aborting."
+            exit 1
+          fi
 
       - name: Ensure namespaces + PSS labels
         shell: bash
         run: |
           set -euo pipefail
-          kubectl get ns nat20 >/dev/null 2>&1 || kubectl create ns nat20
+          kubectl get ns "${NAMESPACE}" >/dev/null 2>&1 || kubectl create ns "${NAMESPACE}"
           kubectl get ns externalsecrets >/dev/null 2>&1 || kubectl create ns externalsecrets
-          kubectl label ns nat20 \
+          kubectl label ns "${NAMESPACE}" \
             pod-security.kubernetes.io/enforce=restricted \
             pod-security.kubernetes.io/audit=restricted \
             pod-security.kubernetes.io/warn=restricted \
             --overwrite || true
 
-      - name: Ensure External Secrets CRDs (server-side)
+      - name: Ensure External Secrets CRDs (pinned)
         shell: bash
         run: |
           set -euo pipefail
@@ -122,12 +135,12 @@ jobs:
           if ! aws eks describe-addon --cluster-name "${CLUSTER_NAME}" --addon-name aws-ebs-csi-driver >/dev/null 2>&1; then
             aws eks create-addon --cluster-name "${CLUSTER_NAME}" --addon-name aws-ebs-csi-driver --resolve-conflicts OVERWRITE >/dev/null
           else
-            aws eks update-addon  --cluster-name "${CLUSTER_NAME}" --addon-name aws-ebs-csi-driver --resolve-conflicts OVERWRITE >/dev/null || true
+            aws eks update-addon --cluster-name "${CLUSTER_NAME}" --addon-name aws-ebs-csi-driver --resolve-conflicts OVERWRITE >/dev/null || true
           fi
           for i in {1..60}; do
-            ST=$(aws eks describe-addon --cluster-name "${CLUSTER_NAME}" --addon-name aws-ebs-csi-driver --query 'addon.status' --output text || echo "")
-            [ "${ST}" = "ACTIVE" ] && { echo "aws-ebs-csi-driver ACTIVE"; break; }
-            [ $i -eq 60 ] && { echo "aws-ebs-csi-driver not ACTIVE in time (last=${ST})"; exit 1; }
+            ST="$(aws eks describe-addon --cluster-name "${CLUSTER_NAME}" --addon-name aws-ebs-csi-driver --query 'addon.status' --output text || true)"
+            [[ "${ST}" == "ACTIVE" ]] && { echo "aws-ebs-csi-driver ACTIVE"; break; }
+            [[ $i -eq 60 ]] && { echo "aws-ebs-csi-driver not ACTIVE in time (last=${ST})"; exit 1; }
             sleep 5
           done
 
@@ -138,126 +151,20 @@ jobs:
           if ! aws eks describe-addon --cluster-name "${CLUSTER_NAME}" --addon-name eks-pod-identity-agent >/dev/null 2>&1; then
             aws eks create-addon --cluster-name "${CLUSTER_NAME}" --addon-name eks-pod-identity-agent --resolve-conflicts OVERWRITE >/dev/null
           else
-            aws eks update-addon  --cluster-name "${CLUSTER_NAME}" --addon-name eks-pod-identity-agent --resolve-conflicts OVERWRITE >/dev/null || true
+            aws eks update-addon --cluster-name "${CLUSTER_NAME}" --addon-name eks-pod-identity-agent --resolve-conflicts OVERWRITE >/dev/null || true
           fi
           for i in {1..60}; do
-            ST=$(aws eks describe-addon --cluster-name "${CLUSTER_NAME}" --addon-name eks-pod-identity-agent --query 'addon.status' --output text || echo "")
-            [ "${ST}" = "ACTIVE" ] && { echo "eks-pod-identity-agent ACTIVE"; break; }
-            [ $i -eq 60 ] && { echo "eks-pod-identity-agent not ACTIVE in time (last=${ST})"; exit 1; }
+            ST="$(aws eks describe-addon --cluster-name "${CLUSTER_NAME}" --addon-name eks-pod-identity-agent --query 'addon.status' --output text || true)"
+            [[ "${ST}" == "ACTIVE" ]] && { echo "eks-pod-identity-agent ACTIVE"; break; }
+            [[ $i -eq 60 ]] && { echo "eks-pod-identity-agent not ACTIVE in time (last=${ST})"; exit 1; }
             sleep 5
           done
 
-      - name: Grant EBS CSI creds via EKS Pod Identity (idempotent, no blind restarts)
-        shell: bash
-        env:
-          EKS_EBS_ROLE_NAME: nat20-eks-ebs-csi-pod-id
-        run: |
-          set -euo pipefail
-          CLUSTER="${CLUSTER_NAME}"
-          REGION="${AWS_REGION}"
-          ACC_ID="$(aws sts get-caller-identity --query Account --output text)"
-          ROLE_NAME="${EKS_EBS_ROLE_NAME:-${CLUSTER}-ebs-csi-pod-id}"
-          POLICY_ARN="arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy"
-          CHANGED=0
-
-          TRUST_JSON="$(jq -n '{
-            Version: "2012-10-17",
-            Statement: [{
-              Sid: "AllowEksAuthToAssumeRoleForPodIdentity",
-              Effect: "Allow",
-              Principal: { Service: "pods.eks.amazonaws.com" },
-              Action: ["sts:AssumeRole","sts:TagSession"]
-            }]
-          }')"
-          printf '%s' "$TRUST_JSON" > trust.json
-
-          if ! aws iam get-role --role-name "$ROLE_NAME" >/dev/null 2>&1; then
-            aws iam create-role --role-name "$ROLE_NAME" --assume-role-policy-document file://trust.json >/dev/null
-            CHANGED=1
-          fi
-          aws iam update-assume-role-policy --role-name "$ROLE_NAME" --policy-document file://trust.json >/dev/null
-
-          HAS=$(aws iam list-attached-role-policies --role-name "$ROLE_NAME" \
-               --query "AttachedPolicies[?PolicyArn=='${POLICY_ARN}'] | length(@)" --output text || echo 0)
-          if [ "${HAS}" != "1" ]; then
-            aws iam attach-role-policy --role-name "$ROLE_NAME" --policy-arn "$POLICY_ARN" >/dev/null
-            CHANGED=1
-          fi
-          ROLE_ARN="$(aws iam get-role --role-name "$ROLE_NAME" --query 'Role.Arn' --output text)"
-
-          CUR_ASSOC_JSON="$(aws eks list-pod-identity-associations --cluster-name "$CLUSTER" --output json)"
-          CUR_ASSOC_ID="$(echo "$CUR_ASSOC_JSON" | jq -r '.associations[] | select(.namespace=="kube-system" and .serviceAccount=="ebs-csi-controller-sa") | .associationId' | head -n1)"
-          CUR_ASSOC_ROLE="$(echo "$CUR_ASSOC_JSON" | jq -r '.associations[] | select(.namespace=="kube-system" and .serviceAccount=="ebs-csi-controller-sa") | .roleArn' | head -n1)"
-
-          if [ -z "$CUR_ASSOC_ID" ]; then
-            aws eks create-pod-identity-association --cluster-name "$CLUSTER" \
-              --namespace kube-system --service-account ebs-csi-controller-sa --role-arn "$ROLE_ARN" >/dev/null
-            CHANGED=1
-          elif [ "$CUR_ASSOC_ROLE" != "$ROLE_ARN" ]; then
-            aws eks update-pod-identity-association --cluster-name "$CLUSTER" \
-              --association-id "$CUR_ASSOC_ID" --role-arn "$ROLE_ARN" >/dev/null
-            CHANGED=1
-          fi
-
-          if [ $CHANGED -eq 1 ]; then
-            kubectl -n kube-system rollout restart deploy ebs-csi-controller || true
-            kubectl -n kube-system rollout restart ds ebs-csi-node || true
-          fi
-
-          for i in {1..30}; do
-            DS_READY=$(kubectl -n kube-system get ds ebs-csi-node -o jsonpath='{.status.numberReady}' 2>/dev/null || echo 0)
-            DS_DESIRED=$(kubectl -n kube-system get ds ebs-csi-node -o jsonpath='{.status.desiredNumberScheduled}' 2>/dev/null || echo 0)
-            DEP_READY=$(kubectl -n kube-system get deploy ebs-csi-controller -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo 0)
-            if [ "$DS_READY" = "$DS_DESIRED" ] && [ "$DS_READY" != "0" ] && [ "${DEP_READY:-0}" != "0" ]; then
-              echo "EBS CSI node/controller ready."
-              break
-            fi
-            [ $i -eq 30 ] && { echo "EBS CSI driver not ready; abort."; kubectl -n kube-system get pods -l app.kubernetes.io/name=aws-ebs-csi-driver -o wide || true; exit 1; }
-            sleep 2
-          done
-
-      - name: Wait for CSINode registration (topology keys present)
+      - name: "Ensure gp3 StorageClass exists"
         shell: bash
         run: |
           set -euo pipefail
-          NODES=$(kubectl get nodes -o name | sed 's#node/##')
-          if [ -z "$NODES" ]; then
-            echo "No nodes found"; exit 1
-          fi
-          for NODE in $NODES; do
-            echo "Waiting for CSINode $NODE to register ebs.csi.aws.com with topology..."
-            OK=0
-            for i in {1..60}; do
-              NAME=$(kubectl get csinode "$NODE" -o jsonpath='{.spec.drivers[?(@.name=="ebs.csi.aws.com")].name}' 2>/dev/null || echo "")
-              KEYS=$(kubectl get csinode "$NODE" -o jsonpath='{.spec.drivers[?(@.name=="ebs.csi.aws.com")].topologyKeys}' 2>/dev/null || echo "")
-              if [ "$NAME" = "ebs.csi.aws.com" ] && (echo "$KEYS" | grep -q "topology.kubernetes.io/zone\|topology.ebs.csi.aws.com/zone"); then
-                OK=1; break
-              fi
-              sleep 2
-            done
-            [ $OK -eq 1 ] || { echo "CSINode $NODE not ready with topology keys"; kubectl get csinode "$NODE" -o yaml || true; exit 1; }
-          done
-          echo "All CSINode objects are ready."
-
-      - name: Ensure gp3 StorageClass exists (no heredoc)
-        shell: bash
-        run: |
-          set -euo pipefail
-          if ! kubectl get sc gp3 >/dev/null 2>&1; then
-            printf '%s\n' \
-              'apiVersion: storage.k8s.io/v1' \
-              'kind: StorageClass' \
-              'metadata:' \
-              '  name: gp3' \
-              'provisioner: ebs.csi.aws.com' \
-              'volumeBindingMode: WaitForFirstConsumer' \
-              'allowVolumeExpansion: true' \
-              'parameters:' \
-              '  type: gp3' \
-              '  fsType: ext4' \
-              '  encrypted: "true"' \
-            | kubectl apply -f -
-          fi
+          kubectl apply -f infrastructure/k8s/storageclasses/gp3.yaml
           kubectl get sc gp3
 
       - name: Apply ClusterSecretStore + Mongo ExternalSecret
@@ -265,17 +172,14 @@ jobs:
         run: |
           set -euo pipefail
           kubectl apply -f infrastructure/k8s/secret-stores/clustersecretstore.yaml
-          kubectl apply -n nat20 -f infrastructure/k8s/externalsecrets/mongo-secrets.yaml
+          kubectl apply -n "${NAMESPACE}" -f infrastructure/k8s/externalsecrets/mongo-secrets.yaml
           for i in {1..36}; do
-            if kubectl -n nat20 get secret mongo-root >/dev/null 2>&1; then
-              echo "mongo-root Secret present."
-              break
-            fi
-            [ $i -eq 36 ] && { echo "mongo-root Secret missing; abort."; exit 1; }
+            kubectl -n "${NAMESPACE}" get secret mongo-root >/dev/null 2>&1 && break
             sleep 5
           done
+          kubectl -n "${NAMESPACE}" get secret mongo-root >/dev/null 2>&1 || { echo "mongo-root Secret not materialized"; exit 1; }
 
-      - name: Deploy Mongo services + StatefulSet (immutable-safe)
+      - name: "Deploy Mongo services + StatefulSet (immutable-safe)"
         shell: bash
         run: |
           set -euo pipefail
@@ -285,67 +189,104 @@ jobs:
           ITEMS_JSON="$(echo "${RAW_JSON}" | jq -c 'if .kind=="List" then .items else [.] end')"
 
           echo "${ITEMS_JSON}" | jq -c '.[] | select(.kind=="Service")' | while read -r SVC; do
-            echo "${SVC}" | kubectl -n nat20 apply -f -
+            echo "${SVC}" | kubectl -n "${NAMESPACE}" apply -f -
           done
 
           DESIRED_STS="$(echo "${ITEMS_JSON}" | jq '.[] | select(.kind=="StatefulSet")')"
-          [ -n "${DESIRED_STS}" ] && [ "${DESIRED_STS}" != "null" ] || { echo "ERROR: No StatefulSet in ${MANIFEST}"; exit 1; }
+          [[ -n "${DESIRED_STS}" && "${DESIRED_STS}" != "null" ]]
 
           DES_SVC_NAME="$(echo "${DESIRED_STS}" | jq -r '.spec.serviceName')"
           DES_SELECTOR="$(echo "${DESIRED_STS}" | jq -c '.spec.selector')"
           DES_VCT="$(echo "${DESIRED_STS}" | jq -c '.spec.volumeClaimTemplates')"
 
           RECREATE=0
-          if kubectl -n nat20 get sts mongo >/dev/null 2>&1; then
-            CUR_JSON="$(kubectl -n nat20 get sts mongo -o json)"
+          if kubectl -n "${NAMESPACE}" get sts mongo >/dev/null 2>&1; then
+            CUR_JSON="$(kubectl -n "${NAMESPACE}" get sts mongo -o json)"
             CUR_SVC_NAME="$(echo "${CUR_JSON}" | jq -r '.spec.serviceName')"
             CUR_SELECTOR="$(echo "${CUR_JSON}" | jq -c '.spec.selector')"
             CUR_VCT="$(echo "${CUR_JSON}" | jq -c '.spec.volumeClaimTemplates')"
-            if [ "${CUR_SVC_NAME}" != "${DES_SVC_NAME}" ] || [ "${CUR_SELECTOR}" != "${DES_SELECTOR}" ] || [ "${CUR_VCT}" != "${DES_VCT}" ]; then
+            if [[ "${CUR_SVC_NAME}" != "${DES_SVC_NAME}" || "${CUR_SELECTOR}" != "${DES_SELECTOR}" || "${CUR_VCT}" != "${DES_VCT}" ]]; then
               RECREATE=1
             fi
           fi
 
-          if [ $RECREATE -eq 1 ]; then
+          if [[ $RECREATE -eq 1 ]]; then
             echo "Detected immutable field change; recreating StatefulSet 'mongo'..."
-            kubectl -n nat20 scale sts mongo --replicas=0 || true
-            kubectl -n nat20 delete sts mongo --wait=true
+            kubectl -n "${NAMESPACE}" scale sts mongo --replicas=0 || true
+            kubectl -n "${NAMESPACE}" delete sts mongo --wait=true
           fi
 
-          echo "${DESIRED_STS}" | kubectl -n nat20 apply -f -
+          echo "${DESIRED_STS}" | kubectl -n "${NAMESPACE}" apply -f -
 
-      - name: Wait for PVC bound and Pod ready
+      - name: "Wait for PVC bound and Pod ready"
         shell: bash
         run: |
           set -euo pipefail
           for i in {1..30}; do
-            PHASE="$(kubectl -n nat20 get pvc mongo-data-mongo-0 -o jsonpath='{.status.phase}' 2>/dev/null || echo '')"
-            if [ "${PHASE}" = "Bound" ]; then
-              echo "PVC Bound."
-              break
+            PHASE="$(kubectl -n "${NAMESPACE}" get pvc mongo-data-mongo-0 -o jsonpath='{.status.phase}' 2>/dev/null || echo '')"
+            if [[ "${PHASE}" == "Bound" ]]; then
+              echo "PVC Bound."; break
             fi
-            [ $i -eq 30 ] && { echo "PVC didn't bind in time."; kubectl -n nat20 describe pvc mongo-data-mongo-0 || true; exit 1; }
+            [[ $i -eq 30 ]] && { echo "PVC didn't bind in time."; kubectl -n "${NAMESPACE}" describe pvc mongo-data-mongo-0 || true; exit 1; }
             sleep 4
           done
-          kubectl -n nat20 rollout status statefulset/mongo --timeout=6m
+          kubectl -n "${NAMESPACE}" rollout status statefulset/mongo --timeout=6m
 
-      - name: Output Mongo service and pod
+      - name: Output Mongo service and pods
         shell: bash
         run: |
           set -euo pipefail
           kubectl get sc gp3
-          kubectl -n nat20 get pvc mongo-data-mongo-0 -o wide || true
-          kubectl -n nat20 get svc mongo -o wide || true
-          kubectl -n nat20 get pods -l app=mongo -o wide || true
+          kubectl -n "${NAMESPACE}" get pvc -l app=mongo -o wide || true
+          kubectl -n "${NAMESPACE}" get svc mongo -o wide || true
+          kubectl -n "${NAMESPACE}" get pods -l app=mongo -o wide || true
 
-      - name: Restore original EKS API CIDRs
-        if: always()
+      - name: "Cleanup: remove temporary runner CIDR from EKS API"
+        if: always() && steps.preflight.outputs.ok != 'true'
         shell: bash
         run: |
           set -euo pipefail
-          ORIG_JSON="$(printf '%s' "${EKS_ORIG_CIDRS_B64:-}" | base64 -d 2>/dev/null || echo '[]')"
-          WANT="$(printf '%s' "${ORIG_JSON}" | jq -r 'join(",")')"
-          if [ -n "${WANT}" ]; then
-            aws eks update-cluster-config --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
-              --resources-vpc-config publicAccessCidrs="${WANT}" >/dev/null || true
+          if [[ -z "${RUNNER_CIDR:-}" ]]; then
+            echo "No RUNNER_CIDR set; skipping cleanup."; exit 0
           fi
+          CUR_JSON="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --query 'cluster.resourcesVpcConfig.publicAccessCidrs' --output json)"
+          if [[ -z "${CUR_JSON}" || "${CUR_JSON}" == "null" ]]; then CUR_JSON='[]'; fi
+          REST_CSV="$(printf '%s' "${CUR_JSON}" | jq -r --arg ip "$RUNNER_CIDR" '(. // []) | map(select(. != $ip)) | unique | join(",")')"
+
+          echo "Reverting EKS publicAccessCidrs to: ${REST_CSV}"
+          UPDATE_ID="$(aws eks update-cluster-config \
+            --name "${CLUSTER_NAME}" \
+            --resources-vpc-config "endpointPublicAccess=true,publicAccessCidrs=${REST_CSV}" \
+            --query 'update.id' --output text)"
+
+          for _ in {1..30}; do
+            PHASE="$(aws eks describe-update --name "${CLUSTER_NAME}" --update-id "${UPDATE_ID}" --query 'update.status' --output text)"
+            [[ "${PHASE}" == "Successful" ]] && break
+            [[ "${PHASE}" == "Failed" ]] && { echo "Cleanup EKS update failed"; exit 1; }
+            sleep 10
+          done
+
+      - name: "On failure: collect diagnostics"
+        if: failure()
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "=== nodes ==="
+          kubectl get nodes -o wide || true
+
+          echo "=== ns objects (nat20) ==="
+          kubectl -n "${NAMESPACE}" get all -o wide || true
+
+          echo "=== events (grouped, last 300) ==="
+          kubectl -n "${NAMESPACE}" get events --sort-by=.lastTimestamp | tail -n 300 \
+            | awk '{c[$0]++} END {for (l in c) printf "%5d × %s\n", c[l], l}' | sort -nr | head -n 200 || true
+
+          echo "=== sts describe ==="
+          kubectl -n "${NAMESPACE}" describe sts mongo || true
+
+          echo "=== pod logs (last 200) ==="
+          for p in $(kubectl -n "${NAMESPACE}" get pods -l app=mongo -o name | sed 's|pod/||'); do
+            echo "--- $p ---"
+            kubectl -n "${NAMESPACE}" logs "$p" --tail=200 2>/dev/null \
+              | awk '{c[$0]++} END {for (l in c) printf "%5d × %s\n", c[l], l}' | sort -nr | head -n 100 || true
+          done
