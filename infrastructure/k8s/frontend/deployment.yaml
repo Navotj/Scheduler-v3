@@ -7,7 +7,7 @@ metadata:
     app: frontend
 spec:
   replicas: 2
-  revisionHistoryLimit: 5
+  revisionHistoryLimit: 10
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -21,55 +21,30 @@ spec:
       labels:
         app: frontend
     spec:
+      # Pod-level security context to satisfy PodSecurity "restricted"
       securityContext:
-        seccompProfile:
-          type: RuntimeDefault
-        fsGroup: 101
-        fsGroupChangePolicy: OnRootMismatch
         runAsNonRoot: true
         runAsUser: 101
         runAsGroup: 101
+        fsGroup: 101
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+
+      # Removed the init container that attempted chown/chmod. It violated
+      # restricted PodSecurity and caused FailedCreate. fsGroup handles volume
+      # permissions for the mounted EmptyDir volumes below.
 
       containers:
         - name: frontend
-          image: ${IMAGE_URI}
+          image: "${IMAGE_URI}"
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
               containerPort: 8080
-              protocol: TCP
           env:
             - name: api_host
               value: "api.nat20scheduling.com"
-          readinessProbe:
-            httpGet:
-              path: /index.html
-              port: http
-            initialDelaySeconds: 10
-            periodSeconds: 10
-            timeoutSeconds: 3
-            failureThreshold: 6
-          livenessProbe:
-            httpGet:
-              path: /index.html
-              port: http
-            initialDelaySeconds: 20
-            periodSeconds: 20
-            timeoutSeconds: 3
-            failureThreshold: 6
-          resources:
-            requests:
-              cpu: "50m"
-              memory: "64Mi"
-            limits:
-              cpu: "500m"
-              memory: "256Mi"
-          securityContext:
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
-            capabilities:
-              drop:
-                - ALL
           volumeMounts:
             - name: confd
               mountPath: /etc/nginx/conf.d
@@ -77,9 +52,35 @@ spec:
               mountPath: /var/cache/nginx
             - name: run
               mountPath: /var/run
-
-      restartPolicy: Always
-
+          # Container-level hardening to comply with "restricted"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          readinessProbe:
+            httpGet:
+              path: /index.html
+              port: http
+            initialDelaySeconds: 10
+            timeoutSeconds: 3
+            periodSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /index.html
+              port: http
+            initialDelaySeconds: 20
+            timeoutSeconds: 3
+            periodSeconds: 20
+            failureThreshold: 6
       volumes:
         - name: confd
           emptyDir: {}
@@ -87,7 +88,6 @@ spec:
           emptyDir: {}
         - name: run
           emptyDir: {}
-
 ---
 apiVersion: v1
 kind: Service
@@ -104,4 +104,3 @@ spec:
     - name: http
       port: 80
       targetPort: 8080
-      protocol: TCP
