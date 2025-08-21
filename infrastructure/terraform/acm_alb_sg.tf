@@ -1,6 +1,7 @@
 ############################################################
 # ACM (regional) for API and ORIGIN subdomains (ALB listeners)
 # Security groups for the two ALBs (referenced by Ingress annotations)
+# + In-cluster allow rules so ALBs (IP targets) can reach pods via node ENIs
 ############################################################
 
 # Regional ACM cert for api.<domain>
@@ -94,10 +95,10 @@ resource "aws_acm_certificate_validation" "frontend" {
 
 # Security Group for Backend ALB (HTTPS from CloudFront)
 resource "aws_security_group" "alb_backend" {
-  name        = "${var.project_name}-alb-backend"
-  description = "ALB (backend) security group (HTTPS from CloudFront origin fetchers)"
-  vpc_id      = data.aws_vpc.default.id
-  revoke_rules_on_delete = true
+  name                     = "${var.project_name}-alb-backend"
+  description              = "ALB (backend) security group (HTTPS from CloudFront origin fetchers)"
+  vpc_id                   = data.aws_vpc.default.id
+  revoke_rules_on_delete   = true
 
   ingress {
     description     = "HTTPS from CloudFront origin fetchers (IPv4)"
@@ -128,10 +129,10 @@ resource "aws_security_group" "alb_backend" {
 
 # Security Group for Frontend ALB (HTTPS from CloudFront)
 resource "aws_security_group" "alb_frontend" {
-  name        = "${var.project_name}-alb-frontend"
-  description = "ALB (frontend) security group (HTTPS from CloudFront origin fetchers)"
-  vpc_id      = data.aws_vpc.default.id
-  revoke_rules_on_delete = true
+  name                     = "${var.project_name}-alb-frontend"
+  description              = "ALB (frontend) security group (HTTPS from CloudFront origin fetchers)"
+  vpc_id                   = data.aws_vpc.default.id
+  revoke_rules_on_delete   = true
 
   ingress {
     description     = "HTTPS from CloudFront origin fetchers (IPv4)"
@@ -158,4 +159,30 @@ resource "aws_security_group" "alb_frontend" {
   }
 
   tags = { Name = "${var.project_name}-alb-frontend" }
+}
+
+############################################################
+# Allow ALB → node ENIs (pods via IP targets)
+# Frontend pods listen on 8080; Backend pods on 3000
+# Uses the cluster security group attached to nodes (managed by EKS)
+############################################################
+
+resource "aws_security_group_rule" "alb_frontend_to_nodes_8080" {
+  type                     = "ingress"
+  description              = "Allow Frontend ALB to reach pods (IP targets) via node ENIs on 8080"
+  from_port                = 8080
+  to_port                  = 8080
+  protocol                 = "tcp"
+  source_security_group_id = aws_security_group.alb_frontend.id
+  security_group_id        = aws_eks_cluster.this.vpc_config[0].cluster_security_group_id
+}
+
+resource "aws_security_group_rule" "alb_backend_to_nodes_3000" {
+  type                     = "ingress"
+  description              = "Allow Backend ALB to reach pods (IP targets) via node ENIs on 3000"
+  from_port                = 3000
+  to_port                  = 3000
+  protocol                 = "tcp"
+  source_security_group_id = aws_security_group.alb_backend.id
+  security_group_id        = aws_eks_cluster.this.vpc_config[0].cluster_security_group_id
 }
