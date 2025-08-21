@@ -2,21 +2,22 @@ name: Deploy Mongo to EKS
 
 on:
   workflow_dispatch: {}
+  workflow_call: {}         # <— add this so the orchestrator can "uses:" it
   push:
     paths:
       - ".github/workflows/deploy_mongo.yml"
       - "infrastructure/k8s/mongo/**"
       - "infrastructure/k8s/externalsecrets/mongo-secrets.yaml"
       - "infrastructure/k8s/secret-stores/clustersecretstore.yaml"
-      - "infrastructure/k8s/storageclasses/gp3.yaml"
 
 permissions:
   id-token: write
   contents: read
 
 concurrency:
-  group: deploy-mongo
-  cancel-in-progress: true
+  group: nat20-eks-ops       # <— shared with everything that can touch EKS/DNS
+  cancel-in-progress: false
+
 
 env:
   AWS_REGION: eu-central-1

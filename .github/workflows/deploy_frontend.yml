@@ -2,6 +2,7 @@ name: Deploy Frontend to EKS
 
 on:
   workflow_dispatch: {}
+  workflow_call: {}         # <—
   push:
     paths:
       - ".github/workflows/deploy_frontend.yml"
@@ -15,8 +16,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: deploy-frontend
-  cancel-in-progress: true
+  group: nat20-eks-ops       # <—
+  cancel-in-progress: false
 
 env:
   AWS_REGION: eu-central-1
