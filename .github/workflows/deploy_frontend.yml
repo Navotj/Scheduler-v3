@@ -47,7 +47,8 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update -y
-          sudo apt-get install -y jq curl gettext-base
+          sudo apt-get install -y jq curl ca-certificates gettext-base
+          sudo update-ca-certificates
 
       - name: ECR login
         id: login-ecr
@@ -85,9 +86,9 @@ jobs:
         run: |
           set -euo pipefail
           aws eks update-kubeconfig --name "${CLUSTER_NAME}" --region "${AWS_REGION}"
-          kubectl version --client --short || true
+          kubectl version --client || true
 
-      - name: "Preflight: API reachability (200/401/403 = OK)"
+      - name: "Preflight: API reachability (200/401/403 OK)"
         id: preflight
         shell: bash
         run: |
@@ -95,7 +96,7 @@ jobs:
           ENDPOINT="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --query 'cluster.endpoint' --output text)"
           ok="false"
           for i in 1 2 3; do
-            code="$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 10 "${ENDPOINT}/version" || echo 000)"
+            code="$(curl -k -sS -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 10 "${ENDPOINT}/version" || echo 000)"
             if [[ "$code" == "200" || "$code" == "401" || "$code" == "403" ]]; then
               ok="true"; break
             fi
@@ -112,11 +113,9 @@ jobs:
           RUNNER_CIDR="$(curl -s https://checkip.amazonaws.com | tr -d '\r\n')/32"
           echo "RUNNER_CIDR=${RUNNER_CIDR}" >> "$GITHUB_ENV"
 
-          # Current list of allowed CIDRs (may be null/empty)
           CUR_JSON="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --query 'cluster.resourcesVpcConfig.publicAccessCidrs' --output json)"
           if [[ -z "${CUR_JSON}" || "${CUR_JSON}" == "null" ]]; then CUR_JSON='[]'; fi
 
-          # Append runner and de-duplicate (FIX: feed JSON to jq via stdin)
           NEW_CSV="$(printf '%s' "${CUR_JSON}" | jq -r --arg ip "$RUNNER_CIDR" '(. // []) + [$ip] | unique | join(",")')"
 
           echo "Applying EKS update: endpointPublicAccess=true, publicAccessCidrs=${NEW_CSV}"
@@ -125,7 +124,6 @@ jobs:
             --resources-vpc-config "endpointPublicAccess=true,publicAccessCidrs=${NEW_CSV}" \
             --query 'update.id' --output text)"
 
-          # Wait for completion (bounded)
           for _ in {1..30}; do
             PHASE="$(aws eks describe-update --name "${CLUSTER_NAME}" --update-id "${UPDATE_ID}" --query 'update.status' --output text)"
             [[ "${PHASE}" == "Successful" ]] && break
@@ -133,9 +131,8 @@ jobs:
             sleep 10
           done
 
-          # Re-check reachability
           ENDPOINT="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --query 'cluster.endpoint' --output text)"
-          code="$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 10 "${ENDPOINT}/version" || echo 000)"
+          code="$(curl -k -sS -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 10 "${ENDPOINT}/version" || echo 000)"
           if [[ "$code" == "200" || "$code" == "401" || "$code" == "403" ]]; then
             echo "API now reachable (HTTP ${code})."
           else
@@ -183,7 +180,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # If we never set RUNNER_CIDR (e.g., job failed early), skip
           if [[ -z "${RUNNER_CIDR:-}" ]]; then
             echo "No RUNNER_CIDR set; skipping cleanup."; exit 0
           fi
