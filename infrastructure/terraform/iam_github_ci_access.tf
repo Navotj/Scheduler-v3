@@ -1,40 +1,40 @@
 ############################################################
-# CI role access to Terraform backend (S3 state + DynamoDB lock)
-# Attaches ONE policy to the CI role defined in iam_github_ci.tf
+# CI access to Terraform backend (S3 state + DynamoDB lock)
+# Attaches ONE policy to the existing GitHub OIDC role resource.
 ############################################################
 
-# data "aws_caller_identity" "current" {}  # already in data.tf
-# data "aws_region" "current" {}           # already in data.tf
+# Uses data sources from data.tf:
+# data "aws_caller_identity" "current" {}
+# data "aws_region" "current" {}
 
-# Use CI-specific variable names to avoid collisions elsewhere
-variable "ci_tf_state_bucket" {
+variable "tf_state_bucket" {
   description = "S3 bucket that stores terraform.tfstate"
   type        = string
   default     = "navot-terraform-state-1"
 }
 
-variable "ci_tf_state_key_prefix" {
+variable "tf_state_key_prefix" {
   description = "Optional key prefix/folder under which state lives (empty = bucket root)"
   type        = string
   default     = ""
 }
 
-variable "ci_tf_lock_table_name" {
+variable "tf_lock_table_name" {
   description = "DynamoDB table name used for Terraform state locking"
   type        = string
   default     = "terraform-lock-table"
 }
 
 locals {
-  state_bucket_arn = "arn:aws:s3:::${var.ci_tf_state_bucket}"
-  state_prefix     = trim(var.ci_tf_state_key_prefix, "/")
+  state_bucket_arn = "arn:aws:s3:::${var.tf_state_bucket}"
+  state_prefix     = trim(var.tf_state_key_prefix, "/")
 
-  # If no prefix -> arn:aws:s3:::bucket/* ; else -> arn:aws:s3:::bucket/prefix/*
-  state_objects_arn = length(local.state_prefix) == 0
-    ? "${local.state_bucket_arn}/*"
-    : "${local.state_bucket_arn}/${local.state_prefix}/*"
+  # If prefix is empty -> arn:aws:s3:::bucket/*, else -> arn:aws:s3:::bucket/prefix/*
+  state_objects_arn = length(local.state_prefix) > 0
+    ? "${local.state_bucket_arn}/${local.state_prefix}/*"
+    : "${local.state_bucket_arn}/*"
 
-  lock_table_arn = "arn:aws:dynamodb:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:table/${var.ci_tf_lock_table_name}"
+  lock_table_arn = "arn:aws:dynamodb:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:table/${var.tf_lock_table_name}"
 }
 
 data "aws_iam_policy_document" "ci_backend_access" {
@@ -93,8 +93,8 @@ resource "aws_iam_policy" "ci_backend_access" {
   policy      = data.aws_iam_policy_document.ci_backend_access.json
 }
 
-# Attach to the role defined in iam_github_ci.tf (no data lookup; avoids dup errors)
-resource "aws_iam_role_policy_attachment" "ci_attach_backend_access" {
+# Attach to the role RESOURCE created in iam_github_ci.tf to avoid needing iam:GetRole
+resource "aws_iam_role_policy_attachment" "github_ci_attach_backend_access" {
   role       = aws_iam_role.github_ci.name
   policy_arn = aws_iam_policy.ci_backend_access.arn
 }
