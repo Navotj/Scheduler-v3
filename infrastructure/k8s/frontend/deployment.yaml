@@ -6,15 +6,12 @@ metadata:
   labels:
     app: frontend
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: frontend
   strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxUnavailable: 25%
-      maxSurge: 25%
+    type: Recreate
   template:
     metadata:
       labels:
@@ -76,7 +73,6 @@ spec:
                 - ALL
             seccompProfile:
               type: RuntimeDefault
-      # Use volumes to make writeable paths for the unprivileged NGINX user (101)
       volumes:
         - name: confd
           emptyDir: {}

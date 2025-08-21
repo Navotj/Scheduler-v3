@@ -31,25 +31,25 @@ variable "eks_version" {
 variable "node_instance_types" {
   description = "Instance types for the node group"
   type        = list(string)
-  default     = ["t3.medium"]
+  default     = ["t3.small"]
 }
 
 variable "desired_capacity" {
   description = "Desired node count"
   type        = number
-  default     = 2
+  default     = 1
 }
 
 variable "min_capacity" {
   description = "Minimum node count"
   type        = number
-  default     = 2
+  default     = 1
 }
 
 variable "max_capacity" {
   description = "Maximum node count"
   type        = number
-  default     = 3
+  default     = 1
 }
 
 variable "attach_frontend_waf" {

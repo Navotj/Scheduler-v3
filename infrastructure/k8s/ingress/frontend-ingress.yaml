@@ -12,7 +12,7 @@ metadata:
     alb.ingress.kubernetes.io/certificate-arn: ${ORIGIN_CERT_ARN}
     alb.ingress.kubernetes.io/security-groups: ${ALB_FRONTEND_SG_ID}
     alb.ingress.kubernetes.io/healthcheck-path: /index.html
-    alb.ingress.kubernetes.io/load-balancer-attributes: routing.http.drop_invalid_header_fields.enabled=true
+    alb.ingress.kubernetes.io/load-balancer-attributes: load_balancing.cross_zone.enabled=true,routing.http.drop_invalid_header_fields.enabled=true
 spec:
   ingressClassName: alb
   rules:
