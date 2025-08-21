@@ -1,7 +1,5 @@
 #############################################
 # CI access to the Terraform remote state S3
-# (Grants the GitHub OIDC role least-privileged
-#  access to read/write the state objects.)
 #############################################
 
 variable "tf_state_bucket" {
@@ -30,9 +28,9 @@ locals {
   state_prefix = trim(var.tf_state_key_prefix, "/")
 
   # Object-level ARN the CI needs. If no prefix, allow all objects at bucket root.
-  state_object_arn = length(local.state_prefix) > 0
-    ? "arn:aws:s3:::${var.tf_state_bucket}/${local.state_prefix}/*"
-    : "arn:aws:s3:::${var.tf_state_bucket}/*"
+  state_object_arn = length(local.state_prefix) == 0
+    ? "arn:aws:s3:::${var.tf_state_bucket}/*"
+    : "arn:aws:s3:::${var.tf_state_bucket}/${local.state_prefix}/*"
 }
 
 data "aws_iam_policy_document" "state_bucket_policy" {
