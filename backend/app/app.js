@@ -3,7 +3,6 @@ const express = require('express');
 const cors = require('cors');
 const mongoose = require('mongoose');
 const cookieParser = require('cookie-parser');
-const helmet = require('helmet');
 require('dotenv').config();
 
 // Routers
@@ -12,24 +11,17 @@ const availabilityRoutes = require('./routes/availability'); // /availability/*
 const settingsRoutes = require('./routes/settings');         // /settings (GET/POST)
 const usersRoutes = require('./routes/users');               // /users/*
 
-const { requireAuth } = require('./utils/jwt');
-
 const app = express();
 
 /* ========= Core security & infra ========= */
 app.set('trust proxy', 1); // behind ALB/CloudFront, ensure correct scheme/IP for cookies, etc.
-app.disable('x-powered-by');
-app.use(helmet({
-  crossOriginResourcePolicy: { policy: 'cross-origin' },
-  referrerPolicy: { policy: 'no-referrer' }
-}));
 
 // CORS (explicit, credentials-enabled)
 const corsOptions = {
   origin: ['https://www.nat20scheduling.com', 'https://nat20scheduling.com'],
   credentials: true,
   methods: ['GET', 'HEAD', 'OPTIONS', 'POST', 'PUT', 'PATCH', 'DELETE'],
-  allowedHeaders: ['Content-Type', 'X-Requested-With', 'Authorization', 'X-CSRF-Token'],
+  allowedHeaders: ['Content-Type', 'X-Requested-With'],
   optionsSuccessStatus: 204
 };
 app.use(cors(corsOptions));
@@ -157,12 +149,8 @@ app.get('/__debug/dbping', async (_req, res) => {
 */
 app.use(authRoutes);
 app.use('/auth', authRoutes);
-// If not already enforced inside the route files, uncomment to require JWT:
-// app.use('/availability', requireAuth, availabilityRoutes);
 app.use('/availability', availabilityRoutes);
-// app.use('/settings', requireAuth, settingsRoutes);
 app.use(settingsRoutes);
-// app.use('/users', requireAuth, usersRoutes);
 app.use('/users', usersRoutes);
 
 /* ========= Final error handler ========= */

@@ -17,6 +17,7 @@ jobs:
       AWS_REGION: eu-central-1
       TF_PLUGIN_CACHE_DIR: ${{ github.workspace }}/.tf-plugin-cache
       TF_VAR_admin_principal_arn: ${{ secrets.EKS_ADMIN_PRINCIPAL_ARN }}
+      TF_VAR_install_addons: "false"
       CLUSTER_NAME: nat20-eks
 
     defaults:
@@ -49,37 +50,52 @@ jobs:
         with:
           terraform_version: 1.8.5
 
-      # Pre-open the EKS API to the runner IP so helm/k8s providers can refresh/plan.
-      - name: Allow runner IP to reach EKS API (merge + wait)
-        shell: bash
+      - name: Terraform Init
+        run: terraform init -input=false
+
+      - name: Terraform Plan
+        run: terraform plan -lock-timeout=2m -out=tfplan
+
+      - name: Terraform Apply (full)
+        run: terraform apply -input=false -lock-timeout=2m -auto-approve tfplan
+
+      - name: Allow runner IP to reach EKS API (post-apply, idempotent)
         env:
-          CLUSTER_NAME: ${{ env.CLUSTER_NAME }}
           AWS_REGION: ${{ env.AWS_REGION }}
+          CLUSTER_NAME: ${{ env.CLUSTER_NAME }}
         run: |
           set -euo pipefail
 
           RUNNER_IP="$(curl -s https://checkip.amazonaws.com/ | tr -d '\r\n')"
           echo "Runner public IP: ${RUNNER_IP}"
 
+          echo "Waiting for EKS cluster '${CLUSTER_NAME}' to become ACTIVE..."
+          for i in $(seq 1 60); do
+            if aws eks describe-cluster --region "${AWS_REGION}" --name "${CLUSTER_NAME}" >/dev/null 2>&1; then
+              STATUS="$(aws eks describe-cluster --region "${AWS_REGION}" --name "${CLUSTER_NAME}" --query 'cluster.status' --output text || echo "UNKNOWN")"
+              echo "  attempt ${i}: status=${STATUS}"
+              [ "${STATUS}" = "ACTIVE" ] && break
+            else
+              echo "  attempt ${i}: cluster not found yet"
+            fi
+            sleep 10
+          done
+
           CUR_JSON="$(aws eks describe-cluster \
             --region "${AWS_REGION}" \
             --name "${CLUSTER_NAME}" \
             --query 'cluster.resourcesVpcConfig.publicAccessCidrs' \
-            --output json)"
+            --output json || echo '[]')"
 
-          # Make vars available to Python
           export CUR_JSON RUNNER_IP
 
-          # Build merged CSV list without duplicates (no heredoc to avoid YAML EOF issues)
-          NEW_CSV="$(python3 -c 'import json,os; c=json.loads(os.environ["CUR_JSON"]); ip=os.environ["RUNNER_IP"].strip()+"/32"; print(",".join(c if ip in c else c+[ip]))')"
-
+          NEW_CSV="$(python3 -c 'import json,os; c=json.loads(os.environ.get("CUR_JSON") or "[]"); ip=os.environ["RUNNER_IP"].strip()+"/32"; print(",".join(c if ip in c else c+[ip]))')"
           echo "Updating cluster publicAccessCidrs: ${NEW_CSV}"
           aws eks update-cluster-config \
             --region "${AWS_REGION}" \
             --name "${CLUSTER_NAME}" \
             --resources-vpc-config publicAccessCidrs="${NEW_CSV}"
 
-          # Wait for API to accept the new CIDR
           ENDPOINT="$(aws eks describe-cluster --region "${AWS_REGION}" --name "${CLUSTER_NAME}" --query 'cluster.endpoint' --output text)"
           HOST="$(printf '%s\n' "$ENDPOINT" | sed -E 's#^https?://##; s#/.*$##')"
           echo "EKS endpoint host: ${HOST}"
@@ -92,18 +108,6 @@ jobs:
             echo "Waiting for EKS API to accept new CIDR... (${i}/60)"
             sleep 5
           done
-
-          # Final check (fails the step if still blocked)
-          timeout 5 bash -lc "echo | openssl s_client -connect ${HOST}:443 -servername ${HOST} >/dev/null 2>&1"
-
-      - name: Terraform Init
-        run: terraform init -input=false
-
-      - name: Terraform Plan
-        run: terraform plan -lock-timeout=2m -out=tfplan
-
-      - name: Terraform Apply (full)
-        run: terraform apply -input=false -lock-timeout=2m -auto-approve tfplan
 
       - name: Output
         run: terraform output -json || true
