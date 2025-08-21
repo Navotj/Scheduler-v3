@@ -120,28 +120,31 @@ jobs:
           RUNNER_CIDR="${RUNNER_IP}/32"
           echo "RUNNER_CIDR=${RUNNER_CIDR}" >> "$GITHUB_ENV"
 
-          DESC_JSON="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}")"
-          ENDPOINT="$(echo "${DESC_JSON}" | jq -r '.cluster.endpoint' | sed -E 's#^https?://##')"
-          ORIG_CIDRS="$(echo "${DESC_JSON}" | jq -c '.cluster.resourcesVpcConfig.publicAccessCidrs // []')"
-          echo "ORIGINAL_CIDRS=${ORIG_CIDRS}" >> "$GITHUB_ENV"
+          # Get current publicAccessCidrs (may be null or empty)
+          ORIG_CIDRS_JSON="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}" --query 'cluster.resourcesVpcConfig.publicAccessCidrs' --output json)"
+          echo "ORIGINAL_CIDRS=${ORIG_CIDRS_JSON}" >> "$GITHUB_ENV"
 
-          # Merge runner /32 into current CIDRs if not present
-          UPDATED_CIDRS="$(jq --arg ip "${RUNNER_CIDR}" '
-              (.[]
-              | select(. == $ip)) as $has
-              | if $has then . else . + [$ip] end
-            ' <<<"${ORIG_CIDRS}")"
+          # Build updated list (unique) as CSV for CLI shorthand (cidr1,cidr2)
+          UPDATED_JSON="$(jq -cn --arg ip "${RUNNER_CIDR}" --argjson cur "${ORIG_CIDRS_JSON:-null}" '
+              ( ( ($cur // []) | map(tostring) ) + [$ip] ) | unique
+          ')"
+          UPDATED_CSV="$(jq -r 'join(",")' <<<"${UPDATED_JSON}")"
 
-          echo "Updating cluster publicAccessCidrs to: ${UPDATED_CIDRS}"
+          if [[ -z "${UPDATED_CSV}" ]]; then
+            echo "Failed to compute UPDATED_CSV" >&2
+            exit 1
+          fi
+
+          echo "Updating cluster publicAccessCidrs to: ${UPDATED_CSV}"
           aws eks update-cluster-config \
             --name "${CLUSTER_NAME}" \
             --region "${AWS_REGION}" \
-            --resources-vpc-config "publicAccessCidrs=${UPDATED_CIDRS}" >/dev/null
+            --resources-vpc-config "publicAccessCidrs=${UPDATED_CSV}" >/dev/null
 
           # Wait for the control plane endpoint to accept TLS (up to ~5 min)
-          echo "Waiting for EKS API endpoint TLS..."
+          ENDPOINT="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}" --query 'cluster.endpoint' --output text | sed -E 's#^https?://##')"
+          echo "Waiting for EKS API endpoint TLS on ${ENDPOINT} ..."
           retry 30 10 bash -c "echo | openssl s_client -connect '${ENDPOINT}:443' -servername '${ENDPOINT}' -brief 2>/dev/null | grep -q 'Protocol  : TLS'"
-
           echo "EKS API is reachable."
 
       - name: Configure kubectl
@@ -160,7 +163,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # Retry apply to tolerate transient API slowness
           for i in {1..5}; do
             if kubectl apply -f infrastructure/k8s/namespaces/nat20.yaml --request-timeout="${KUBECTL_TIMEOUT}"; then
               break
@@ -230,9 +232,19 @@ jobs:
             echo "Skip restore: ORIGINAL_CIDRS or RUNNER_CIDR not set"
             exit 0
           fi
-          CLEAN_CIDRS="$(jq --arg ip "${RUNNER_CIDR}" '[ .[] | select(. != $ip) ]' <<<"${ORIGINAL_CIDRS}")"
-          echo "Restoring cluster publicAccessCidrs to: ${CLEAN_CIDRS}"
+
+          CLEAN_JSON="$(jq -cn --arg ip "${RUNNER_CIDR}" --argjson cur "${ORIGINAL_CIDRS:-null}" '
+              ( ($cur // []) | map(tostring) | map(select(. != $ip)) ) | unique
+          ')"
+          CLEAN_CSV="$(jq -r 'join(",")' <<<"${CLEAN_JSON}")"
+
+          if [[ -z "${CLEAN_CSV}" ]]; then
+            echo "Original CIDRs empty or unknown; skipping restore to avoid unsafe change."
+            exit 0
+          fi
+
+          echo "Restoring cluster publicAccessCidrs to: ${CLEAN_CSV}"
           aws eks update-cluster-config \
             --name "${CLUSTER_NAME}" \
             --region "${AWS_REGION}" \
-            --resources-vpc-config "publicAccessCidrs=${CLEAN_CIDRS}" >/dev/null
+            --resources-vpc-config "publicAccessCidrs=${CLEAN_CSV}" >/dev/null
