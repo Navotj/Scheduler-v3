@@ -8,51 +8,51 @@ spec:
   selector:
     matchLabels:
       app: frontend
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 25%
+      maxSurge: 25%
   template:
     metadata:
       labels:
         app: frontend
     spec:
-      # Pod-level security
       securityContext:
-        seccompProfile:
-          type: RuntimeDefault
-        fsGroup: 101
-        fsGroupChangePolicy: OnRootMismatch
+        runAsNonRoot: true
       containers:
         - name: frontend
-          image: 637423477802.dkr.ecr.eu-central-1.amazonaws.com/frontend:${GITHUB_SHA}
+          image: 637423477802.dkr.ecr.eu-central-1.amazonaws.com/frontend:latest
+          imagePullPolicy: IfNotPresent
           ports:
             - name: http
               containerPort: 8080
           env:
             - name: API_HOST
               value: "api.nat20scheduling.com"
-          # Container-level security
           securityContext:
             allowPrivilegeEscalation: false
             runAsNonRoot: true
-            runAsUser: 101
-            runAsGroup: 101
-            readOnlyRootFilesystem: true
             capabilities:
               drop: ["ALL"]
-          # (probes, resources, and the emptyDir mounts you already have)
-          volumeMounts:
-            - name: tmp
-              mountPath: /tmp
-            - name: var-cache-nginx
-              mountPath: /var/cache/nginx
-            - name: var-run-nginx
-              mountPath: /var/run
-            - name: var-log-nginx
-              mountPath: /var/log/nginx
+            seccompProfile:
+              type: RuntimeDefault
+          readinessProbe:
+            httpGet:
+              path: /index.html
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 1
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /index.html
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            timeoutSeconds: 1
+            failureThreshold: 6
       volumes:
         - name: tmp
-          emptyDir: {}
-        - name: var-cache-nginx
-          emptyDir: {}
-        - name: var-run-nginx
-          emptyDir: {}
-        - name: var-log-nginx
           emptyDir: {}

@@ -117,6 +117,12 @@ resource "aws_eks_cluster" "this" {
     resources = ["secrets"]
   }
 
+  # ADD: enable EKS Access Entries API (keeps aws-auth working, too)
+  access_config {
+    authentication_mode                         = "API_AND_CONFIG_MAP"
+    bootstrap_cluster_creator_admin_permissions = true
+  }
+
   tags = { Name = "${var.project_name}-eks" }
 
   depends_on = [
@@ -161,6 +167,12 @@ resource "aws_iam_role_policy_attachment" "eks_node_AmazonEC2ContainerRegistryRe
 resource "aws_iam_role_policy_attachment" "eks_node_AmazonEKS_CNI_Policy" {
   role       = aws_iam_role.eks_node.name
   policy_arn = "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
+}
+
+# ADD: allow Session Manager access to nodes (no SSH user needed)
+resource "aws_iam_role_policy_attachment" "eks_node_AmazonSSMManagedInstanceCore" {
+  role       = aws_iam_role.eks_node.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
 resource "aws_eks_node_group" "default" {

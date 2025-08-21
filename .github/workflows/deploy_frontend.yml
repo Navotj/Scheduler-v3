@@ -1,292 +1,80 @@
-name: Deploy Frontend to EKS
+name: Deploy Frontend
 
 on:
   push:
-    branches: ["main"]
+    branches: [ main ]
     paths:
       - "frontend/**"
-      - ".github/workflows/deploy_frontend.yml"
-      - "infrastructure/docker/frontend/Dockerfile"
-      - "infrastructure/k8s/frontend/**"
-      - "infrastructure/k8s/ingress/frontend-ingress.yaml"
-  workflow_dispatch:
+      - "infrastructure/k8s/frontend/deployment.yaml"
+      - ".github/workflows/deploy-frontend.yml"
+  workflow_dispatch: {}
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: eu-central-1
+  ACCOUNT_ID: "637423477802"
+  ECR_REPO: "frontend"
+  CLUSTER_NAME: "nat20-eks"
+  NAMESPACE: "nat20"
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
-    permissions:
-      id-token: write
-      contents: read
-
-    env:
-      AWS_REGION: eu-central-1
-      CLUSTER_NAME: nat20-eks
-      # Leave empty to auto-detect runner /32. Set to a CIDR list to override.
-      EKS_JOB_PUBLIC_CIDRS: ""
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        timeout-minutes: 2
 
-      - name: Configure AWS credentials
+      - name: Configure AWS credentials (assume CI role)
         uses: aws-actions/configure-aws-credentials@v4
-        timeout-minutes: 2
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: arn:aws:iam::637423477802:role/nat20-ci
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: WhoAmI
-        shell: bash
-        timeout-minutes: 2
+      - name: Compute ECR_URI
+        run: |
+          echo "ECR_URI=${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}" >> "$GITHUB_ENV"
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build & push image
         run: |
           set -euo pipefail
-          aws sts get-caller-identity
-          aws configure list
+          docker build \
+            -t "${ECR_URI}:${GITHUB_SHA}" \
+            -t "${ECR_URI}:latest" \
+            .
+          docker push "${ECR_URI}:${GITHUB_SHA}"
+          docker push "${ECR_URI}:latest"
 
-      - name: Capture current EKS API CIDRs and endpoint (safe outputs)
-        shell: bash
-        timeout-minutes: 2
-        run: |
-          set -euo pipefail
-          ENDPOINT="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}" --query 'cluster.endpoint' --output text)"
-          echo "EKS_ENDPOINT=${ENDPOINT}" >> "$GITHUB_ENV"
-
-          CUR_JSON="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
-            --query 'cluster.resourcesVpcConfig.publicAccessCidrs' --output json || echo '[]')"
-          ORIG_B64="$(printf '%s' "${CUR_JSON}" | base64 -w0)"
-          echo "EKS_ORIG_CIDRS_B64=${ORIG_B64}" >> "$GITHUB_ENV"
-
-      - name: Open EKS API temporarily (runner /32 preferred) and quick probe
-        shell: bash
-        timeout-minutes: 6
-        run: |
-          set -euo pipefail
-
-          # Determine target CIDR(s)
-          if [ -z "${EKS_JOB_PUBLIC_CIDRS:-}" ]; then
-            RIP="$(curl -s https://checkip.amazonaws.com/ | tr -d '\r')"
-            if printf '%s' "$RIP" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
-              TARGET="${RIP}/32"
-            else
-              TARGET="0.0.0.0/0"
-            fi
-          else
-            TARGET="${EKS_JOB_PUBLIC_CIDRS}"
-          fi
-
-          # Current config (from earlier captured value)
-          CUR_JSON="$(printf '%s' "${EKS_ORIG_CIDRS_B64:-}" | base64 -d 2>/dev/null || echo '[]')"
-          CUR_JOIN="$(printf '%s' "${CUR_JSON}" | jq -r 'join(",")')"
-
-          echo "Original EKS publicAccessCidrs: ${CUR_JOIN:-<none>}"
-          echo "Desired temporary EKS publicAccessCidrs: ${TARGET}"
-
-          # Apply if different
-          if [ -z "${CUR_JOIN}" ] || [ "${CUR_JOIN}" != "${TARGET}" ]; then
-            set +e
-            aws eks update-cluster-config --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
-              --resources-vpc-config publicAccessCidrs="${TARGET}" >/dev/null 2>err.txt
-            rc=$?
-            set -e
-            if [ $rc -ne 0 ] && ! grep -qi "already at the desired configuration" err.txt; then
-              echo "Failed to set temporary EKS API CIDRs:"; cat err.txt; exit 1
-            fi
-          fi
-
-          # Wait for propagation (EKS may take ~30-90s to honor new CIDRs)
-          HOST="$(echo "${EKS_ENDPOINT}" | sed -E 's#https?://##')"
-          echo "Probing EKS endpoint: ${HOST}:443"
-          OK=0
-          for i in {1..30}; do
-            if timeout 3 bash -lc "exec 3<>/dev/tcp/${HOST}/443" 2>/dev/null; then
-              exec 3>&-
-              echo "EKS endpoint reachable (attempt $i)."
-              OK=1
-              break
-            fi
-            if (( i % 5 == 0 )); then
-              NOW_JOIN="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
-                --query 'cluster.resourcesVpcConfig.publicAccessCidrs' --output json | jq -r 'join(",")' || true)"
-              echo "Attempt $i: still not reachable; current publicAccessCidrs=${NOW_JOIN:-<unknown>}"
-            fi
-            sleep 3
-          done
-          [ $OK -eq 1 ] || { echo "EKS endpoint NOT reachable after extended probes."; exit 1; }
-
-      - name: Configure kubectl and wait until API responds
-        shell: bash
-        timeout-minutes: 5
+      - name: Update kubeconfig
         run: |
           set -euo pipefail
           aws eks update-kubeconfig --name "${CLUSTER_NAME}" --region "${AWS_REGION}"
-          echo "Current context: $(kubectl config current-context || true)"
-          OK=0
-          for i in {1..24}; do
-            if kubectl --request-timeout=8s get nodes >/dev/null 2>&1; then
-              OK=1; break
-            fi
-            sleep 5
-          done
-          if [ $OK -ne 1 ]; then
-            echo "kubectl not ready; basic diagnostics:"
-            kubectl get nodes -o wide || true
-            kubectl config view --minify || true
-            exit 1
-          fi
 
-      - name: Resolve ECR URI and SSM parameters
-        id: resolve
-        shell: bash
-        timeout-minutes: 3
-        env:
-          ORIGIN_HOST: origin.nat20scheduling.com
+      - name: Apply Deployment (no placeholder tags)
         run: |
           set -euo pipefail
-          export AWS_PAGER=""; export AWS_CLI_PAGER=""; aws configure set cli_pager "" || true
+          kubectl -n "${NAMESPACE}" apply -f infrastructure/k8s/frontend/deployment.yaml
 
-          ECR_FRONTEND_URI="$(aws ssm get-parameter --name /nat20/ecr/FRONTEND_URI --query Parameter.Value --output text 2>/dev/null || true)"
-          if [ -z "${ECR_FRONTEND_URI:-}" ] || [ "${ECR_FRONTEND_URI}" = "None" ]; then
-            ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
-            REPO_NAME="frontend"
-            ECR_FRONTEND_URI="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${REPO_NAME}"
-            aws ecr describe-repositories --repository-names "${REPO_NAME}" >/dev/null 2>&1 || \
-              aws ecr create-repository --repository-name "${REPO_NAME}" >/dev/null
-          fi
-          echo "ECR_FRONTEND_URI=${ECR_FRONTEND_URI}" >> "$GITHUB_ENV"
-
-          ORIGIN_CERT_ARN="$(aws ssm get-parameter --name /nat20/network/ORIGIN_CERT_ARN --query Parameter.Value --output text 2>/dev/null || true)"
-          ALB_FRONTEND_SG_ID="$(aws ssm get-parameter --name /nat20/network/ALB_FRONTEND_SG_ID --query Parameter.Value --output text 2>/dev/null || true)"
-          [ -n "${ORIGIN_CERT_ARN:-}" ] && [ "${ORIGIN_CERT_ARN}" != "None" ] || { echo "Missing /nat20/network/ORIGIN_CERT_ARN"; exit 1; }
-          [ -n "${ALB_FRONTEND_SG_ID:-}" ] && [ "${ALB_FRONTEND_SG_ID}" != "None" ] || { echo "Missing /nat20/network/ALB_FRONTEND_SG_ID"; exit 1; }
-          echo "ORIGIN_CERT_ARN=${ORIGIN_CERT_ARN}" >> "$GITHUB_ENV"
-          echo "ALB_FRONTEND_SG_ID=${ALB_FRONTEND_SG_ID}" >> "$GITHUB_ENV"
-          echo "ORIGIN_HOST=${ORIGIN_HOST}" >> "$GITHUB_ENV"
-
-      - name: Login to ECR
-        uses: aws-actions/amazon-ecr-login@v2
-        timeout-minutes: 2
-
-      - name: Build and push frontend image
-        shell: bash
-        timeout-minutes: 12
+      - name: Set image to this commit
         run: |
           set -euo pipefail
-          docker build -t "${ECR_FRONTEND_URI}:${GITHUB_SHA}" -f infrastructure/docker/frontend/Dockerfile .
-          docker push "${ECR_FRONTEND_URI}:${GITHUB_SHA}"
-          echo "FRONTEND_IMAGE=${ECR_FRONTEND_URI}:${GITHUB_SHA}" >> "$GITHUB_ENV"
+          kubectl -n "${NAMESPACE}" set image deployment/frontend frontend="${ECR_URI}:${GITHUB_SHA}"
 
-      - name: Update image in k8s manifest
-        shell: bash
-        timeout-minutes: 1
+      - name: Rollout status
         run: |
           set -euo pipefail
-          sed -i "s#<ECR_URI_REPLACED_BY_CI>/frontend:\${GITHUB_SHA}#${ECR_FRONTEND_URI}:${GITHUB_SHA}#g" infrastructure/k8s/frontend/deployment.yaml
+          kubectl -n "${NAMESPACE}" rollout status deployment/frontend --timeout=180s
 
-      - name: Ensure namespace exists + enforce PSS (restricted)
-        shell: bash
-        timeout-minutes: 2
+      - name: Debug on failure
+        if: failure()
         run: |
           set -euo pipefail
-          kubectl get ns nat20 >/dev/null 2>&1 || kubectl create ns nat20
-          kubectl label ns nat20 \
-            pod-security.kubernetes.io/enforce=restricted \
-            pod-security.kubernetes.io/audit=restricted \
-            pod-security.kubernetes.io/warn=restricted \
-            --overwrite || true
-
-      - name: Resolve ALB subnets for this cluster
-        shell: bash
-        timeout-minutes: 1
-        run: |
-          set -euo pipefail
-          SUBNETS_CSV="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}" --query 'cluster.resourcesVpcConfig.subnetIds' --output text | sed 's/\t/,/g')"
-          [ -n "${SUBNETS_CSV:-}" ] || { echo "Could not resolve cluster subnets"; exit 1; }
-          echo "ALB_PUBLIC_SUBNET_IDS=${SUBNETS_CSV}" >> "$GITHUB_ENV"
-
-      - name: Render ingress with cert/SG/host/subnets
-        shell: bash
-        timeout-minutes: 1
-        run: |
-          set -euo pipefail
-          : "${ALB_PUBLIC_SUBNET_IDS:?}"
-          : "${ORIGIN_CERT_ARN:?}"
-          : "${ALB_FRONTEND_SG_ID:?}"
-          : "${ORIGIN_HOST:?}"
-          ORIGIN_CERT_ARN="${ORIGIN_CERT_ARN}" \
-          ALB_FRONTEND_SG_ID="${ALB_FRONTEND_SG_ID}" \
-          ORIGIN_HOST="${ORIGIN_HOST}" \
-          ALB_PUBLIC_SUBNET_IDS="${ALB_PUBLIC_SUBNET_IDS}" \
-          envsubst < infrastructure/k8s/ingress/frontend-ingress.yaml > /tmp/frontend-ingress.rendered.yaml
-
-      - name: Apply frontend and ingress (capture rollout RC)
-        id: apply
-        shell: bash
-        timeout-minutes: 6
-        run: |
-          set -euo pipefail
-          kubectl apply -n nat20 -f infrastructure/k8s/frontend/deployment.yaml
-          kubectl apply -f /tmp/frontend-ingress.rendered.yaml
-          set +e
-          kubectl -n nat20 rollout status deployment/frontend --timeout=5m
-          RC=$?
-          echo "rollout_rc=${RC}" >> "$GITHUB_OUTPUT"
-          exit 0
-
-      - name: Diagnostics on failure (pods/events/logs)
-        if: always()
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "=== Pods (label app=frontend) ==="
-          kubectl -n nat20 get pods -l app=frontend -o wide || true
-          echo "=== Describe Deployment ==="
-          kubectl -n nat20 describe deploy frontend || true
-          echo "=== Recent Events (namespace nat20) ==="
-          kubectl -n nat20 get events --sort-by=.lastTimestamp | tail -n 100 || true
-          echo "=== Describe Pods ==="
-          for p in $(kubectl -n nat20 get pods -l app=frontend -o name 2>/dev/null | sed 's|pod/||'); do
-            kubectl -n nat20 describe pod "$p" || true
-            echo "--- logs $p ---"
-            kubectl -n nat20 logs "$p" --tail=200 || true
-            echo "--- previous logs $p ---"
-            kubectl -n nat20 logs "$p" --previous --tail=200 || true
-          done
-
-      - name: Fail if rollout failed
-        if: steps.apply.outputs.rollout_rc != '0'
-        shell: bash
-        run: |
-          echo "Frontend rollout failed"
-          exit 1
-
-      - name: Wait for Ingress hostname (ALB provisioning)
-        id: alb
-        if: steps.apply.outputs.rollout_rc == '0'
-        shell: bash
-        timeout-minutes: 3
-        run: |
-          set -euo pipefail
-          for i in {1..18}; do
-            HOSTNAME="$(kubectl -n nat20 get ingress frontend -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)"
-            [ -n "${HOSTNAME:-}" ] && [ "${HOSTNAME}" != "<no value>" ] && break
-            sleep 5
-          done
-          [ -n "${HOSTNAME:-}" ] && [ "${HOSTNAME}" != "<no value>" ] || { kubectl -n nat20 describe ingress frontend || true; exit 1; }
-          echo "FRONTEND_ALB_DNS=${HOSTNAME}" >> "$GITHUB_ENV"
-          echo "frontend_alb_dns=${HOSTNAME}" >> "$GITHUB_OUTPUT"
-
-      - name: Restore original EKS API CIDRs
-        if: always()
-        shell: bash
-        timeout-minutes: 3
-        run: |
-          set -euo pipefail
-          ORIG_JSON="$(printf '%s' "${EKS_ORIG_CIDRS_B64:-}" | base64 -d 2>/dev/null || echo '[]')"
-          WANT="$(printf '%s' "${ORIG_JSON}" | jq -r 'join(",")')"
-          if [ -n "${WANT}" ]; then
-            aws eks update-cluster-config --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
-              --resources-vpc-config publicAccessCidrs="${WANT}" >/dev/null || true
-          fi
+          kubectl -n "${NAMESPACE}" get pods -o wide
+          kubectl -n "${NAMESPACE}" describe deployment frontend
+          kubectl -n "${NAMESPACE}" get events --sort-by=.lastTimestamp | tail -n 200
