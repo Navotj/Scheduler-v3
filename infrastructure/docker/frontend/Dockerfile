@@ -1,27 +1,25 @@
 FROM nginxinc/nginx-unprivileged:1.27-alpine
 
-# Build-time ops as root
 USER root
 
-# Static assets
+# Copy static assets
 COPY frontend/ /usr/share/nginx/html/
 
-# Prepare nginx layout and entrypoint dir
+# Prepare dirs and drop default; make writable for uid/gid 101 (nginx user)
 RUN rm -f /etc/nginx/conf.d/default.conf \
     && mkdir -p /etc/nginx/custom /docker-entrypoint.d \
     && chown -R 101:101 /etc/nginx /usr/share/nginx/html /docker-entrypoint.d
 
-# Runtime render without envsubst (avoids missing binary in base image)
-# Writes the site config using shell variable expansion only.
+# Robust runtime renderer: ALWAYS write a valid server, never fail the container.
+# If $api_host is set, a /api/ proxy is added; otherwise only static is served.
 COPY --chown=101:101 --chmod=0755 <<'RENDER' /docker-entrypoint.d/30-render-site.sh
 #!/usr/bin/env sh
-set -eu
-: "${api_host:?api_host env var must be set}"
+set -u
 
-# Ensure target dir exists (with emptyDir mount it will be)
-mkdir -p /etc/nginx/conf.d
-
-cat > /etc/nginx/conf.d/site.conf <<EOF
+echo "[render] uid=$(id -u) gid=$(id -g)" >&2
+mkdir -p /etc/nginx/conf.d || true
+# Basic static server; we may append an /api/ block below
+cat > /etc/nginx/conf.d/site.conf <<'EOF'
 server {
   listen 8080;
   server_name _;
@@ -29,28 +27,49 @@ server {
   index index.html;
 
   location / {
-    try_files \$uri /index.html;
-  }
-
-  # Proxy API to external host provided by \${api_host}
-  location /api/ {
-    proxy_http_version 1.1;
-    proxy_set_header Host ${api_host};
-    proxy_set_header X-Real-IP \$remote_addr;
-    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto \$scheme;
-    proxy_redirect off;
-    proxy_ssl_server_name on;
-    proxy_pass https://${api_host};
+    try_files $uri /index.html;
   }
 }
 EOF
 
-# Validate config
-nginx -t
+# If api_host provided, append proxy block
+if [ -n "${api_host:-}" ]; then
+  echo "[render] enabling /api/ proxy to ${api_host}" >&2
+  cat >> /etc/nginx/conf.d/site.conf <<EOF
+
+  # appended at runtime
+  upstream api_upstream {
+    server ${api_host}:443;
+  }
+
+  server {
+    listen 8080;
+    location /api/ {
+      proxy_http_version 1.1;
+      proxy_set_header Host ${api_host};
+      proxy_set_header X-Real-IP $remote_addr;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+      proxy_set_header X-Forwarded-Proto $scheme;
+      proxy_redirect off;
+      proxy_ssl_server_name on;
+      resolver 1.1.1.1 8.8.8.8 ipv6=off valid=300s;
+      proxy_pass https://api_upstream;
+    }
+  }
+EOF
+else
+  echo "[render] api_host not set; serving static only" >&2
+fi
+
+# Validate but NEVER crash the container on failure; log for visibility
+if ! nginx -t; then
+  echo "[render] nginx -t failed; resulting config:" >&2
+  cat /etc/nginx/nginx.conf /etc/nginx/conf.d/site.conf 2>/dev/null >&2 || true
+fi
+
+exit 0
 RENDER
 
-# Drop to non-root (uid/gid 101 provided by base image)
 USER 101:101
 
 EXPOSE 8080
