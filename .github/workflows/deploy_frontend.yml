@@ -66,7 +66,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          docker build -f Dockerfile -t "${IMAGE_URI}" .
+          docker build -f infrastructure/docker/frontend/Dockerfile -t "${IMAGE_URI}" .
           docker push "${IMAGE_URI}"
 
       - name: Read SSM params (ingress cert + SG)
@@ -117,14 +117,12 @@ jobs:
             --name "${CLUSTER_NAME}" \
             --resources-vpc-config "endpointPublicAccess=true,publicAccessCidrs=${NEW_CSV}" \
             --query 'update.id' --output text)"
-          # Wait for completion (bounded)
           for _ in {1..30}; do
             PHASE="$(aws eks describe-update --name "${CLUSTER_NAME}" --update-id "${UPDATE_ID}" --query 'update.status' --output text)"
             [[ "${PHASE}" == "Successful" ]] && break
             [[ "${PHASE}" == "Failed" ]] && { echo "EKS update failed"; exit 1; }
             sleep 10
           done
-          # Re-check reachability
           ENDPOINT="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --query 'cluster.endpoint' --output text)"
           code="$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 10 "${ENDPOINT}/version" || echo 000)"
           if [[ "$code" == "200" || "$code" == "401" || "$code" == "403" ]]; then
