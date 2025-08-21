@@ -15,7 +15,7 @@ jobs:
 
     env:
       AWS_REGION: eu-central-1
-      TF_PLUGIN_CACHE_DIR: ${{ github.workspace }}/.tf-plugin-cache }
+      TF_PLUGIN_CACHE_DIR: ${{ github.workspace }}/.tf-plugin-cache
       TF_VAR_admin_principal_arn: ${{ secrets.EKS_ADMIN_PRINCIPAL_ARN }}
       CLUSTER_NAME: nat20-eks
 
@@ -95,22 +95,25 @@ jobs:
         if: steps.probe.outputs.exists == 'false'
         run: terraform apply -input=false -lock-timeout=2m -auto-approve tfplan_base
 
-      - name: Allow runner IP to reach EKS API (post-base, idempotent)
-        if: steps.probe.outputs.exists == 'false'
+      # Ensure EKS API is reachable from this runner before any Helm/K8s provider refresh.
+      # This runs ALWAYS (cluster may pre-exist or have just been created above).
+      - name: Ensure EKS API reachability (add runner IP CIDR)
         env:
           AWS_REGION: ${{ env.AWS_REGION }}
           CLUSTER_NAME: ${{ env.CLUSTER_NAME }}
         run: |
           set -euo pipefail
+
           RUNNER_IP="$(curl -s https://checkip.amazonaws.com/ | tr -d '\r\n')"
           echo "Runner public IP: ${RUNNER_IP}"
 
-          echo "Waiting for EKS cluster '${CLUSTER_NAME}' to become ACTIVE..."
+          echo "Waiting for EKS cluster '${CLUSTER_NAME}' to be describable..."
           for i in $(seq 1 60); do
-            STATUS="$(aws eks describe-cluster --region "${AWS_REGION}" --name "${CLUSTER_NAME}" --query 'cluster.status' --output text 2>/dev/null || echo "MISSING")"
-            echo "  attempt ${i}: status=${STATUS}"
-            [ "${STATUS}" = "ACTIVE" ] && break
-            sleep 10
+            if aws eks describe-cluster --region "${AWS_REGION}" --name "${CLUSTER_NAME}" >/dev/null 2>&1; then
+              break
+            fi
+            echo "  attempt ${i}: cluster not found yet"
+            sleep 5
           done
 
           CUR_JSON="$(aws eks describe-cluster \
@@ -120,7 +123,7 @@ jobs:
             --output json || echo '[]')"
 
           export CUR_JSON RUNNER_IP
-          NEW_CSV="$(python3 -c 'import json,os; c=json.loads(os.environ.get("CUR_JSON") or "[]"); ip=os.environ["RUNNER_IP"].strip()+"/32"; print(",".join(c if ip in c else c+[ip]))')"
+          NEW_CSV="$(python3 -c 'import json,os; c=json.loads(os.environ.get("CUR_JSON") or "[]"); ip=os.environ["RUNNER_IP"].strip()+"/32"; s=list(dict.fromkeys(c+[ip])); print(",".join(s))')"
           echo "Updating cluster publicAccessCidrs: ${NEW_CSV}"
           aws eks update-cluster-config \
             --region "${AWS_REGION}" \
@@ -136,26 +139,9 @@ jobs:
               echo "EKS API reachable on ${HOST}:443"
               break
             fi
-            echo "Waiting for EKS API to accept new CIDR... (${i}/60)"
+            echo "Waiting for EKS API to accept CIDR... (${i}/60)"
             sleep 5
           done
-
-      - name: Import existing EKS access entries (idempotent)
-        env:
-          CLUSTER_NAME: ${{ env.CLUSTER_NAME }}
-          ADMIN_PRINCIPAL_ARN: ${{ secrets.EKS_ADMIN_PRINCIPAL_ARN }}
-        run: |
-          set -euo pipefail
-          # Discover CI role ARN from state; or set via secret if you prefer.
-          CI_ARN="$(terraform state show aws_iam_role.github_ci 2>/dev/null | awk -F'= ' '/^arn = /{print $2}' || true)"
-
-          for P in "${ADMIN_PRINCIPAL_ARN:-}" "${CI_ARN:-}"; do
-            [ -z "$P" ] && continue
-            echo "Importing EKS access entry for $P"
-            terraform import -allow-missing-config aws_eks_access_entry.admin     "${CLUSTER_NAME},${P}" || true
-            terraform import -allow-missing-config aws_eks_access_entry.github_ci "${CLUSTER_NAME},${P}" || true
-          done
-
 
       # -------- Phase B: converge full stack (addons enabled) --------
       - name: Plan full (addons enabled)
