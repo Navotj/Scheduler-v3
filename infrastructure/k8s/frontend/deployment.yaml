@@ -8,33 +8,36 @@ spec:
   selector:
     matchLabels:
       app: frontend
-  strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxUnavailable: 0
-      maxSurge: 1
   template:
     metadata:
       labels:
         app: frontend
     spec:
+      # Pod-level security
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+        fsGroup: 101
+        fsGroupChangePolicy: OnRootMismatch
       containers:
         - name: frontend
-          image: <ECR_URI_REPLACED_BY_CI>/frontend:${GITHUB_SHA}
-          imagePullPolicy: IfNotPresent
+          image: 637423477802.dkr.ecr.eu-central-1.amazonaws.com/frontend:${GITHUB_SHA}
           ports:
             - name: http
               containerPort: 8080
           env:
             - name: API_HOST
               value: "api.nat20scheduling.com"
-          resources:
-            requests:
-              cpu: 50m
-              memory: 64Mi
-            limits:
-              cpu: 200m
-              memory: 256Mi
+          # Container-level security
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 101
+            runAsGroup: 101
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          # (probes, resources, and the emptyDir mounts you already have)
           volumeMounts:
             - name: tmp
               mountPath: /tmp
@@ -44,29 +47,6 @@ spec:
               mountPath: /var/run
             - name: var-log-nginx
               mountPath: /var/log/nginx
-          startupProbe:
-            httpGet:
-              path: /index.html
-              port: http
-            periodSeconds: 3
-            timeoutSeconds: 1
-            failureThreshold: 30
-          livenessProbe:
-            httpGet:
-              path: /index.html
-              port: http
-            initialDelaySeconds: 20
-            periodSeconds: 20
-            timeoutSeconds: 1
-            failureThreshold: 6
-          readinessProbe:
-            httpGet:
-              path: /index.html
-              port: http
-            initialDelaySeconds: 5
-            periodSeconds: 10
-            timeoutSeconds: 1
-            failureThreshold: 6
       volumes:
         - name: tmp
           emptyDir: {}
@@ -76,10 +56,3 @@ spec:
           emptyDir: {}
         - name: var-log-nginx
           emptyDir: {}
-      topologySpreadConstraints:
-        - maxSkew: 1
-          topologyKey: topology.kubernetes.io/zone
-          whenUnsatisfiable: ScheduleAnyway
-          labelSelector:
-            matchLabels:
-              app: frontend
