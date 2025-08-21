@@ -51,6 +51,7 @@ jobs:
 
       # Pre-open the EKS API to the runner IP so helm/k8s providers can refresh/plan.
       - name: Allow runner IP to reach EKS API (merge + wait)
+        shell: bash
         env:
           CLUSTER_NAME: ${{ env.CLUSTER_NAME }}
           AWS_REGION: ${{ env.AWS_REGION }}
@@ -66,16 +67,12 @@ jobs:
             --query 'cluster.resourcesVpcConfig.publicAccessCidrs' \
             --output json)"
 
-          # Build merged CSV list without duplicates
-          NEW_CSV="$(python - <<'PY'
-            import json, os, sys
-            cidrs=json.loads(os.environ['CUR_JSON'])
-            ip=os.environ['RUNNER_IP'].strip()+"/32"
-            if ip not in cidrs:
-                cidrs.append(ip)
-            print(",".join(cidrs))
-            PY
-            )"
+          # Make vars available to Python
+          export CUR_JSON RUNNER_IP
+
+          # Build merged CSV list without duplicates (no heredoc to avoid YAML EOF issues)
+          NEW_CSV="$(python3 -c 'import json,os; c=json.loads(os.environ["CUR_JSON"]); ip=os.environ["RUNNER_IP"].strip()+"/32"; print(",".join(c if ip in c else c+[ip]))')"
+
           echo "Updating cluster publicAccessCidrs: ${NEW_CSV}"
           aws eks update-cluster-config \
             --region "${AWS_REGION}" \
@@ -96,7 +93,7 @@ jobs:
             sleep 5
           done
 
-          # Final check
+          # Final check (fails the step if still blocked)
           timeout 5 bash -lc "echo | openssl s_client -connect ${HOST}:443 -servername ${HOST} >/dev/null 2>&1"
 
       - name: Terraform Init
