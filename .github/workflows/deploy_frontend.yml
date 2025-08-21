@@ -25,14 +25,14 @@ env:
   PROJECT_NAME: nat20
   NAMESPACE: nat20
   ECR_REPO: nat20/frontend
-  KUBECTL_TIMEOUT: 60s
+  KUBECTL_TIMEOUT: 45s
   AWS_RETRY_MODE: standard
   AWS_MAX_ATTEMPTS: "6"
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 35
 
     steps:
       - name: Checkout
@@ -90,122 +90,6 @@ jobs:
           echo "ORIGIN_CERT_ARN=${ORIGIN_CERT_ARN}" >> "$GITHUB_ENV"
           echo "ALB_FRONTEND_SG_ID=${ALB_FRONTEND_SG_ID}" >> "$GITHUB_ENV"
 
-      # ===== EKS API Reachability Debug & Fix =====
-      - name: Inspect EKS access config and runner IP
-        id: inspect
-        shell: bash
-        env:
-          AWS_REGION: ${{ env.AWS_REGION }}
-          CLUSTER_NAME: ${{ env.CLUSTER_NAME }}
-        run: |
-          set -euo pipefail
-          echo "AWS caller identity:"
-          aws sts get-caller-identity
-
-          RUNNER_IP="$(curl -s https://checkip.amazonaws.com | tr -d '\n\r')"
-          if [[ -z "${RUNNER_IP}" ]]; then
-            echo "runner_ip=" >> "$GITHUB_OUTPUT"
-            echo "ERROR: could not determine runner IP" >&2
-            exit 1
-          fi
-          RUNNER_CIDR="${RUNNER_IP}/32"
-          echo "Runner public IP: ${RUNNER_IP}"
-
-          DESC_JSON="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}")"
-          EP_PUBLIC="$(jq -r '.cluster.resourcesVpcConfig.endpointPublicAccess' <<<"${DESC_JSON}")"
-          CIDRS_JSON="$(jq -c '.cluster.resourcesVpcConfig.publicAccessCidrs // []' <<<"${DESC_JSON}")"
-          ENDPOINT="$(jq -r '.cluster.endpoint' <<<"${DESC_JSON}")"
-          HOST="${ENDPOINT#https://}"
-
-          echo "endpoint_public_access=${EP_PUBLIC}" >> "$GITHUB_OUTPUT"
-          echo "runner_ip=${RUNNER_IP}" >> "$GITHUB_OUTPUT"
-          echo "runner_cidr=${RUNNER_CIDR}" >> "$GITHUB_OUTPUT"
-          echo "api_host=${HOST}" >> "$GITHUB_OUTPUT"
-          echo "current_cidrs=${CIDRS_JSON}" >> "$GITHUB_OUTPUT"
-
-          echo "Current publicAccessCidrs: ${CIDRS_JSON}"
-          echo "Endpoint public access: ${EP_PUBLIC}"
-          echo "API endpoint host: ${HOST}"
-
-          HAS_RUNNER="$(jq -r --arg ip "${RUNNER_CIDR}" 'index($ip) | if . == null then "no" else "yes" end' <<<"${CIDRS_JSON}")"
-          echo "has_runner_cidr=${HAS_RUNNER}" >> "$GITHUB_OUTPUT"
-          echo "Runner CIDR present? ${HAS_RUNNER}"
-
-          echo "Probing raw HTTPS reachability (expect 200/401/403/404/405 if reachable)..."
-          code="$(curl -sk -o /dev/null -w "%{http_code}" --connect-timeout 5 --max-time 10 "https://${HOST}/version" || true)"
-          echo "probe_code=${code}" >> "$GITHUB_OUTPUT"
-          echo "Probe HTTP code: ${code}"
-
-      - name: Open EKS public API to this runner CIDR (if missing/closed)
-        id: open_eks
-        if: steps.inspect.outputs.endpoint_public_access != 'true' || steps.inspect.outputs.has_runner_cidr != 'yes'
-        shell: bash
-        env:
-          AWS_REGION: ${{ env.AWS_REGION }}
-          CLUSTER_NAME: ${{ env.CLUSTER_NAME }}
-          RUNNER_CIDR: ${{ steps.inspect.outputs.runner_cidr }}
-          CURRENT_CIDRS: ${{ steps.inspect.outputs.current_cidrs }}
-        run: |
-          set -euo pipefail
-
-          retry() { n=1; tries="$1"; delay="$2"; shift 2; until "$@"; do (( n>=tries )) && exit 1; sleep "$delay"; n=$((n+1)); done; }
-
-          # Build updated CIDR list including the runner /32
-          UPDATED_JSON="$(jq -cn --arg ip "${RUNNER_CIDR}" --argjson cur "${CURRENT_CIDRS:-[]}" '((($cur // []) | map(tostring)) + [$ip]) | unique')"
-          UPDATED_CSV="$(jq -r 'join(",")' <<< "${UPDATED_JSON}")"
-
-          echo "Applying EKS update: endpointPublicAccess=true, publicAccessCidrs=${UPDATED_CSV}"
-          UPDATE_JSON="$(aws eks update-cluster-config \
-              --name "${CLUSTER_NAME}" \
-              --region "${AWS_REGION}" \
-              --resources-vpc-config "endpointPublicAccess=true,publicAccessCidrs=${UPDATED_CSV}" \
-              --output json)"
-          UPDATE_ID="$(jq -r '.update.id' <<< "${UPDATE_JSON}")"
-          echo "update_id=${UPDATE_ID}" >> "$GITHUB_OUTPUT"
-
-          echo "Waiting for EKS update to finish..."
-          retry 120 5 bash -c '
-            set -e
-            S=$(aws eks describe-update --name "'"${CLUSTER_NAME}"'" --update-id "'"${UPDATE_ID}"'" --region "'"${AWS_REGION}"'" --query "update.status" --output text)
-            test "$S" = Successful && exit 0
-            test "$S" = Failed && exit 1
-            exit 2
-          '
-
-      - name: Verify API reachability after any update (with diagnostics)
-        id: verify_api
-        shell: bash
-        env:
-          AWS_REGION: ${{ env.AWS_REGION }}
-          CLUSTER_NAME: ${{ env.CLUSTER_NAME }}
-          HOST: ${{ steps.inspect.outputs.api_host }}
-          KUBECTL_TIMEOUT: ${{ env.KUBECTL_TIMEOUT }}
-        run: |
-          set -euo pipefail
-
-          echo "Re-probing HTTPS to https://${HOST}/version ..."
-          ok=false
-          for i in {1..60}; do
-            code="$(curl -sk -o /dev/null -w "%{http_code}" --connect-timeout 5 --max-time 10 "https://${HOST}/version" || true)"
-            echo "Attempt $i: HTTP ${code}"
-            case "$code" in
-              200|401|403|404|405) ok=true; break ;;
-              *) sleep 5 ;;
-            esac
-          done
-          echo "http_ok=${ok}" >> "$GITHUB_OUTPUT"
-          if [[ "${ok}" != "true" ]]; then
-            echo "==== EXTRA DIAG ===="
-            echo "Security Groups for cluster (control-plane SG is managed by EKS; printing node SGs/NLB is informational):"
-            aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}" --query 'cluster.resourcesVpcConfig' --output json || true
-            echo "Route to API host (DNS):"
-            getent hosts "${HOST}" || true
-            echo "Traceroute (may not be available):"
-            (command -v traceroute >/dev/null && traceroute -n "${HOST}") || true
-            echo "==== END DIAG ===="
-            exit 1
-          fi
-
       - name: Configure kubeconfig
         id: kubeconfig
         shell: bash
@@ -216,12 +100,63 @@ jobs:
           set -euo pipefail
           aws eks update-kubeconfig --name "${CLUSTER_NAME}" --region "${AWS_REGION}"
           kubectl version --client
-          for i in {1..12}; do
-            if kubectl cluster-info --request-timeout="${KUBECTL_TIMEOUT}" >/dev/null 2>&1; then
-              kubectl get nodes -o wide --request-timeout="${KUBECTL_TIMEOUT}" || true
-              break
+
+      # ===== EKS API Reachability Debug & Fix =====
+      - name: Preflight - API reachability (brief)
+        id: preflight
+        shell: bash
+        continue-on-error: true
+        env:
+          KUBECTL_TIMEOUT: ${{ env.KUBECTL_TIMEOUT }}
+        run: |
+          set -euo pipefail
+          ok=false
+          for i in {1..3}; do
+            if kubectl --request-timeout="${KUBECTL_TIMEOUT}" get --raw=/version >/dev/null 2>&1; then
+              ok=true; break
             fi
-            echo "Waiting for kubectl to reach the API ($i/12)..."
+            echo "Attempt $i/3: API not reachable; retrying..."
+            sleep 5
+          done
+          echo "ok=${ok}" >> "$GITHUB_OUTPUT"
+          test "${ok}" = true
+
+      - name: Open EKS API to this runner CIDR (if missing/closed)
+        if: steps.preflight.outputs.ok != 'true'
+        id: open_eks
+        shell: bash
+        env:
+          AWS_REGION: ${{ env.AWS_REGION }}
+          CLUSTER_NAME: ${{ env.CLUSTER_NAME }}
+        run: |
+          set -euo pipefail
+          RUNNER_IP="$(curl -s https://checkip.amazonaws.com | tr -d '\n\r')"
+          RUNNER_CIDR="${RUNNER_IP}/32"
+          DESC="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}")"
+          CUR_JSON="$(jq -c '.cluster.resourcesVpcConfig.publicAccessCidrs // []' <<< "${DESC}")"
+          UPDATED_JSON="$(jq -cn --arg ip "${RUNNER_CIDR}" --argjson cur "${CUR_JSON:-[]}" '((($cur // []) | map(tostring)) + [$ip]) | unique')"
+          UPDATED_CSV="$(jq -r 'join(",")' <<< "${UPDATED_JSON}")"
+
+          echo "Applying EKS update: endpointPublicAccess=true, publicAccessCidrs=${UPDATED_CSV}"
+          UPDATE_JSON="$(aws eks update-cluster-config \
+            --name "${CLUSTER_NAME}" \
+            --region "${AWS_REGION}" \
+            --resources-vpc-config "endpointPublicAccess=true,publicAccessCidrs=${UPDATED_CSV}" \
+            --output json)"
+          UPDATE_ID="$(jq -r '.update.id' <<< "${UPDATE_JSON}")"
+
+          for i in {1..36}; do
+            s="$(aws eks describe-update --name "${CLUSTER_NAME}" --update-id "${UPDATE_ID}" --region "${AWS_REGION}" --query 'update.status' --output text || echo "")"
+            [[ "${s}" == "Successful" ]] && break
+            [[ "${s}" == "Failed" ]] && { echo "EKS update failed"; exit 1; }
+            sleep 5
+          done
+
+          ENDPOINT="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}" --query 'cluster.endpoint' --output text)"
+          HOST="${ENDPOINT#https://}"
+          for i in {1..12}; do
+            code="$(curl -sk -o /dev/null -w "%{http_code}" --connect-timeout 5 --max-time 10 "https://${HOST}/version" || true)"
+            [[ "${code}" =~ ^(200|401|403|404|405)$ ]] && break
             sleep 5
           done
 
@@ -230,9 +165,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for i in {1..5}; do
+          for i in {1..3}; do
             if kubectl apply -f infrastructure/k8s/namespaces/nat20.yaml --request-timeout="${KUBECTL_TIMEOUT}"; then break; fi
-            sleep 10
+            sleep 5
           done
 
       - name: Apply frontend (image templated)
@@ -242,9 +177,9 @@ jobs:
           export IMAGE_URI
           TMP="$(mktemp)"
           envsubst < infrastructure/k8s/frontend/deployment.yaml > "${TMP}"
-          for i in {1..5}; do
+          for i in {1..3}; do
             if kubectl apply -f "${TMP}" --request-timeout="${KUBECTL_TIMEOUT}"; then break; fi
-            sleep 10
+            sleep 5
           done
 
       - name: Apply frontend Ingress (cert/sg templated)
@@ -254,9 +189,9 @@ jobs:
           export ORIGIN_CERT_ARN ALB_FRONTEND_SG_ID
           TMP="$(mktemp)"
           envsubst < infrastructure/k8s/ingress/frontend-ingress.yaml > "${TMP}"
-          for i in {1..5}; do
+          for i in {1..3}; do
             if kubectl apply -f "${TMP}" --request-timeout="${KUBECTL_TIMEOUT}"; then break; fi
-            sleep 10
+            sleep 5
           done
 
       - name: Rollout status
@@ -265,7 +200,7 @@ jobs:
           set -euo pipefail
           kubectl -n "${NAMESPACE}" rollout status deployment/frontend --timeout=300s
 
-      - name: "On failure: collect diagnostics"
+      - name: On failure - collect diagnostics
         if: failure()
         shell: bash
         run: |
@@ -282,23 +217,3 @@ jobs:
             kubectl -n "${NAMESPACE}" logs "$p" || true
             kubectl -n "${NAMESPACE}" describe "$p" || true
           done
-
-      - name: Restore CIDRs (best-effort)
-        if: always() && (steps.inspect.outputs.endpoint_public_access != 'true' || steps.inspect.outputs.has_runner_cidr != 'yes')
-        shell: bash
-        env:
-          AWS_REGION: ${{ env.AWS_REGION }}
-          CLUSTER_NAME: ${{ env.CLUSTER_NAME }}
-          RUNNER_CIDR: ${{ steps.inspect.outputs.runner_cidr }}
-          CURRENT_CIDRS: ${{ steps.inspect.outputs.current_cidrs }}
-        run: |
-          set -euo pipefail
-          # Remove runner CIDR if it wasn't originally present
-          ORIG_HAS="$(jq -r --arg ip "${RUNNER_CIDR}" 'index($ip) | if . == null then "no" else "yes" end' <<<"${CURRENT_CIDRS:-[]}" )"
-          if [[ "${ORIG_HAS}" == "no" ]]; then
-            CLEAN_JSON="$(jq -cn --arg ip "${RUNNER_CIDR}" --argjson cur "${CURRENT_CIDRS:-[]}" '(($cur // []) | map(tostring) | map(select(. != $ip))) | unique')"
-            CLEAN_CSV="$(jq -r 'join(",")' <<< "${CLEAN_JSON}")"
-            if [[ -n "${CLEAN_CSV}" ]]; then
-              aws eks update-cluster-config --name "${CLUSTER_NAME}" --region "${AWS_REGION}" --resources-vpc-config "endpointPublicAccess=true,publicAccessCidrs=${CLEAN_CSV}" >/dev/null || true
-            fi
-          fi
