@@ -23,27 +23,29 @@ spec:
       securityContext:
         runAsNonRoot: true
         runAsUser: 101
+        runAsGroup: 101
         fsGroup: 101
+        fsGroupChangePolicy: OnRootMismatch
         seccompProfile:
           type: RuntimeDefault
       containers:
         - name: frontend
+          # CI replaces this image on deploy
           image: REPLACED-BY-CI
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
               containerPort: 8080
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
           env:
             - name: api_host
-              value: "api.nat20scheduling.com"
-          livenessProbe:
-            httpGet:
-              path: /index.html
-              port: http
-            initialDelaySeconds: 20
-            timeoutSeconds: 3
-            periodSeconds: 20
-            failureThreshold: 6
+              value: api.nat20scheduling.com
           readinessProbe:
             httpGet:
               path: /index.html
@@ -52,18 +54,14 @@ spec:
             timeoutSeconds: 3
             periodSeconds: 10
             failureThreshold: 6
-          resources:
-            requests:
-              cpu: 50m
-              memory: 64Mi
-            limits:
-              cpu: 500m
-              memory: 256Mi
-          securityContext:
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
-            capabilities:
-              drop: [ "ALL" ]
+          livenessProbe:
+            httpGet:
+              path: /index.html
+              port: http
+            initialDelaySeconds: 20
+            timeoutSeconds: 3
+            periodSeconds: 20
+            failureThreshold: 6
           volumeMounts:
             - name: confd
               mountPath: /etc/nginx/conf.d
@@ -71,8 +69,14 @@ spec:
               mountPath: /var/cache/nginx
             - name: run
               mountPath: /var/run
-      # EmptyDir volumes are writable even with readOnlyRootFilesystem=true.
-      # fsGroup above ensures group-write semantics under "restricted" policy.
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+      # Use volumes to make writeable paths for the unprivileged NGINX user (101)
       volumes:
         - name: confd
           emptyDir: {}

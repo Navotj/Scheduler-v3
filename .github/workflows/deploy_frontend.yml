@@ -1,19 +1,22 @@
 name: Deploy Frontend to EKS
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: {}
   push:
-    branches: [ main ]
     paths:
-      - "docker/frontend/**"
+      - ".github/workflows/deploy_frontend.yml"
       - "frontend/**"
       - "infrastructure/k8s/frontend/**"
       - "infrastructure/k8s/ingress/frontend-ingress.yaml"
-      - ".github/workflows/deploy_frontend.yml"
+      - "infrastructure/k8s/namespaces/nat20.yaml"
 
 permissions:
   id-token: write
   contents: read
+
+concurrency:
+  group: deploy-frontend
+  cancel-in-progress: true
 
 env:
   AWS_REGION: eu-central-1
@@ -27,150 +30,138 @@ env:
 
 jobs:
   deploy:
-    name: deploy
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install jq/curl/envsubst
+      - name: Configure AWS (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Install tooling
         shell: bash
         run: |
           set -euo pipefail
           sudo apt-get update -y
           sudo apt-get install -y jq curl gettext-base
 
-      - name: Configure AWS credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
-          aws-region: ${{ env.AWS_REGION }}
-          role-session-name: gha-frontend-deploy
-
-      - name: Login to Amazon ECR
+      - name: ECR login
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build & push image
-        id: build
+      - name: Compute image URI
+        id: img
         shell: bash
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         run: |
           set -euo pipefail
-          IMAGE_URI="${ECR_REGISTRY}/${ECR_REPO}:sha-${GITHUB_SHA}"
-          echo "IMAGE_URI=${IMAGE_URI}" | tee -a "$GITHUB_ENV"
-          docker buildx build \
-            --push \
-            --tag "${IMAGE_URI}" \
-            -f docker/frontend/Dockerfile \
-            .
-          echo "pushed=${IMAGE_URI}"
+          echo "ECR_REGISTRY=${{ steps.login-ecr.outputs.registry }}" >> "$GITHUB_ENV"
+          echo "IMAGE_URI=${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPO }}:sha-${{ github.sha }}" >> "$GITHUB_ENV"
+          echo "uri=${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPO }}:sha-${{ github.sha }}" >> "$GITHUB_OUTPUT"
 
-      - name: Read network params from SSM
-        id: read-ssm
+      - name: Build & push image
         shell: bash
         run: |
           set -euo pipefail
-          ORIGIN_CERT_ARN="$(aws ssm get-parameter --name /nat20/network/ORIGIN_CERT_ARN --query 'Parameter.Value' --output text)"
-          ALB_FRONTEND_SG_ID="$(aws ssm get-parameter --name /nat20/network/ALB_FRONTEND_SG_ID --query 'Parameter.Value' --output text)"
+          docker build -f Dockerfile -t "${IMAGE_URI}" .
+          docker push "${IMAGE_URI}"
+
+      - name: Read SSM params (ingress cert + SG)
+        shell: bash
+        run: |
+          set -euo pipefail
+          ORIGIN_CERT_ARN="$(aws ssm get-parameter --name /${PROJECT_NAME}/network/ORIGIN_CERT_ARN --query 'Parameter.Value' --output text)"
+          ALB_FRONTEND_SG_ID="$(aws ssm get-parameter --name /${PROJECT_NAME}/network/ALB_FRONTEND_SG_ID --query 'Parameter.Value' --output text)"
           echo "ORIGIN_CERT_ARN=${ORIGIN_CERT_ARN}" >> "$GITHUB_ENV"
           echo "ALB_FRONTEND_SG_ID=${ALB_FRONTEND_SG_ID}" >> "$GITHUB_ENV"
 
-      - name: Preflight: API reachability (brief, authorized)
+      - name: kubeconfig
+        shell: bash
+        run: |
+          set -euo pipefail
+          aws eks update-kubeconfig --name "${CLUSTER_NAME}" --region "${AWS_REGION}"
+          kubectl version --client --short || true
+
+      - name: "Preflight: API reachability (brief, treat 200/401/403 as OK)"
         id: preflight
         shell: bash
         run: |
           set -euo pipefail
-          # Try a very short, authorized probe using kubectl; no mutations.
-          aws eks update-kubeconfig --name "${CLUSTER_NAME}" --region "${AWS_REGION}" >/dev/null
+          ENDPOINT="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --query 'cluster.endpoint' --output text)"
           ok="false"
           for i in 1 2 3; do
-            if kubectl --request-timeout=10s get --raw=/readyz >/dev/null 2>&1; then
+            code="$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 10 "${ENDPOINT}/version" || echo 000)"
+            if [[ "$code" == "200" || "$code" == "401" || "$code" == "403" ]]; then
               ok="true"; break
             fi
             sleep 5
           done
           echo "ok=${ok}" >> "$GITHUB_OUTPUT"
-          echo "Preflight result: ${ok}"
 
-      - name: Fallback: temporarily allow this runner CIDR (one attempt)
+      - name: "Fallback: temporarily allow this runner CIDR (one attempt)"
         if: steps.preflight.outputs.ok != 'true'
-        id: cidr-fallback
         shell: bash
         run: |
           set -euo pipefail
-
-          runner_ip="$(curl -s https://checkip.amazonaws.com | tr -d '\n\r')"
-          [[ -n "${runner_ip}" ]]
-          runner_cidr="${runner_ip}/32"
-
-          current="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
-                  --query 'cluster.resourcesVpcConfig.publicAccessCidrs' --output json)"
-          updated="$(jq -cn --arg ip "${runner_cidr}" --argjson cur "${current:-null}" '((($cur // []) | map(tostring)) + [$ip]) | unique | join(",")')"
-
-          echo "Applying EKS update: endpointPublicAccess=true, publicAccessCidrs=${updated}"
-          update_id="$(aws eks update-cluster-config \
-              --name "${CLUSTER_NAME}" \
-              --region "${AWS_REGION}" \
-              --resources-vpc-config "endpointPublicAccess=true,publicAccessCidrs=${updated}" \
-              --query update.id --output text)"
-
-          # Wait for update to finish (fast poll, hard 90s cap)
-          for _ in {1..18}; do
-            status="$(aws eks describe-update --name "${CLUSTER_NAME}" --region "${AWS_REGION}" --update-id "${update_id}" --query 'update.status' --output text)"
-            [[ "${status}" == "Failed" ]] && { echo "EKS update failed"; exit 1; }
-            [[ "${status}" == "Successful" ]] && break
-            sleep 5
+          RUNNER_CIDR="$(curl -s https://checkip.amazonaws.com | tr -d '\r\n')/32"
+          CUR_JSON="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --query 'cluster.resourcesVpcConfig.publicAccessCidrs' --output json)"
+          NEW_CSV="$(jq -r --arg ip "$RUNNER_CIDR" '(($CUR_JSON // []) + [$ip]) | unique | join(",")')"
+          if [[ -z "${NEW_CSV}" ]]; then
+            echo "could not compute publicAccessCidrs CSV"; exit 1
+          fi
+          echo "Applying EKS update: endpointPublicAccess=true, publicAccessCidrs=${NEW_CSV}"
+          UPDATE_ID="$(aws eks update-cluster-config \
+            --name "${CLUSTER_NAME}" \
+            --resources-vpc-config "endpointPublicAccess=true,publicAccessCidrs=${NEW_CSV}" \
+            --query 'update.id' --output text)"
+          # Wait for completion (bounded)
+          for _ in {1..30}; do
+            PHASE="$(aws eks describe-update --name "${CLUSTER_NAME}" --update-id "${UPDATE_ID}" --query 'update.status' --output text)"
+            [[ "${PHASE}" == "Successful" ]] && break
+            [[ "${PHASE}" == "Failed" ]] && { echo "EKS update failed"; exit 1; }
+            sleep 10
           done
-
-          # Re-check with authorized probe; fail fast if still not reachable.
-          aws eks update-kubeconfig --name "${CLUSTER_NAME}" --region "${AWS_REGION}" >/dev/null
-          if ! kubectl --request-timeout=15s get --raw=/readyz >/dev/null 2>&1; then
-            echo "Cluster API still not reachable after CIDR fallback." >&2
+          # Re-check reachability
+          ENDPOINT="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --query 'cluster.endpoint' --output text)"
+          code="$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 10 "${ENDPOINT}/version" || echo 000)"
+          if [[ "$code" == "200" || "$code" == "401" || "$code" == "403" ]]; then
+            echo "API now reachable (HTTP ${code})."
+          else
+            echo "API still not reachable (HTTP ${code}). Aborting."
             exit 1
           fi
-
-      - name: Connect & basic cluster info
-        shell: bash
-        run: |
-          set -euo pipefail
-          aws eks update-kubeconfig --name "${CLUSTER_NAME}" --region "${AWS_REGION}"
-          kubectl version --client
-          kubectl get nodes -o wide
 
       - name: Ensure namespace
         shell: bash
         run: |
           set -euo pipefail
-          kubectl apply -f infrastructure/k8s/namespaces/nat20.yaml
+          kubectl apply -f infrastructure/k8s/namespaces/nat20.yaml --request-timeout="${KUBECTL_TIMEOUT}"
 
-      - name: Apply frontend (deployment + service)
+      - name: Apply frontend Deployment/Service
         shell: bash
         run: |
           set -euo pipefail
-          kubectl -n "${NAMESPACE}" apply -f infrastructure/k8s/frontend/deployment.yaml
-          kubectl -n "${NAMESPACE}" apply -f infrastructure/k8s/frontend/service.yaml
+          kubectl -n "${NAMESPACE}" apply -f infrastructure/k8s/frontend/deployment.yaml --request-timeout="${KUBECTL_TIMEOUT}"
+          kubectl -n "${NAMESPACE}" apply -f infrastructure/k8s/frontend/service.yaml --request-timeout="${KUBECTL_TIMEOUT}"
 
-      - name: Set image on deployment
+      - name: Apply frontend Ingress
         shell: bash
-        run: |
-          set -euo pipefail
-          kubectl -n "${NAMESPACE}" set image deployment/frontend frontend="${IMAGE_URI}" --record=true
-          kubectl -n "${NAMESPACE}" annotate deployment/frontend kubernetes.io/change-cause="kubectl set image to ${IMAGE_URI}" --overwrite
-
-      - name: Apply ingress
-        shell: bash
-        env:
-          ORIGIN_CERT_ARN: ${{ env.ORIGIN_CERT_ARN }}
-          ALB_FRONTEND_SG_ID: ${{ env.ALB_FRONTEND_SG_ID }}
         run: |
           set -euo pipefail
           export ORIGIN_CERT_ARN ALB_FRONTEND_SG_ID
-          tmp="$(mktemp)"
-          envsubst < infrastructure/k8s/ingress/frontend-ingress.yaml > "${tmp}"
-          kubectl apply -f "${tmp}" --request-timeout="${KUBECTL_TIMEOUT}"
+          TMP="$(mktemp)"
+          envsubst < infrastructure/k8s/ingress/frontend-ingress.yaml > "${TMP}"
+          kubectl -n "${NAMESPACE}" apply -f "${TMP}" --request-timeout="${KUBECTL_TIMEOUT}"
+
+      - name: Update image
+        shell: bash
+        run: |
+          set -euo pipefail
+          kubectl -n "${NAMESPACE}" set image deployment/frontend frontend="${IMAGE_URI}" --record
+          kubectl -n "${NAMESPACE}" annotate deployment/frontend kubernetes.io/change-cause="kubectl set image to ${IMAGE_URI}" --overwrite
 
       - name: Wait for rollout
         shell: bash
@@ -178,34 +169,28 @@ jobs:
           set -euo pipefail
           kubectl -n "${NAMESPACE}" rollout status deployment/frontend --timeout=300s
 
-      - name: On failure: collect diagnostics
+      - name: "On failure: collect diagnostics"
         if: failure()
         shell: bash
         run: |
           set -euo pipefail
-          echo "=== k8s objects ==="
-          kubectl -n "${NAMESPACE}" get all -l app=frontend -o wide || true
+          echo "=== cluster nodes ==="
+          kubectl get nodes -o wide || true
 
-          echo "=== deployment describe ==="
+          echo "=== objects ==="
+          kubectl -n "${NAMESPACE}" get all -o wide || true
           kubectl -n "${NAMESPACE}" describe deployment frontend || true
+          kubectl -n "${NAMESPACE}" get rs -o wide || true
+          kubectl -n "${NAMESPACE}" get ingress frontend -o yaml || true
 
-          echo "=== newest replicaset describe ==="
-          RS="$(kubectl -n "${NAMESPACE}" get rs -l app=frontend -o json \
-                | jq -r '.items | sort_by(.metadata.creationTimestamp) | last(.[]?).metadata.name // empty')"
-          if [[ -n "${RS}" ]]; then
-            kubectl -n "${NAMESPACE}" describe rs "${RS}" || true
-          fi
+          echo "=== recent events (unique lines with counts, last 300) ==="
+          kubectl -n "${NAMESPACE}" get events --sort-by=.lastTimestamp | tail -n 300 \
+            | awk '{c[$0]++} END {for (l in c) printf "%5d × %s\n", c[l], l}' | sort -nr | head -n 200 || true
 
-          echo "=== recent events (tail 200) ==="
-          kubectl -n "${NAMESPACE}" get events --sort-by=.lastTimestamp | tail -n 200 || true
-
-          echo "=== pod logs (filtered) ==="
-          mapfile -t PODS < <(kubectl -n "${NAMESPACE}" get pods -l app=frontend -o jsonpath='{.items[*].metadata.name}')
-          for p in "${PODS[@]}"; do
-            echo "--- logs for ${p} ---"
-            kubectl -n "${NAMESPACE}" logs "${p}" --tail=500 2>&1 \
-              | awk '/kube-probe/ {c++; next} {print} END{ if (c) printf("[elided %d kube-probe lines]\n", c) }' || true
-            echo
+          echo "=== frontend pod logs (last 400, non-probe grouped) ==="
+          for p in $(kubectl -n "${NAMESPACE}" get pods -l app=frontend -o name | sed 's|pod/||'); do
+            echo "--- $p ---"
+            kubectl -n "${NAMESPACE}" logs "$p" --tail=400 2>/dev/null \
+              | grep -v 'kube-probe/1' \
+              | awk '{c[$0]++} END {for (l in c) printf "%5d × %s\n", c[l], l}' | sort -nr | head -n 200 || true
           done
-
-          exit 1
