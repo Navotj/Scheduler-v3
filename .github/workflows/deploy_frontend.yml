@@ -1,13 +1,15 @@
-name: Deploy Frontend
+name: Deploy Frontend to EKS
 
 on:
   push:
-    branches: [ main ]
+    branches: ["main"]
     paths:
       - "frontend/**"
+      - "infrastructure/docker/frontend/Dockerfile"
       - "infrastructure/k8s/frontend/deployment.yaml"
-      - ".github/workflows/deploy-frontend.yml"
-  workflow_dispatch: {}
+      - "infrastructure/k8s/ingress/frontend-ingress.yaml"
+      - ".github/workflows/deploy_frontend.yml"
+  workflow_dispatch:
 
 permissions:
   id-token: write
@@ -15,10 +17,10 @@ permissions:
 
 env:
   AWS_REGION: eu-central-1
-  ACCOUNT_ID: "637423477802"
-  ECR_REPO: "frontend"
-  CLUSTER_NAME: "nat20-eks"
-  NAMESPACE: "nat20"
+  CLUSTER_NAME: nat20-eks
+  PROJECT_NAME: nat20
+  NAMESPACE: nat20
+  ECR_REPO: nat20/frontend
 
 jobs:
   deploy:
@@ -28,53 +30,83 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Configure AWS credentials (assume CI role)
+      - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::637423477802:role/nat20-ci
           aws-region: ${{ env.AWS_REGION }}
-
-      - name: Compute ECR_URI
-        run: |
-          echo "ECR_URI=${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}" >> "$GITHUB_ENV"
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
 
       - name: Login to Amazon ECR
+        id: ecr-login
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build & push image
+      - name: Set image variables
+        id: vars
+        run: |
+          set -euo pipefail
+          echo "ECR_REGISTRY=${{ steps.ecr-login.outputs.registry }}" >> "$GITHUB_ENV"
+          echo "IMAGE_URI=${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPO }}:sha-${GITHUB_SHA}" >> "$GITHUB_ENV"
+
+      - name: Build image
         run: |
           set -euo pipefail
           docker build \
-            -t "${ECR_URI}:${GITHUB_SHA}" \
-            -t "${ECR_URI}:latest" \
+            -f infrastructure/docker/frontend/Dockerfile \
+            -t "${IMAGE_URI}" \
+            --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
+            --label "org.opencontainers.image.source=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
             .
-          docker push "${ECR_URI}:${GITHUB_SHA}"
-          docker push "${ECR_URI}:latest"
+      - name: Push image
+        run: |
+          set -euo pipefail
+          docker push "${IMAGE_URI}"
 
-      - name: Update kubeconfig
+      - name: Fetch required parameters (SSM)
+        id: ssm
+        run: |
+          set -euo pipefail
+          ORIGIN_CERT_ARN="$(aws ssm get-parameter --name /nat20/network/ORIGIN_CERT_ARN --query 'Parameter.Value' --output text)"
+          ALB_FRONTEND_SG_ID="$(aws ssm get-parameter --name /nat20/network/ALB_FRONTEND_SG_ID --query 'Parameter.Value' --output text)"
+          echo "ORIGIN_CERT_ARN=${ORIGIN_CERT_ARN}" >> "$GITHUB_ENV"
+          echo "ALB_FRONTEND_SG_ID=${ALB_FRONTEND_SG_ID}" >> "$GITHUB_ENV"
+
+      - name: Configure kubectl
         run: |
           set -euo pipefail
           aws eks update-kubeconfig --name "${CLUSTER_NAME}" --region "${AWS_REGION}"
+          kubectl version --short || true
+          kubectl get nodes -o wide || true
 
-      - name: Apply Deployment (no placeholder tags)
+      - name: Ensure namespace exists
         run: |
           set -euo pipefail
-          kubectl -n "${NAMESPACE}" apply -f infrastructure/k8s/frontend/deployment.yaml
+          kubectl apply -f infrastructure/k8s/namespaces/nat20.yaml
 
-      - name: Set image to this commit
+      - name: Apply frontend Deployment/Service
         run: |
           set -euo pipefail
-          kubectl -n "${NAMESPACE}" set image deployment/frontend frontend="${ECR_URI}:${GITHUB_SHA}"
+          kubectl apply -f infrastructure/k8s/frontend/deployment.yaml
+
+      - name: Apply frontend Ingress (envsubst)
+        run: |
+          set -euo pipefail
+          envsubst < infrastructure/k8s/ingress/frontend-ingress.yaml | kubectl apply -f -
+
+      - name: Set image on Deployment
+        run: |
+          set -euo pipefail
+          kubectl -n "${NAMESPACE}" set image deployment/frontend frontend="${IMAGE_URI}"
 
       - name: Rollout status
         run: |
           set -euo pipefail
-          kubectl -n "${NAMESPACE}" rollout status deployment/frontend --timeout=180s
+          kubectl -n "${NAMESPACE}" rollout status deployment/frontend --timeout=300s
 
       - name: Debug on failure
         if: failure()
         run: |
           set -euo pipefail
-          kubectl -n "${NAMESPACE}" get pods -o wide
+          kubectl -n "${NAMESPACE}" get all -o wide
           kubectl -n "${NAMESPACE}" describe deployment frontend
-          kubectl -n "${NAMESPACE}" get events --sort-by=.lastTimestamp | tail -n 200
+          kubectl -n "${NAMESPACE}" get ingress frontend -o yaml || true
+          kubectl -n "${NAMESPACE}" get events --sort-by=.lastTimestamp | tail -n 200 || true
