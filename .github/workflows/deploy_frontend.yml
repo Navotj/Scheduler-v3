@@ -25,12 +25,12 @@ env:
   PROJECT_NAME: nat20
   NAMESPACE: nat20
   ECR_REPO: nat20/frontend
-  KUBECTL_TIMEOUT: 20s
+  KUBECTL_TIMEOUT: 30s
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
       - name: Checkout
@@ -46,10 +46,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if ! command -v jq >/dev/null 2>&1 || ! command -v envsubst >/dev/null 2>&1; then
-            sudo apt-get update -y
-            sudo apt-get install -y jq gettext-base
-          fi
+          sudo apt-get update -y
+          sudo apt-get install -y jq gettext-base
           command -v openssl >/dev/null 2>&1 || { echo "openssl missing"; exit 1; }
           command -v curl >/dev/null 2>&1 || { echo "curl missing"; exit 1; }
 
@@ -92,7 +90,7 @@ jobs:
           echo "ORIGIN_CERT_ARN=${ORIGIN_CERT_ARN}" >> "$GITHUB_ENV"
           echo "ALB_FRONTEND_SG_ID=${ALB_FRONTEND_SG_ID}" >> "$GITHUB_ENV"
 
-      - name: Whitelist this runner IP for EKS API (merge, wait)
+      - name: Whitelist this runner IP for EKS API (merge; wait for update)
         id: open-eks
         shell: bash
         env:
@@ -120,28 +118,48 @@ jobs:
           RUNNER_CIDR="${RUNNER_IP}/32"
           echo "runner_cidr=${RUNNER_CIDR}" >> "$GITHUB_OUTPUT"
 
-          # Get current publicAccessCidrs (may be null or empty) as compact JSON array
+          # Current list (may be null)
           ORIG_CIDRS_JSON="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}" --query 'cluster.resourcesVpcConfig.publicAccessCidrs' --output json | jq -c '.')"
           echo "original_cidrs=${ORIG_CIDRS_JSON}" >> "$GITHUB_OUTPUT"
 
-          # Build updated list (unique) and CSV for CLI
+          # Build updated list (unique)
           UPDATED_JSON="$(jq -cn --arg ip "${RUNNER_CIDR}" --argjson cur "${ORIG_CIDRS_JSON:-null}" '
               ( ( ($cur // []) | map(tostring) ) + [$ip] ) | unique
           ')"
-          UPDATED_CSV="$(jq -r 'join(",")' <<<"${UPDATED_JSON}")"
+          NEED_UPDATE="$(jq -r --arg ip "${RUNNER_CIDR}" 'index($ip) | if . == null then "yes" else "no" end' <<<"${UPDATED_JSON}")"
 
-          echo "Updating cluster publicAccessCidrs to: ${UPDATED_CSV}"
-          aws eks update-cluster-config \
-            --name "${CLUSTER_NAME}" \
-            --region "${AWS_REGION}" \
-            --resources-vpc-config "endpointPublicAccess=true,publicAccessCidrs=${UPDATED_CSV}" >/dev/null
+          if [[ "${NEED_UPDATE}" == "no" ]]; then
+            echo "Runner CIDR already allowed; skipping EKS API CIDR update."
+          else
+            UPDATED_CSV="$(jq -r 'join(",")' <<<"${UPDATED_JSON}")"
+            echo "Updating cluster publicAccessCidrs to: ${UPDATED_CSV}"
+            UPDATE_ID="$(aws eks update-cluster-config \
+              --name "${CLUSTER_NAME}" \
+              --region "${AWS_REGION}" \
+              --resources-vpc-config "endpointPublicAccess=true,publicAccessCidrs=${UPDATED_CSV}" \
+              --output json | jq -r '.update.id')"
 
-          # Wait for the control plane endpoint to accept TLS (up to ~5 min)
+            if [[ -z "${UPDATE_ID}" || "${UPDATE_ID}" == "null" ]]; then
+              echo "Failed to get update ID from update-cluster-config" >&2
+              exit 1
+            fi
+
+            echo "Waiting for EKS update ${UPDATE_ID} to complete..."
+            retry 90 5 bash -c '
+              set -e
+              ST=$(aws eks describe-update --name "'"${CLUSTER_NAME}"'" --update-id "'"${UPDATE_ID}"'" --region "'"${AWS_REGION}"'" --query "update.status" --output text)
+              if [[ "$ST" == "Successful" ]]; then exit 0; fi
+              if [[ "$ST" == "Failed" ]]; then
+                aws eks describe-update --name "'"${CLUSTER_NAME}"'" --update-id "'"${UPDATE_ID}"'" --region "'"${AWS_REGION}"'" --output json
+                exit 1
+              fi
+              exit 2
+            '
+          fi
+
           ENDPOINT="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}" --query 'cluster.endpoint' --output text | sed -E 's#^https?://##')"
-          echo "Waiting for EKS API endpoint TLS on ${ENDPOINT} ..."
-          retry 30 10 bash -c "echo | openssl s_client -connect '${ENDPOINT}:443' -servername '${ENDPOINT}' -brief 2>/dev/null | grep -q '^Protocol  *:  *TLS'"
-
-          echo "EKS API is reachable."
+          echo "Waiting for TLS at ${ENDPOINT}..."
+          retry 24 5 bash -c "echo | openssl s_client -connect '${ENDPOINT}:443' -servername '${ENDPOINT}' -brief 2>/dev/null | grep -q '^Protocol  *:  *TLS'"
 
       - name: Configure kubectl
         shell: bash
@@ -152,4 +170,98 @@ jobs:
           set -euo pipefail
           aws eks update-kubeconfig --name "${CLUSTER_NAME}" --region "${AWS_REGION}"
           kubectl version --client
-          kubectl
+          kubectl cluster-info --request-timeout="${KUBECTL_TIMEOUT}" || true
+          kubectl get nodes -o wide --request-timeout="${KUBECTL_TIMEOUT}" || true
+
+      - name: Ensure namespace exists
+        shell: bash
+        run: |
+          set -euo pipefail
+          for i in {1..5}; do
+            if kubectl apply -f infrastructure/k8s/namespaces/nat20.yaml --request-timeout="${KUBECTL_TIMEOUT}"; then
+              break
+            fi
+            echo "Retry $i/5: waiting before re-apply namespace..."
+            sleep 10
+          done
+
+      - name: Apply frontend Deployment/Service
+        shell: bash
+        run: |
+          set -euo pipefail
+          for i in {1..5}; do
+            if kubectl apply -f infrastructure/k8s/frontend/deployment.yaml --request-timeout="${KUBECTL_TIMEOUT}"; then
+              break
+            fi
+            echo "Retry $i/5: waiting before re-apply deployment..."
+            sleep 10
+          done
+
+      - name: Apply frontend Ingress (envsubst)
+        shell: bash
+        run: |
+          set -euo pipefail
+          export ORIGIN_CERT_ARN ALB_FRONTEND_SG_ID
+          TMP_FILE="$(mktemp)"
+          envsubst < infrastructure/k8s/ingress/frontend-ingress.yaml > "${TMP_FILE}"
+          for i in {1..5}; do
+            if kubectl apply -f "${TMP_FILE}" --request-timeout="${KUBECTL_TIMEOUT}"; then
+              break
+            fi
+            echo "Retry $i/5: waiting before re-apply ingress..."
+            sleep 10
+          done
+
+      - name: Set image on Deployment
+        shell: bash
+        run: |
+          set -euo pipefail
+          kubectl -n "${NAMESPACE}" set image deployment/frontend frontend="${IMAGE_URI}" --record=true --request-timeout="${KUBECTL_TIMEOUT}"
+
+      - name: Rollout status
+        shell: bash
+        run: |
+          set -euo pipefail
+          kubectl -n "${NAMESPACE}" rollout status deployment/frontend --timeout=300s
+
+      - name: Debug on failure
+        if: failure()
+        shell: bash
+        run: |
+          set -euo pipefail
+          kubectl -n "${NAMESPACE}" get all -o wide --request-timeout="${KUBECTL_TIMEOUT}" || true
+          kubectl -n "${NAMESPACE}" describe deployment frontend || true
+          kubectl -n "${NAMESPACE}" get ingress frontend -o yaml || true
+          kubectl -n "${NAMESPACE}" get events --sort-by=.lastTimestamp | tail -n 200 || true
+
+      - name: Restore EKS API CIDRs (remove runner /32)
+        if: always()
+        id: restore
+        shell: bash
+        env:
+          AWS_REGION: ${{ env.AWS_REGION }}
+          CLUSTER_NAME: ${{ env.CLUSTER_NAME }}
+          ORIGINAL_CIDRS: ${{ steps.open-eks.outputs.original_cidrs }}
+          RUNNER_CIDR: ${{ steps.open-eks.outputs.runner_cidr }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${ORIGINAL_CIDRS:-}" || -z "${RUNNER_CIDR:-}" ]]; then
+            echo "Skip restore: ORIGINAL_CIDRS or RUNNER_CIDR not set"
+            exit 0
+          fi
+
+          CLEAN_JSON="$(jq -cn --arg ip "${RUNNER_CIDR}" --argjson cur "${ORIGINAL_CIDRS:-null}" '
+              ( ($cur // []) | map(tostring) | map(select(. != $ip)) ) | unique
+          ')"
+          CLEAN_CSV="$(jq -r 'join(",")' <<<"${CLEAN_JSON}")"
+
+          if [[ -z "${CLEAN_CSV}" ]]; then
+            echo "Original CIDRs empty or unknown; skipping restore to avoid unsafe change."
+            exit 0
+          fi
+
+          echo "Restoring cluster publicAccessCidrs to: ${CLEAN_CSV}"
+          aws eks update-cluster-config \
+            --name "${CLUSTER_NAME}" \
+            --region "${AWS_REGION}" \
+            --resources-vpc-config "endpointPublicAccess=true,publicAccessCidrs=${CLEAN_CSV}" >/dev/null
