@@ -51,6 +51,8 @@ jobs:
         run: terraform init -input=false
 
       - name: Terraform Plan (no refresh)
+        env:
+          TF_VAR_admin_principal_arn: ${{ secrets.EKS_ADMIN_PRINCIPAL_ARN }}
         run: terraform plan -refresh=false -lock-timeout=2m -out=tfplan-norefresh
 
       # Stage 1: only the EKS cluster, so we can then grant access.
