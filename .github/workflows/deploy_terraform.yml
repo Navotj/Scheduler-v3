@@ -3,15 +3,20 @@ name: Terraform Apply (EKS hardened, staged)
 on:
   workflow_dispatch:
 
-
 env:
   AWS_REGION: eu-central-1
+  TF_IN_AUTOMATION: "true"
+  TF_INPUT: "false"
+
+concurrency:
+  group: terraform-apply
+  cancel-in-progress: false
 
 jobs:
   tf-apply:
     runs-on: ubuntu-latest
     permissions:
-      id-token: write
+      id-token: write   # for OIDC
       contents: read
 
     defaults:
@@ -23,8 +28,26 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v2
+      # Choose credentials mode: OIDC role (preferred) or static keys (fallback).
+      - name: Select credentials mode
+        id: credmode
+        run: |
+          if [[ -n "${{ secrets.AWS_ROLE_TO_ASSUME }}" ]]; then
+            echo "mode=oidc" >> "$GITHUB_OUTPUT"
+          else
+            echo "mode=keys" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Configure AWS credentials (OIDC)
+        if: steps.credmode.outputs.mode == 'oidc'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}     # set to output github_ci_role_arn from Terraform
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Configure AWS credentials (static keys fallback)
+        if: steps.credmode.outputs.mode == 'keys'
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -35,31 +58,36 @@ jobs:
         with:
           terraform_version: 1.8.5
 
+      # Optional but nice: cache providers/plugins
+      - name: Cache Terraform plugin dir
+        uses: actions/cache@v4
+        with:
+          path: ~/.terraform.d/plugin-cache
+          key: ${{ runner.os }}-tfplug-${{ hashFiles('infrastructure/terraform/.terraform.lock.hcl') }}
+      - name: Set plugin cache env
+        run: |
+          echo "TF_PLUGIN_CACHE_DIR=$HOME/.terraform.d/plugin-cache" >> "$GITHUB_ENV"
+
       - name: Terraform Init
         run: terraform init -input=false
 
-      # Avoid contacting the cluster during planning (helm/k8s providers refresh),
-      # which can fail when we're rotating public_access_cidrs to the current runner IP.
+      # Plan without refresh to avoid early helm/k8s provider API calls
       - name: Terraform Plan (no refresh)
-        run: terraform plan -refresh=false -input=false -lock-timeout=2m -out=tfplan-norefresh
+        run: terraform plan -refresh=false -lock-timeout=2m -out=tfplan-norefresh
 
-      # Stage 1: update the EKS cluster networking (public_access_cidrs, private endpoint, logging, KMS).
-      # This ensures the current runner IP is allowed BEFORE any helm/k8s provider operations run.
+      # Stage 1: ensure the cluster networking (public_access_cidrs, etc.) is applied first
       - name: Apply cluster-only changes first
-        run: terraform apply -input=false -lock-timeout=2m -auto-approve -target=aws_eks_cluster.this
+        run: terraform apply -lock-timeout=2m -auto-approve -target=aws_eks_cluster.this
 
-      # Optional: brief wait for control-plane to accept the CIDR change
+      # Wait for the control plane to accept the CIDR update before any helm/k8s work
       - name: Wait for EKS API reachability
-        shell: bash
         env:
           CLUSTER_NAME: nat20-eks
         run: |
           set -euo pipefail
-          ENDPOINT="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --query 'cluster.endpoint' --output text)"
-          # Strip scheme and any path robustly
+          ENDPOINT="$(aws eks describe-cluster --name "$CLUSTER_NAME" --query 'cluster.endpoint' --output text)"
           HOST="$(printf '%s\n' "$ENDPOINT" | sed -E 's#^https?://##; s#/.*$##')"
           echo "EKS endpoint host: ${HOST}"
-
           for i in $(seq 1 60); do
             if timeout 5 bash -lc "echo | openssl s_client -connect ${HOST}:443 -servername ${HOST} >/dev/null 2>&1"; then
               echo "EKS API reachable on ${HOST}:443"
@@ -68,17 +96,15 @@ jobs:
             echo "Waiting for EKS API to accept new CIDR... (${i}/60)"
             sleep 5
           done
-
           echo "EKS API not reachable; dumping cluster access config..."
-          aws eks describe-cluster --name "${CLUSTER_NAME}" \
+          aws eks describe-cluster --name "$CLUSTER_NAME" \
             --query 'cluster.resourcesVpcConfig.{publicAccessCidrs:publicAccessCidrs,endpointPublicAccess:endpointPublicAccess,endpointPrivateAccess:endpointPrivateAccess}' \
             --output json || true
           exit 1
 
-
-      # Stage 2: apply the rest (Helm releases for ALB Controller, External Secrets, etc.)
+      # Stage 2: apply everything (ALB controller, External Secrets, EBS CSI, etc.)
       - name: Terraform Apply (everything)
-        run: terraform apply -input=false -lock-timeout=2m -auto-approve
+        run: terraform apply -lock-timeout=2m -auto-approve
 
       - name: Output
         run: terraform output -json || true
