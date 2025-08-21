@@ -76,6 +76,13 @@ jobs:
       - name: Set plugin cache env
         run: echo "TF_PLUGIN_CACHE_DIR=$HOME/.terraform.d/plugin-cache" >> "$GITHUB_ENV"
 
+      - name: Prepare Terraform plugin cache (optional)
+        run: |
+          mkdir -p "$HOME/.terraform.d/plugin-cache"
+        env:
+          TF_PLUGIN_CACHE_DIR: $HOME/.terraform.d/plugin-cache
+
+
       - name: Terraform Init
         run: terraform init -input=false
 
