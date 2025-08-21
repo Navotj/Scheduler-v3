@@ -27,16 +27,19 @@ locals {
   # Normalize prefix (no leading/trailing slashes)
   state_prefix = trim(var.tf_state_key_prefix, "/")
 
-  # Object-level ARN the CI needs. If no prefix, allow all objects at bucket root.
-  state_object_arn = length(local.state_prefix) == 0
-    ? "arn:aws:s3:::${var.tf_state_bucket}/*"
-    : "arn:aws:s3:::${var.tf_state_bucket}/${local.state_prefix}/*"
+  # Build an object-level ARN without conditionals by collapsing the double slash
+  # If prefix is empty => arn:aws:s3:::bucket/* ; else => arn:aws:s3:::bucket/prefix/*
+  state_object_arn = replace(
+    "arn:aws:s3:::${var.tf_state_bucket}//${local.state_prefix}/*",
+    "//",
+    "/"
+  )
 }
 
 data "aws_iam_policy_document" "state_bucket_policy" {
   statement {
-    sid     = "AllowCiListBucket"
-    effect  = "Allow"
+    sid    = "AllowCiListBucket"
+    effect = "Allow"
     principals {
       type        = "AWS"
       identifiers = [var.ci_role_arn]
@@ -46,8 +49,8 @@ data "aws_iam_policy_document" "state_bucket_policy" {
   }
 
   statement {
-    sid     = "AllowCiRWStateObjects"
-    effect  = "Allow"
+    sid    = "AllowCiRWStateObjects"
+    effect = "Allow"
     principals {
       type        = "AWS"
       identifiers = [var.ci_role_arn]

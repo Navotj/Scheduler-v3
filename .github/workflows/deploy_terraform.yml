@@ -1,6 +1,11 @@
 name: Terraform Apply (EKS hardened, staged)
 
 on:
+  push:
+    branches: [ main ]
+    paths:
+      - "infrastructure/terraform/**"
+      - ".github/workflows/deploy-terraform.yml"
   workflow_dispatch:
 
 env:
