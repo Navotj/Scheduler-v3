@@ -2,7 +2,7 @@
 # GitHub OIDC provider + CI role (ECR push + EKS describe)
 ############################################################
 
-variable "github_repo_owner" { type = string, default = "YOUR_GH_OWNER" } # <--- change
+variable "github_repo_owner" { type = string, default = "Navotj" } # <--- change
 variable "github_repo_name"  { type = string, default = "Scheduler-v3" }   # <--- change
 variable "ecr_repo_frontend" { type = string, default = "frontend" }
 
