@@ -82,6 +82,18 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            - name: var-cache-nginx
+              mountPath: /var/cache/nginx
+            - name: var-run-nginx
+              mountPath: /var/run
+            - name: var-log-nginx
+              mountPath: /var/log/nginx
       volumes:
         - name: tmp
+          emptyDir: {}
+        - name: var-cache-nginx
+          emptyDir: {}
+        - name: var-run-nginx
+          emptyDir: {}
+        - name: var-log-nginx
           emptyDir: {}
