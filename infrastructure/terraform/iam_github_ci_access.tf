@@ -40,9 +40,7 @@ locals {
   state_prefix     = trim(var.tf_state_key_prefix, "/")
 
   # If no prefix -> arn:aws:s3:::bucket/* ; else -> arn:aws:s3:::bucket/prefix/*
-  state_objects_arn = local.state_prefix == "" ?
-    "${local.state_bucket_arn}/*" :
-    "${local.state_bucket_arn}/${local.state_prefix}/*"
+  state_objects_arn = local.state_prefix == "" ? "${local.state_bucket_arn}/*" : "${local.state_bucket_arn}/${local.state_prefix}/*"
 
   lock_table_arn = "arn:aws:dynamodb:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:table/${var.tf_lock_table_name}"
 }
