@@ -1,9 +1,11 @@
 ############################################################
-# CI access to Terraform backend (S3 state + DynamoDB lock)
-# Attaches ONE policy to the existing GitHub OIDC role.
+# GitHub OIDC CI role access (Terraform backend + bootstrap)
+# - Attaches backend access (S3 state + DynamoDB lock)
+# - Attaches ReadOnlyAccess so data sources can be planned
+# - Attaches AdministratorAccess (bootstrap; can be replaced later)
 ############################################################
 
-# These already exist once in data.tf. Do not duplicate elsewhere.
+# These already exist elsewhere; do NOT redeclare there.
 # data "aws_caller_identity" "current" {}
 # data "aws_region" "current" {}
 
@@ -20,7 +22,7 @@ variable "tf_state_bucket" {
 }
 
 variable "tf_state_key_prefix" {
-  description = "Optional key prefix/folder under which state lives (empty = bucket root)"
+  description = "Optional key prefix/folder where state lives; leave empty if at bucket root"
   type        = string
   default     = ""
 }
@@ -31,7 +33,7 @@ variable "tf_lock_table_name" {
   default     = "terraform-lock-table"
 }
 
-# Look up the CI role so we can attach a policy
+# Look up the existing CI role so we can attach policies to it
 data "aws_iam_role" "ci" {
   name = var.ci_role_name
 }
@@ -40,29 +42,30 @@ locals {
   state_bucket_arn = "arn:aws:s3:::${var.tf_state_bucket}"
   state_prefix     = trim(var.tf_state_key_prefix, "/")
 
-  # If prefix is empty -> arn:aws:s3:::bucket/*, else -> arn:aws:s3:::bucket/prefix/*
-  state_objects_arn = replace("${local.state_bucket_arn}//${local.state_prefix}/*", "//", "/")
+  # If no prefix -> arn:aws:s3:::bucket/* ; else -> arn:aws:s3:::bucket/prefix/*
+  state_objects_arn = length(local.state_prefix) == 0
+    ? "${local.state_bucket_arn}/*"
+    : "${local.state_bucket_arn}/${local.state_prefix}/*"
 
   lock_table_arn = "arn:aws:dynamodb:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:table/${var.tf_lock_table_name}"
 }
 
+# One policy with both S3 (state) and DynamoDB (lock) permissions
 data "aws_iam_policy_document" "ci_backend_access" {
   # S3: list bucket (backend needs this)
   statement {
     sid     = "S3ListBucket"
     effect  = "Allow"
-    actions = [
-      "s3:ListBucket",
-      "s3:GetBucketLocation",
-      "s3:ListBucketVersions"
-    ]
+    actions = ["s3:ListBucket", "s3:GetBucketLocation", "s3:ListBucketVersions"]
     resources = [local.state_bucket_arn]
 
-    # Restrict list to prefix when set
+    # Optional: restrict listing to the prefix if one is used
     condition {
       test     = "StringLike"
       variable = "s3:prefix"
-      values   = [length(local.state_prefix) > 0 ? "${local.state_prefix}/*" : "*"]
+      values = [
+        length(local.state_prefix) == 0 ? "*" : "${local.state_prefix}/*"
+      ]
     }
   }
 
@@ -80,7 +83,7 @@ data "aws_iam_policy_document" "ci_backend_access" {
     resources = [local.state_objects_arn]
   }
 
-  # DynamoDB: use the lock table (Scan included for manual unlock tooling)
+  # DynamoDB: use the lock table (include Scan so you can nuke locks via workflow)
   statement {
     sid     = "DynamoDBStateLock"
     effect  = "Allow"
@@ -105,4 +108,16 @@ resource "aws_iam_policy" "ci_backend_access" {
 resource "aws_iam_role_policy_attachment" "ci_attach_backend_access" {
   role       = data.aws_iam_role.ci.name
   policy_arn = aws_iam_policy.ci_backend_access.arn
+}
+
+# Keep plans from failing on new data sources (VPC/Subnets/etc.)
+resource "aws_iam_role_policy_attachment" "github_ci_readonly" {
+  role       = data.aws_iam_role.ci.name
+  policy_arn = "arn:aws:iam::aws:policy/ReadOnlyAccess"
+}
+
+# Bootstrap convenience; we can replace with least-privileged sets later
+resource "aws_iam_role_policy_attachment" "github_ci_admin" {
+  role       = data.aws_iam_role.ci.name
+  policy_arn = "arn:aws:iam::aws:policy/AdministratorAccess"
 }
