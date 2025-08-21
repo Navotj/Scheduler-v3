@@ -21,7 +21,6 @@ spec:
       labels:
         app: frontend
     spec:
-      # Pod-level security + writable volumes for NGINX on read-only rootfs
       securityContext:
         seccompProfile:
           type: RuntimeDefault
@@ -30,25 +29,6 @@ spec:
         runAsNonRoot: true
         runAsUser: 101
         runAsGroup: 101
-
-      # Make /etc/nginx/conf.d, /var/cache/nginx and /var/run writable via emptyDir
-      initContainers:
-        - name: init-permissions
-          image: busybox:1.36
-          command:
-            - sh
-            - -c
-            - |
-              set -eu
-              mkdir -p /etc/nginx/conf.d /var/cache/nginx /var/run
-              chown -R 101:101 /etc/nginx/conf.d /var/cache/nginx /var/run
-          volumeMounts:
-            - name: confd
-              mountPath: /etc/nginx/conf.d
-            - name: cache
-              mountPath: /var/cache/nginx
-            - name: run
-              mountPath: /var/run
 
       containers:
         - name: frontend
