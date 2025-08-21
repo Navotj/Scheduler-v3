@@ -103,25 +103,26 @@ jobs:
 
       - name: "Preflight: try API quickly (no mutations)"
         id: preflight
-        continue-on-error: true
         shell: bash
+        continue-on-error: true
         env:
           KUBECTL_TIMEOUT: ${{ env.KUBECTL_TIMEOUT }}
         run: |
           set -euo pipefail
+          ok=false
           for i in {1..6}; do
             if kubectl --request-timeout="${KUBECTL_TIMEOUT}" get --raw=/version >/dev/null 2>&1; then
-              echo "ok=true" >> "$GITHUB_OUTPUT"
-              exit 0
+              ok=true
+              break
             fi
             echo "Attempt $i/6: API not reachable; retrying..."
             sleep 10
           done
-          echo "ok=false" >> "$GITHUB_OUTPUT"
-          exit 1
+          echo "ok=${ok}" >> "$GITHUB_OUTPUT"
+          test "${ok}" = true
 
       - name: "Fallback: temporarily allow this runner CIDR"
-        if: steps.preflight.outcome == 'failure'
+        if: steps.preflight.outputs.ok != 'true'
         id: open_eks
         shell: bash
         env:
@@ -164,7 +165,7 @@ jobs:
           HOST="${ENDPOINT#https://}"
           for i in {1..60}; do
             code="$(curl -sk -o /dev/null -w "%{http_code}" --connect-timeout 5 --max-time 10 "https://${HOST}/version")" || code="000"
-            if [[ "$code" == "200" || "$code" == "401" || "$code" == "403" || "$code" == "404" || "$code" == "405" ]]; then
+            if [[ "$code" == 200 || "$code" == 401 || "$code" == 403 || "$code" == 404 || "$code" == 405 ]]; then
               echo "api_ok=true" >> "$GITHUB_OUTPUT"
               exit 0
             fi
@@ -220,18 +221,20 @@ jobs:
           kubectl -n "${NAMESPACE}" get all -o wide || true
           kubectl -n "${NAMESPACE}" describe deployment frontend || true
           kubectl -n "${NAMESPACE}" get events --sort-by=.lastTimestamp | tail -n 200 || true
-          POD="$(kubectl -n "${NAMESPACE}" get pods -l app=frontend -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
-          if [[ -n "${POD}" ]]; then
-            echo "--- logs ${POD} (previous) ---"
-            kubectl -n "${NAMESPACE}" logs "${POD}" --previous || true
-            echo "--- logs ${POD} (current) ---"
-            kubectl -n "${NAMESPACE}" logs "${POD}" || true
-            echo "--- describe ${POD} ---"
-            kubectl -n "${NAMESPACE}" describe pod "${POD}" || true
-          fi
+          NEW_RS="$(kubectl -n "${NAMESPACE}" get deploy frontend -o jsonpath='{.status.updatedReplicas}' 2>/dev/null || echo 0)"
+          PODS="$(kubectl -n "${NAMESPACE}" get pods -l app=frontend -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' || true)"
+          echo "$PODS" | while read -r p; do
+            [ -z "$p" ] && continue
+            echo "--- logs $p (previous) ---" || true
+            kubectl -n "${NAMESPACE}" logs "$p" --previous || true
+            echo "--- logs $p (current) ---" || true
+            kubectl -n "${NAMESPACE}" logs "$p" || true
+            echo "--- describe $p ---" || true
+            kubectl -n "${NAMESPACE}" describe pod "$p" || true
+          done
 
       - name: Restore CIDRs (if modified)
-        if: always() && steps.preflight.outcome == 'failure'
+        if: always() && steps.preflight.outputs.ok != 'true'
         shell: bash
         env:
           AWS_REGION: ${{ env.AWS_REGION }}
