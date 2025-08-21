@@ -1,8 +1,9 @@
 ############################################################
 # WAFv2 for CloudFront (Frontend) - CLOUDFRONT scope
-# - Tightened rate limit (1000)
-# - Adds AWSManagedRulesAnonymousIpList
-# - Creation is toggleable via var.attach_frontend_waf
+# Toggle with var.attach_frontend_waf (true by default).
+# - Allows CORS preflight
+# - Rate limit 1000 req/5min/IP
+# - Common managed rule groups + Anonymous IP list
 ############################################################
 
 resource "aws_wafv2_web_acl" "frontend" {
@@ -31,7 +32,9 @@ resource "aws_wafv2_web_acl" "frontend" {
         search_string         = "OPTIONS"
         positional_constraint = "EXACTLY"
 
-        field_to_match { method {} }
+        field_to_match {
+          method {}
+        }
 
         text_transformation {
           priority = 0
@@ -70,12 +73,14 @@ resource "aws_wafv2_web_acl" "frontend" {
     }
   }
 
-  # AWS managed rules (no extra rule-group charges)
+  # Managed rule groups
   rule {
     name     = "AWS-AWSManagedRulesCommonRuleSet"
     priority = 10
 
-    override_action { none {} }
+    override_action {
+      none {}
+    }
 
     statement {
       managed_rule_group_statement {
@@ -91,12 +96,13 @@ resource "aws_wafv2_web_acl" "frontend" {
     }
   }
 
-  # Block anonymous / VPN / proxy sources
   rule {
     name     = "AWS-AWSManagedRulesAnonymousIpList"
     priority = 15
 
-    override_action { none {} }
+    override_action {
+      none {}
+    }
 
     statement {
       managed_rule_group_statement {
@@ -116,7 +122,9 @@ resource "aws_wafv2_web_acl" "frontend" {
     name     = "AWS-AWSManagedRulesKnownBadInputsRuleSet"
     priority = 20
 
-    override_action { none {} }
+    override_action {
+      none {}
+    }
 
     statement {
       managed_rule_group_statement {
@@ -136,7 +144,9 @@ resource "aws_wafv2_web_acl" "frontend" {
     name     = "AWS-AWSManagedRulesAmazonIpReputationList"
     priority = 30
 
-    override_action { none {} }
+    override_action {
+      none {}
+    }
 
     statement {
       managed_rule_group_statement {
@@ -156,7 +166,9 @@ resource "aws_wafv2_web_acl" "frontend" {
     name     = "AWS-AWSManagedRulesSQLiRuleSet"
     priority = 40
 
-    override_action { none {} }
+    override_action {
+      none {}
+    }
 
     statement {
       managed_rule_group_statement {
