@@ -160,11 +160,26 @@ jobs:
             echo "Runner already allowed and endpointPublicAccess already true; no update needed."
           fi
 
-          # Bypass flaky TLS text parsing. Consider API reachable when HTTPS responds at any path.
+      - name: Wait for API reachability (HTTP ok even if 401/403)
+        shell: bash
+        env:
+          AWS_REGION: ${{ env.AWS_REGION }}
+          CLUSTER_NAME: ${{ env.CLUSTER_NAME }}
+        run: |
+          set -euo pipefail
           ENDPOINT="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}" --query 'cluster.endpoint' --output text)"
           API_HOST="${ENDPOINT#https://}"
-          echo "Probing Kubernetes API with curl (handshake-only, ignoring cert status)..."
-          retry 60 5 bash -c "curl -sSfk --connect-timeout 5 --max-time 10 https://${API_HOST}/version -o /dev/null"
+          echo "Probing https://${API_HOST}/version ..."
+          for i in {1..60}; do
+            code="$(curl -sk -o /dev/null -w "%{http_code}" --connect-timeout 5 --max-time 10 "https://${API_HOST}/version")" || code="000"
+            if [[ "$code" == "200" || "$code" == "401" || "$code" == "403" || "$code" == "404" || "$code" == "405" ]]; then
+              echo "API reachable (HTTP ${code})."
+              exit 0
+            fi
+            echo "Attempt $i/60: API not ready yet (HTTP ${code}). Retrying..."
+            sleep 5
+          done
+          echo "Kubernetes API not reachable in time"; exit 1
 
       - name: Configure kubectl
         shell: bash
@@ -176,7 +191,6 @@ jobs:
           aws eks update-kubeconfig --name "${CLUSTER_NAME}" --region "${AWS_REGION}"
           kubectl version --client
 
-          # Robust readiness: try cluster-info and nodes a few times before proceeding.
           for i in {1..12}; do
             if kubectl cluster-info --request-timeout="${KUBECTL_TIMEOUT}" >/dev/null 2>&1; then
               kubectl get nodes -o wide --request-timeout="${KUBECTL_TIMEOUT}" || true
