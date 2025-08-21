@@ -22,17 +22,16 @@ RUN set -eux; \
 # ---------- runtime ----------
 FROM nginxinc/nginx-unprivileged:1.27-alpine AS runtime
 
-# Clean default site and copy assets
+# Remove the default site and copy assets
 RUN rm -f /etc/nginx/conf.d/default.conf
 COPY --from=builder /out/ /usr/share/nginx/html/
 
-# Template NGINX site config (note the .template suffix)
-# The nginx entrypoint will envsubst *.template -> *.conf
-# We use a variable in proxy_pass so DNS is done at request-time,
-# and use ${RESOLVERS} provided by 15-local-resolvers.envsh.
+# IMPORTANT: put templates under /etc/nginx/templates (not conf.d)
+# The nginx-unprivileged entrypoint will envsubst *.template here
+# into /etc/nginx/conf.d/*.conf at container start.
 RUN set -eux; \
-  cat > /etc/nginx/conf.d/site.conf.template <<'NGINX' && \
-  chown 101:0 /etc/nginx/conf.d/site.conf.template
+  mkdir -p /etc/nginx/templates; \
+  cat > /etc/nginx/templates/site.conf.template <<'NGINX'
 server {
   listen 8080;
   server_name _;
@@ -40,7 +39,7 @@ server {
   root /usr/share/nginx/html;
   index index.html;
 
-  # Static files
+  # Static files / SPA fallback
   location = / {
     try_files /index.html =404;
   }
@@ -49,16 +48,14 @@ server {
   }
 
   # --- API proxy ---
-  # Configure API host through env var; default keeps your current hostname.
+  # Configure via env; default points to your external API host.
   set $api_host ${API_HOST:-api.nat20scheduling.com};
 
-  # Use cluster resolvers injected by the image's entrypoint (IPs from /etc/resolv.conf)
+  # Use cluster resolvers injected by the image entrypoint
   resolver ${RESOLVERS} valid=30s ipv6=off;
 
-  # If your API speaks HTTPS and needs SNI
   proxy_ssl_server_name on;
 
-  # Forward /api/* as-is to the API host
   location /api/ {
     proxy_http_version 1.1;
     proxy_set_header Host $api_host;
@@ -67,7 +64,7 @@ server {
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_redirect off;
 
-    # IMPORTANT: variable in proxy_pass -> DNS is deferred to request-time
+    # Variable in proxy_pass defers DNS to request-time
     proxy_pass https://$api_host;
   }
 }

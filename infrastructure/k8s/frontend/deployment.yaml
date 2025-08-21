@@ -20,15 +20,12 @@ spec:
     spec:
       containers:
         - name: frontend
-          # CI replaces this with your ECR URI + SHA:
-          # sed "s#<ECR_URI_REPLACED_BY_CI>/frontend:${GITHUB_SHA}#${ECR_FRONTEND_URI}:${GITHUB_SHA}#g"
           image: <ECR_URI_REPLACED_BY_CI>/frontend:${GITHUB_SHA}
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
               containerPort: 8080
           env:
-            # Make API host configurable; matches Dockerfile default.
             - name: API_HOST
               value: "api.nat20scheduling.com"
           resources:
@@ -79,7 +76,6 @@ spec:
           emptyDir: {}
         - name: var-log-nginx
           emptyDir: {}
-      # Keep your spread constraints if you need them; these mirror what you had:
       topologySpreadConstraints:
         - maxSkew: 1
           topologyKey: topology.kubernetes.io/zone
