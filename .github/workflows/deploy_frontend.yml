@@ -61,9 +61,11 @@ jobs:
 
       - name: Open EKS API temporarily (runner /32 preferred) and quick probe
         shell: bash
-        timeout-minutes: 4
+        timeout-minutes: 6
         run: |
           set -euo pipefail
+
+          # Determine target CIDR(s)
           if [ -z "${EKS_JOB_PUBLIC_CIDRS:-}" ]; then
             RIP="$(curl -s https://checkip.amazonaws.com/ | tr -d '\r')"
             if printf '%s' "$RIP" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
@@ -75,9 +77,14 @@ jobs:
             TARGET="${EKS_JOB_PUBLIC_CIDRS}"
           fi
 
+          # Current config (from earlier captured value)
           CUR_JSON="$(printf '%s' "${EKS_ORIG_CIDRS_B64:-}" | base64 -d 2>/dev/null || echo '[]')"
           CUR_JOIN="$(printf '%s' "${CUR_JSON}" | jq -r 'join(",")')"
 
+          echo "Original EKS publicAccessCidrs: ${CUR_JOIN:-<none>}"
+          echo "Desired temporary EKS publicAccessCidrs: ${TARGET}"
+
+          # Apply if different
           if [ -z "${CUR_JOIN}" ] || [ "${CUR_JOIN}" != "${TARGET}" ]; then
             set +e
             aws eks update-cluster-config --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
@@ -89,17 +96,26 @@ jobs:
             fi
           fi
 
+          # Wait for propagation (EKS may take ~30-90s to honor new CIDRs)
           HOST="$(echo "${EKS_ENDPOINT}" | sed -E 's#https?://##')"
-          for i in 1 2 3; do
+          echo "Probing EKS endpoint: ${HOST}:443"
+          OK=0
+          for i in {1..30}; do
             if timeout 3 bash -lc "exec 3<>/dev/tcp/${HOST}/443" 2>/dev/null; then
               exec 3>&-
-              echo "EKS endpoint reachable."
-              exit 0
+              echo "EKS endpoint reachable (attempt $i)."
+              OK=1
+              break
             fi
-            sleep 2
+            if (( i % 5 == 0 )); then
+              NOW_JOIN="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --region "${AWS_REGION}" \
+                --query 'cluster.resourcesVpcConfig.publicAccessCidrs' --output json | jq -r 'join(",")' || true)"
+              echo "Attempt $i: still not reachable; current publicAccessCidrs=${NOW_JOIN:-<unknown>}"
+            fi
+            sleep 3
           done
-          echo "EKS endpoint NOT reachable after 3 tries."
-          exit 1
+          [ $OK -eq 1 ] || { echo "EKS endpoint NOT reachable after extended probes."; exit 1; }
+
 
       - name: Configure kubectl and wait until API responds
         shell: bash
