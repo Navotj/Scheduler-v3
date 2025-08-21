@@ -104,80 +104,80 @@ resource "aws_cloudfront_distribution" "frontend" {
 
   # Ordered behaviors -> BACKEND for API paths
   ordered_cache_behavior {
-    path_pattern           = "/auth/check"
-    target_origin_id       = "backend-alb"
-    viewer_protocol_policy = "redirect-to-https"
-    allowed_methods        = ["GET","HEAD","OPTIONS","PUT","POST","PATCH","DELETE"]
-    cached_methods         = ["GET","HEAD","OPTIONS"]
+    path_pattern             = "/auth/check"
+    target_origin_id         = "backend-alb"
+    viewer_protocol_policy   = "redirect-to-https"
+    allowed_methods          = ["GET","HEAD","OPTIONS","PUT","POST","PATCH","DELETE"]
+    cached_methods           = ["GET","HEAD","OPTIONS"]
     cache_policy_id          = local.cf_cache_policy_caching_disabled
     origin_request_policy_id = local.cf_origin_request_all_viewer_except_host
-    compress = true
+    compress                 = true
   }
 
   ordered_cache_behavior {
-    path_pattern           = "/check"
-    target_origin_id       = "backend-alb"
-    viewer_protocol_policy = "redirect-to-https"
-    allowed_methods        = ["GET","HEAD","OPTIONS","PUT","POST","PATCH","DELETE"]
-    cached_methods         = ["GET","HEAD","OPTIONS"]
+    path_pattern             = "/check"
+    target_origin_id         = "backend-alb"
+    viewer_protocol_policy   = "redirect-to-https"
+    allowed_methods          = ["GET","HEAD","OPTIONS","PUT","POST","PATCH","DELETE"]
+    cached_methods           = ["GET","HEAD","OPTIONS"]
     cache_policy_id          = local.cf_cache_policy_caching_disabled
     origin_request_policy_id = local.cf_origin_request_all_viewer_except_host
-    compress = true
+    compress                 = true
   }
 
   ordered_cache_behavior {
-    path_pattern           = "/auth/*"
-    target_origin_id       = "backend-alb"
-    viewer_protocol_policy = "redirect-to-https"
-    allowed_methods        = ["GET","HEAD","OPTIONS","PUT","POST","PATCH","DELETE"]
-    cached_methods         = ["GET","HEAD","OPTIONS"]
+    path_pattern             = "/auth/*"
+    target_origin_id         = "backend-alb"
+    viewer_protocol_policy   = "redirect-to-https"
+    allowed_methods          = ["GET","HEAD","OPTIONS","PUT","POST","PATCH","DELETE"]
+    cached_methods           = ["GET","HEAD","OPTIONS"]
     cache_policy_id          = local.cf_cache_policy_caching_disabled
     origin_request_policy_id = local.cf_origin_request_all_viewer_except_host
-    compress = true
+    compress                 = true
   }
 
   ordered_cache_behavior {
-    path_pattern           = "/availability/*"
-    target_origin_id       = "backend-alb"
-    viewer_protocol_policy = "redirect-to-https"
-    allowed_methods        = ["GET","HEAD","OPTIONS","PUT","POST","PATCH","DELETE"]
-    cached_methods         = ["GET","HEAD","OPTIONS"]
+    path_pattern             = "/availability/*"
+    target_origin_id         = "backend-alb"
+    viewer_protocol_policy   = "redirect-to-https"
+    allowed_methods          = ["GET","HEAD","OPTIONS","PUT","POST","PATCH","DELETE"]
+    cached_methods           = ["GET","HEAD","OPTIONS"]
     cache_policy_id          = local.cf_cache_policy_caching_disabled
     origin_request_policy_id = local.cf_origin_request_all_viewer_except_host
-    compress = true
+    compress                 = true
   }
 
   ordered_cache_behavior {
-    path_pattern           = "/settings*"
-    target_origin_id       = "backend-alb"
-    viewer_protocol_policy = "redirect-to-https"
-    allowed_methods        = ["GET","HEAD","OPTIONS","PUT","POST","PATCH","DELETE"]
-    cached_methods         = ["GET","HEAD","OPTIONS"]
+    path_pattern             = "/settings*"
+    target_origin_id         = "backend-alb"
+    viewer_protocol_policy   = "redirect-to-https"
+    allowed_methods          = ["GET","HEAD","OPTIONS","PUT","POST","PATCH","DELETE"]
+    cached_methods           = ["GET","HEAD","OPTIONS"]
     cache_policy_id          = local.cf_cache_policy_caching_disabled
     origin_request_policy_id = local.cf_origin_request_all_viewer_except_host
-    compress = true
+    compress                 = true
   }
 
   ordered_cache_behavior {
-    path_pattern           = "/users/*"
-    target_origin_id       = "backend-alb"
-    viewer_protocol_policy = "redirect-to-https"
-    allowed_methods        = ["GET","HEAD","OPTIONS","PUT","POST","PATCH","DELETE"]
-    cached_methods         = ["GET","HEAD","OPTIONS"]
+    path_pattern             = "/users/*"
+    target_origin_id         = "backend-alb"
+    viewer_protocol_policy   = "redirect-to-https"
+    allowed_methods          = ["GET","HEAD","OPTIONS","PUT","POST","PATCH","DELETE"]
+    cached_methods           = ["GET","HEAD","OPTIONS"]
     cache_policy_id          = local.cf_cache_policy_caching_disabled
     origin_request_policy_id = local.cf_origin_request_all_viewer_except_host
-    compress = true
+    compress                 = true
   }
 
   ordered_cache_behavior {
-    path_pattern           = "/api/*"
-    target_origin_id       = "backend-alb"
-    viewer_protocol_policy = "redirect-to-https"
-    allowed_methods        = ["GET","HEAD","OPTIONS","PUT","POST","PATCH","DELETE"]
-    cached_methods         = ["GET","HEAD","OPTIONS"]
+    path_pattern             = "/api/*"
+    target_origin_id         = "backend-alb"
+    viewer_protocol_policy   = "redirect-to-https"
+    allowed_methods          = ["GET","HEAD","OPTIONS","PUT","POST","PATCH","DELETE"]
+    cached_methods           = ["GET","HEAD","OPTIONS"]
     cache_policy_id          = local.cf_cache_policy_caching_disabled
     origin_request_policy_id = local.cf_origin_request_all_viewer_except_host
-    compress = true
+    compress                 = true
   }
 
   restrictions {
@@ -198,8 +198,7 @@ resource "aws_cloudfront_distribution" "frontend" {
   ]
 }
 
-# Route53 A records
-# Apex -> CloudFront
+# Route53 A record for apex -> CloudFront
 resource "aws_route53_record" "apex_a" {
   zone_id = aws_route53_zone.main.zone_id
   name    = aws_route53_zone.main.name
@@ -214,28 +213,40 @@ resource "aws_route53_record" "apex_a" {
   allow_overwrite = true
 }
 
-# Variables for late-binding ALB DNS names (set by CI after Ingress creation)
-variable "backend_alb_dns" {
-  description = "Backend ALB DNS name (filled by CI after Ingress creation). Leave default empty on first apply."
-  type        = string
-  default     = ""
+############################################################
+# Option B: Discover ALB DNS from SSM and manage api./origin. aliases
+# CI should write:
+#   /nat20/dns/BACKEND_ALB_DNS = <k8s-nat20-backend-....elb.amazonaws.com>
+#   /nat20/dns/FRONTEND_ALB_DNS = <k8s-nat20-frontend-....elb.amazonaws.com>
+############################################################
+
+data "aws_ssm_parameter" "backend_alb_dns" {
+  name = "/nat20/dns/BACKEND_ALB_DNS"
 }
 
-variable "frontend_alb_dns" {
-  description = "Frontend ALB DNS name (filled by CI after Ingress creation). Leave default empty on first apply."
-  type        = string
-  default     = ""
+data "aws_ssm_parameter" "frontend_alb_dns" {
+  name = "/nat20/dns/FRONTEND_ALB_DNS"
 }
 
-# api -> backend ALB (alias created only if DNS provided)
+locals {
+  backend_alb_dns_raw  = data.aws_ssm_parameter.backend_alb_dns.value
+  frontend_alb_dns_raw = data.aws_ssm_parameter.frontend_alb_dns.value
+
+  backend_alb_dns_dual  = "dualstack.${local.backend_alb_dns_raw}"
+  frontend_alb_dns_dual = "dualstack.${local.frontend_alb_dns_raw}"
+}
+
+# Helper: ELB hosted zone id for aliases
+data "aws_elb_hosted_zone_id" "main" {}
+
+# api -> backend ALB (A + AAAA)
 resource "aws_route53_record" "api_a" {
-  count   = var.backend_alb_dns == "" ? 0 : 1
   zone_id = aws_route53_zone.main.zone_id
   name    = "${var.api_subdomain}.${var.domain_name}"
   type    = "A"
 
   alias {
-    name                   = var.backend_alb_dns
+    name                   = local.backend_alb_dns_dual
     zone_id                = data.aws_elb_hosted_zone_id.main.id
     evaluate_target_health = true
   }
@@ -243,15 +254,28 @@ resource "aws_route53_record" "api_a" {
   allow_overwrite = true
 }
 
-# origin -> frontend ALB (alias created only if DNS provided)
+resource "aws_route53_record" "api_aaaa" {
+  zone_id = aws_route53_zone.main.zone_id
+  name    = "${var.api_subdomain}.${var.domain_name}"
+  type    = "AAAA"
+
+  alias {
+    name                   = local.backend_alb_dns_dual
+    zone_id                = data.aws_elb_hosted_zone_id.main.id
+    evaluate_target_health = true
+  }
+
+  allow_overwrite = true
+}
+
+# origin -> frontend ALB (A + AAAA)
 resource "aws_route53_record" "origin_a" {
-  count   = var.frontend_alb_dns == "" ? 0 : 1
   zone_id = aws_route53_zone.main.zone_id
   name    = "${var.origin_subdomain}.${var.domain_name}"
   type    = "A"
 
   alias {
-    name                   = var.frontend_alb_dns
+    name                   = local.frontend_alb_dns_dual
     zone_id                = data.aws_elb_hosted_zone_id.main.id
     evaluate_target_health = true
   }
@@ -259,5 +283,16 @@ resource "aws_route53_record" "origin_a" {
   allow_overwrite = true
 }
 
-# Helper: ELB hosted zone id for aliases
-data "aws_elb_hosted_zone_id" "main" {}
+resource "aws_route53_record" "origin_aaaa" {
+  zone_id = aws_route53_zone.main.zone_id
+  name    = "${var.origin_subdomain}.${var.domain_name}"
+  type    = "AAAA"
+
+  alias {
+    name                   = local.frontend_alb_dns_dual
+    zone_id                = data.aws_elb_hosted_zone_id.main.id
+    evaluate_target_health = true
+  }
+
+  allow_overwrite = true
+}

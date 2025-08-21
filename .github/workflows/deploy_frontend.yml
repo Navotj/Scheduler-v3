@@ -176,7 +176,7 @@ jobs:
           set -euo pipefail
           kubectl -n "${NAMESPACE}" rollout status deployment/frontend --timeout=300s
 
-      - name: "Ensure Route53 origin alias → ALB"
+      - name: "Ensure Route53 origin alias and persist ALB DNS"
         shell: bash
         run: |
           set -euo pipefail
@@ -198,8 +198,13 @@ jobs:
           # Ingress ALB hostname and its hosted zone id
           ALB_DNS="$(kubectl -n "${NAMESPACE}" get ingress frontend -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')"
           [[ -n "${ALB_DNS}" && "${ALB_DNS}" != "<no value>" ]] || { kubectl -n "${NAMESPACE}" describe ingress frontend || true; exit 1; }
+          echo "FRONTEND_ALB_DNS=${ALB_DNS}" >> "$GITHUB_ENV"
+
           ALB_ZONE_ID="$(aws elbv2 describe-load-balancers --query "LoadBalancers[?DNSName=='${ALB_DNS}'].CanonicalHostedZoneId" --output text)"
           [[ -n "${ALB_ZONE_ID}" ]] || { echo "Could not resolve ALB HostedZoneId for ${ALB_DNS}"; exit 1; }
+
+          # Persist in SSM for Terraform and future runs
+          aws ssm put-parameter --name "/${PROJECT_NAME}/dns/FRONTEND_ALB_DNS" --type String --overwrite --value "${ALB_DNS}"
 
           # UPSERT A and AAAA aliases (use dualstack for IPv6 support)
           DUAL_DNS="dualstack.${ALB_DNS}"

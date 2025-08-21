@@ -220,6 +220,59 @@ jobs:
           echo "BACKEND_ALB_DNS=${HOST}" >> "$GITHUB_ENV"
           echo "backend_alb_dns=${HOST}" >> "$GITHUB_OUTPUT"
 
+      - name: "Persist backend ALB DNS and ensure api alias"
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${BACKEND_ALB_DNS:?missing BACKEND_ALB_DNS}"
+          : "${API_HOST:?missing API_HOST}"
+
+          # Apex zone from API_HOST (strip first label)
+          APEX="${API_HOST#*.}"
+          HZ_ID="$(aws route53 list-hosted-zones-by-name --dns-name "${APEX}" --query 'HostedZones[0].Id' --output text | sed 's|/hostedzone/||')"
+          [[ -n "${HZ_ID}" ]] || { echo "Hosted zone not found for ${APEX}"; exit 1; }
+
+          # Persist to SSM for Terraform and future reconciliation
+          aws ssm put-parameter --name "/${PROJECT_NAME}/dns/BACKEND_ALB_DNS" --type String --overwrite --value "${BACKEND_ALB_DNS}"
+
+          # ALB zone id + dualstack target
+          ALB_ZONE_ID="$(aws elbv2 describe-load-balancers --query "LoadBalancers[?DNSName=='${BACKEND_ALB_DNS}'].CanonicalHostedZoneId" --output text)"
+          [[ -n "${ALB_ZONE_ID}" ]] || { echo "Could not resolve ALB HostedZoneId for ${BACKEND_ALB_DNS}"; exit 1; }
+          DUAL_DNS="dualstack.${BACKEND_ALB_DNS}"
+
+          cat > /tmp/r53-api.json <<JSON
+          {
+            "Comment": "Ensure api alias to backend ALB",
+            "Changes": [
+              {
+                "Action": "UPSERT",
+                "ResourceRecordSet": {
+                  "Name": "${API_HOST}",
+                  "Type": "A",
+                  "AliasTarget": {
+                    "HostedZoneId": "${ALB_ZONE_ID}",
+                    "DNSName": "${DUAL_DNS}",
+                    "EvaluateTargetHealth": true
+                  }
+                }
+              },
+              {
+                "Action": "UPSERT",
+                "ResourceRecordSet": {
+                  "Name": "${API_HOST}",
+                  "Type": "AAAA",
+                  "AliasTarget": {
+                    "HostedZoneId": "${ALB_ZONE_ID}",
+                    "DNSName": "${DUAL_DNS}",
+                    "EvaluateTargetHealth": true
+                  }
+                }
+              }
+            ]
+          }
+          JSON
+          aws route53 change-resource-record-sets --hosted-zone-id "${HZ_ID}" --change-batch file:///tmp/r53-api.json
+
       - name: "Cleanup temporary runner CIDR"
         if: always() && steps.preflight.outputs.ok != 'true'
         shell: bash
