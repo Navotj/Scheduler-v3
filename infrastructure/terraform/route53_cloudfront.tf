@@ -46,8 +46,10 @@ resource "aws_cloudfront_distribution" "frontend" {
   default_root_object = "index.html"
   price_class         = "PriceClass_100"
 
-  aliases    = [var.domain_name]
-  web_acl_id = aws_wafv2_web_acl.frontend.arn  # Attach WAFv2 (scope=CLOUDFRONT, us-east-1)
+  aliases = [var.domain_name]
+
+  # Attach WAF only when requested (var.attach_frontend_waf)
+  web_acl_id = var.attach_frontend_waf ? aws_wafv2_web_acl.frontend[0].arn : null
 
   # Frontend ALB origin (use hostname directly; Route53 alias created separately)
   origin {
@@ -193,8 +195,7 @@ resource "aws_cloudfront_distribution" "frontend" {
   tags = { Name = "${var.project_name}-frontend-cf" }
 
   depends_on = [
-    aws_acm_certificate_validation.frontend,
-    aws_wafv2_web_acl.frontend
+    aws_acm_certificate_validation.frontend
   ]
 }
 
@@ -215,9 +216,6 @@ resource "aws_route53_record" "apex_a" {
 
 ############################################################
 # Option B: Discover ALB DNS from SSM and manage api./origin. aliases
-# CI should write:
-#   /nat20/dns/BACKEND_ALB_DNS = <k8s-nat20-backend-....elb.amazonaws.com>
-#   /nat20/dns/FRONTEND_ALB_DNS = <k8s-nat20-frontend-....elb.amazonaws.com>
 ############################################################
 
 data "aws_ssm_parameter" "backend_alb_dns" {
@@ -229,9 +227,8 @@ data "aws_ssm_parameter" "frontend_alb_dns" {
 }
 
 locals {
-  backend_alb_dns_raw  = data.aws_ssm_parameter.backend_alb_dns.value
-  frontend_alb_dns_raw = data.aws_ssm_parameter.frontend_alb_dns.value
-
+  backend_alb_dns_raw   = data.aws_ssm_parameter.backend_alb_dns.value
+  frontend_alb_dns_raw  = data.aws_ssm_parameter.frontend_alb_dns.value
   backend_alb_dns_dual  = "dualstack.${local.backend_alb_dns_raw}"
   frontend_alb_dns_dual = "dualstack.${local.frontend_alb_dns_raw}"
 }

@@ -1,33 +1,32 @@
 ############################################################
 # WAFv2 for CloudFront (Frontend) - CLOUDFRONT scope
+# - Tightened rate limit
+# - Adds AWSManagedRulesAnonymousIpList
+# - Creation is toggleable via var.attach_frontend_waf
 ############################################################
 
 resource "aws_wafv2_web_acl" "frontend" {
-  provider    = aws.us_east_1
-  name        = "frontend-acl"
-  scope       = "CLOUDFRONT"
-  description = "Frontend WAF: managed rule groups + OPTIONS allow + rate limit"
+  provider  = aws.us_east_1
+  count     = var.attach_frontend_waf ? 1 : 0
+  name      = var.frontend_waf_name
+  scope     = "CLOUDFRONT"
+  description = "Frontend WAF: managed rule groups + OPTIONS allow + tightened rate limit + anonymous IP block"
 
-  default_action {
-    allow {}
-  }
+  default_action { allow {} }
 
+  # Allow CORS preflight so browsers can probe freely
   rule {
     name     = "AllowCORSPreflight"
     priority = 0
 
-    action {
-      allow {}
-    }
+    action { allow {} }
 
     statement {
       byte_match_statement {
         search_string         = "OPTIONS"
         positional_constraint = "EXACTLY"
 
-        field_to_match {
-          method {}
-        }
+        field_to_match { method {} }
 
         text_transformation {
           priority = 0
@@ -43,17 +42,16 @@ resource "aws_wafv2_web_acl" "frontend" {
     }
   }
 
+  # Tightened to 1000 requests / 5 min / IP
   rule {
     name     = "RateLimitPerIP"
     priority = 5
 
-    action {
-      block {}
-    }
+    action { block {} }
 
     statement {
       rate_based_statement {
-        limit              = 1500
+        limit              = 1000
         aggregate_key_type = "IP"
       }
     }
@@ -65,13 +63,12 @@ resource "aws_wafv2_web_acl" "frontend" {
     }
   }
 
+  # AWS managed rules (no extra rule-group charges)
   rule {
     name     = "AWS-AWSManagedRulesCommonRuleSet"
     priority = 10
 
-    override_action {
-      none {}
-    }
+    override_action { none {} }
 
     statement {
       managed_rule_group_statement {
@@ -87,13 +84,32 @@ resource "aws_wafv2_web_acl" "frontend" {
     }
   }
 
+  # NEW: block anonymous / VPN / proxy sources
+  rule {
+    name     = "AWS-AWSManagedRulesAnonymousIpList"
+    priority = 15
+
+    override_action { none {} }
+
+    statement {
+      managed_rule_group_statement {
+        name        = "AWSManagedRulesAnonymousIpList"
+        vendor_name = "AWS"
+      }
+    }
+
+    visibility_config {
+      cloudwatch_metrics_enabled = true
+      metric_name                = "AnonymousIpList"
+      sampled_requests_enabled   = true
+    }
+  }
+
   rule {
     name     = "AWS-AWSManagedRulesKnownBadInputsRuleSet"
     priority = 20
 
-    override_action {
-      none {}
-    }
+    override_action { none {} }
 
     statement {
       managed_rule_group_statement {
@@ -113,9 +129,7 @@ resource "aws_wafv2_web_acl" "frontend" {
     name     = "AWS-AWSManagedRulesAmazonIpReputationList"
     priority = 30
 
-    override_action {
-      none {}
-    }
+    override_action { none {} }
 
     statement {
       managed_rule_group_statement {
@@ -135,9 +149,7 @@ resource "aws_wafv2_web_acl" "frontend" {
     name     = "AWS-AWSManagedRulesSQLiRuleSet"
     priority = 40
 
-    override_action {
-      none {}
-    }
+    override_action { none {} }
 
     statement {
       managed_rule_group_statement {
@@ -155,7 +167,7 @@ resource "aws_wafv2_web_acl" "frontend" {
 
   visibility_config {
     cloudwatch_metrics_enabled = true
-    metric_name                = "frontend-acl"
+    metric_name                = var.frontend_waf_name
     sampled_requests_enabled   = true
   }
 }

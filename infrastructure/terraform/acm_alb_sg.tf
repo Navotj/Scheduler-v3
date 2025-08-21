@@ -93,12 +93,16 @@ resource "aws_acm_certificate_validation" "frontend" {
   validation_record_fqdns = [for r in aws_route53_record.frontend_cert_validation : r.fqdn]
 }
 
-# Security Group for Backend ALB (HTTPS from CloudFront)
+############################################################
+# Security Groups
+############################################################
+
+# Backend ALB: HTTPS from CloudFront; egress locked to pods on 3000 within VPC
 resource "aws_security_group" "alb_backend" {
-  name                     = "${var.project_name}-alb-backend"
-  description              = "ALB (backend) security group (HTTPS from CloudFront origin fetchers)"
-  vpc_id                   = data.aws_vpc.default.id
-  revoke_rules_on_delete   = true
+  name                   = "${var.project_name}-alb-backend"
+  description            = "ALB (backend) security group (HTTPS from CloudFront origin fetchers)"
+  vpc_id                 = data.aws_vpc.default.id
+  revoke_rules_on_delete = true
 
   ingress {
     description     = "HTTPS from CloudFront origin fetchers (IPv4)"
@@ -116,23 +120,24 @@ resource "aws_security_group" "alb_backend" {
     ipv6_cidr_blocks = ["::/0"]
   }
 
+  # 🔒 Egress only to backend pods via nodes on 3000, inside the VPC
   egress {
-    description = "All egress"
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
+    description = "To backend pods (VPC) on 3000"
+    from_port   = 3000
+    to_port     = 3000
+    protocol    = "tcp"
+    cidr_blocks = [data.aws_vpc.default.cidr_block]
   }
 
   tags = { Name = "${var.project_name}-alb-backend" }
 }
 
-# Security Group for Frontend ALB (HTTPS from CloudFront)
+# Frontend ALB: HTTPS from CloudFront; egress locked to pods on 8080 within VPC
 resource "aws_security_group" "alb_frontend" {
-  name                     = "${var.project_name}-alb-frontend"
-  description              = "ALB (frontend) security group (HTTPS from CloudFront origin fetchers)"
-  vpc_id                   = data.aws_vpc.default.id
-  revoke_rules_on_delete   = true
+  name                   = "${var.project_name}-alb-frontend"
+  description            = "ALB (frontend) security group (HTTPS from CloudFront origin fetchers)"
+  vpc_id                 = data.aws_vpc.default.id
+  revoke_rules_on_delete = true
 
   ingress {
     description     = "HTTPS from CloudFront origin fetchers (IPv4)"
@@ -150,12 +155,13 @@ resource "aws_security_group" "alb_frontend" {
     ipv6_cidr_blocks = ["::/0"]
   }
 
+  # 🔒 Egress only to frontend pods via nodes on 8080, inside the VPC
   egress {
-    description = "All egress"
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
+    description = "To frontend pods (VPC) on 8080"
+    from_port   = 8080
+    to_port     = 8080
+    protocol    = "tcp"
+    cidr_blocks = [data.aws_vpc.default.cidr_block]
   }
 
   tags = { Name = "${var.project_name}-alb-frontend" }
