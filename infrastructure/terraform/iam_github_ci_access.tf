@@ -1,10 +1,9 @@
 ############################################################
-# CI role access to Terraform backend (S3 state + DynamoDB lock)
-# Attaches ONE policy to the existing GitHub OIDC role (nat20-github-ci)
+# CI access to Terraform backend (S3 state + DynamoDB lock)
+# Attaches ONE policy to the existing GitHub OIDC role.
 ############################################################
 
-# These two data sources already exist in your data.tf.
-# Do NOT re-declare them anywhere else to avoid duplicates.
+# These already exist in your repo (data.tf). Don't redeclare elsewhere.
 # data "aws_caller_identity" "current" {}
 # data "aws_region" "current" {}
 
@@ -21,7 +20,7 @@ variable "tf_state_bucket" {
 }
 
 variable "tf_state_key_prefix" {
-  description = "Optional key prefix/folder under which state lives (leave empty if state is at bucket root)"
+  description = "Optional key prefix/folder under which state lives (empty = bucket root)"
   type        = string
   default     = ""
 }
@@ -40,31 +39,31 @@ data "aws_iam_role" "ci" {
 # Build ARNs for the backend resources
 locals {
   state_bucket_arn  = "arn:aws:s3:::${var.tf_state_bucket}"
-  # If no prefix provided -> allow entire bucket objects; else bucket/prefix/*
-  state_objects_arn = length(trim(var.tf_state_key_prefix)) == 0
-    ? "${local.state_bucket_arn}/*"
-    : "${local.state_bucket_arn}/${trim(var.tf_state_key_prefix, "/")}/*"
+  state_prefix      = trim(var.tf_state_key_prefix, "/")
+  state_objects_arn = length(local.state_prefix) > 0
+    ? "${local.state_bucket_arn}/${local.state_prefix}/*"
+    : "${local.state_bucket_arn}/*"
 
   lock_table_arn = "arn:aws:dynamodb:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:table/${var.tf_lock_table_name}"
 }
 
 # One policy with both S3 (state) and DynamoDB (lock) permissions
 data "aws_iam_policy_document" "ci_backend_access" {
-  # S3: list the bucket (needed by the backend)
+  # S3: list bucket (backend needs this)
   statement {
     sid     = "S3ListBucket"
     effect  = "Allow"
-    actions = ["s3:ListBucket"]
-    resources = [
-      local.state_bucket_arn
+    actions = [
+      "s3:ListBucket",
+      "s3:GetBucketLocation",
+      "s3:ListBucketVersions"
     ]
-    # Optional: restrict listing to the prefix if you use one
+    resources = [local.state_bucket_arn]
+    # If a prefix is set, constrain listing to it
     condition {
       test     = "StringLike"
       variable = "s3:prefix"
-      values   = [
-        length(trim(var.tf_state_key_prefix)) == 0 ? "*" : "${trim(var.tf_state_key_prefix, "/")}/*"
-      ]
+      values   = [length(local.state_prefix) > 0 ? "${local.state_prefix}/*" : "*"]
     }
   }
 
@@ -75,12 +74,14 @@ data "aws_iam_policy_document" "ci_backend_access" {
     actions = [
       "s3:GetObject",
       "s3:PutObject",
-      "s3:DeleteObject"
+      "s3:DeleteObject",
+      "s3:ListBucketMultipartUploads",
+      "s3:AbortMultipartUpload"
     ]
     resources = [local.state_objects_arn]
   }
 
-  # DynamoDB: use the lock table (include Scan to support manual unlock workflow)
+  # DynamoDB: use the lock table (Scan included for manual unlock tooling)
   statement {
     sid     = "DynamoDBStateLock"
     effect  = "Allow"
