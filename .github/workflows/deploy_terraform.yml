@@ -1,4 +1,4 @@
-name: Terraform Apply (EKS hardened, staged)
+name: Terraform Apply (EKS hardened)
 
 on:
   workflow_dispatch:
@@ -10,7 +10,6 @@ jobs:
       id-token: write
       contents: read
 
-    # Job-level env so ALL terraform steps get these
     env:
       AWS_REGION: eu-central-1
       TF_PLUGIN_CACHE_DIR: ${{ github.workspace }}/.tf-plugin-cache
@@ -32,9 +31,6 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
           role-session-name: gh-terraform-apply
 
-      - name: Who am I?
-        run: aws sts get-caller-identity
-
       - name: Prepare Terraform plugin cache
         run: |
           mkdir -p "$TF_PLUGIN_CACHE_DIR"
@@ -49,43 +45,11 @@ jobs:
       - name: Terraform Init
         run: terraform init -input=false
 
-      - name: Terraform Plan (no refresh)
-        run: terraform plan -refresh=false -lock-timeout=2m -out=tfplan-norefresh
+      - name: Terraform Plan
+        run: terraform plan -lock-timeout=2m -out=tfplan
 
-      # Stage 1: update the EKS cluster networking first
-      - name: Apply EKS cluster only
-        run: terraform apply -input=false -lock-timeout=2m -auto-approve -target=aws_eks_cluster.this
-
-      - name: Wait for EKS API reachability
-        env:
-          CLUSTER_NAME: nat20-eks
-        run: |
-          set -euo pipefail
-          ENDPOINT="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --query 'cluster.endpoint' --output text)"
-          HOST="$(printf '%s\n' "$ENDPOINT" | sed -E 's#^https?://##; s#/.*$##')"
-          echo "EKS endpoint host: ${HOST}"
-          for i in $(seq 1 60); do
-            if timeout 5 bash -lc "echo | openssl s_client -connect ${HOST}:443 -servername ${HOST} >/dev/null 2>&1"; then
-              echo "EKS API reachable on ${HOST}:443"
-              exit 0
-            fi
-            echo "Waiting for EKS API to accept new CIDR... (${i}/60)"
-            sleep 5
-          done
-          echo "EKS API not reachable"
-          exit 1
-
-      # Stage 2: grant EKS access (admin assoc only; CI entry+assoc)
-      - name: Apply EKS access (admin assoc + CI entry/assoc)
-        run: |
-          terraform apply -input=false -lock-timeout=2m -auto-approve \
-            -target=aws_eks_access_policy_association.admin \
-            -target=aws_eks_access_entry.github_ci \
-            -target=aws_eks_access_policy_association.github_ci
-
-      # Stage 3: everything else (Helm, controllers, etc.)
-      - name: Terraform Apply (rest)
-        run: terraform apply -input=false -lock-timeout=2m -auto-approve
+      - name: Terraform Apply (full)
+        run: terraform apply -input=false -lock-timeout=2m -auto-approve tfplan
 
       - name: Output
         run: terraform output -json || true
