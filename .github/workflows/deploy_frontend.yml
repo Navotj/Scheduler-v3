@@ -70,16 +70,10 @@ jobs:
         shell: bash
         env:
           DOCKER_BUILDKIT: "1"
-          API_BASE: "https://api.nat20scheduling.com"
         run: |
           set -euo pipefail
-          docker build \
-            --build-arg VITE_API_BASE="${API_BASE}" \
-            --build-arg REACT_APP_API_BASE="${API_BASE}" \
-            -f infrastructure/docker/frontend/Dockerfile \
-            -t "${IMAGE_URI}" .
+          docker build -f infrastructure/docker/frontend/Dockerfile -t "${IMAGE_URI}" .
           docker push "${IMAGE_URI}"
-
 
       - name: Read SSM params (ingress cert + SG)
         shell: bash
