@@ -47,7 +47,10 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Install tooling
+      - name: Install tooling (jq/curl/helm)
+        uses: azure/setup-helm@v4
+
+      - name: Install jq + curl
         shell: bash
         run: |
           set -euo pipefail
@@ -93,85 +96,40 @@ jobs:
           aws eks update-kubeconfig --name "${CLUSTER_NAME}" --region "${AWS_REGION}"
           kubectl version --client || true
 
-      - name: Preflight API reachability (200/401/403 OK)
-        id: preflight
-        shell: bash
-        run: |
-          set -euo pipefail
-          ENDPOINT="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --query 'cluster.endpoint' --output text)"
-          ok="false"
-          for i in 1 2 3; do
-            code="$(curl -k -sS -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 10 "${ENDPOINT}/version" || echo 000)"
-            if [[ "$code" == "200" || "$code" == "401" || "$code" == "403" ]]; then
-              ok="true"; break
-            fi
-            sleep 5
-          done
-          echo "ok=${ok}" >> "$GITHUB_OUTPUT"
-
-      - name: Fallback allow runner CIDR
-        if: steps.preflight.outputs.ok != 'true'
+      - name: Always allow this runner CIDR (idempotent) and wait ready
+        id: allow-runner
         shell: bash
         run: |
           set -euo pipefail
           RUNNER_CIDR="$(curl -s https://checkip.amazonaws.com | tr -d '\r\n')/32"
           echo "RUNNER_CIDR=${RUNNER_CIDR}" >> "$GITHUB_ENV"
 
-          CUR_JSON="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --query 'cluster.resourcesVpcConfig.publicAccessCidrs' --output json)"
-          [[ -z "${CUR_JSON}" || "${CUR_JSON}" == "null" ]] && CUR_JSON='[]'
+          CUR_JSON="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --query 'cluster.resourcesVpcConfig.publicAccessCidrs' --output json || echo '[]')"
+          if [[ -z "${CUR_JSON}" || "${CUR_JSON}" == "null" ]]; then CUR_JSON='[]'; fi
           NEW_CSV="$(printf '%s' "${CUR_JSON}" | jq -r --arg ip "$RUNNER_CIDR" '(. // []) + [$ip] | unique | join(",")')"
 
+          echo "Applying EKS update: publicAccessCidrs=${NEW_CSV}"
           UPDATE_ID="$(aws eks update-cluster-config \
             --name "${CLUSTER_NAME}" \
             --resources-vpc-config "endpointPublicAccess=true,publicAccessCidrs=${NEW_CSV}" \
             --query 'update.id' --output text)"
 
-          for _ in {1..30}; do
+          for _ in {1..40}; do
             PHASE="$(aws eks describe-update --name "${CLUSTER_NAME}" --update-id "${UPDATE_ID}" --query 'update.status' --output text)"
             [[ "${PHASE}" == "Successful" ]] && break
             [[ "${PHASE}" == "Failed" ]] && { echo "EKS update failed"; exit 1; }
-            sleep 10
+            sleep 5
           done
 
           ENDPOINT="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --query 'cluster.endpoint' --output text)"
-          code="$(curl -k -sS -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 10 "${ENDPOINT}/version" || echo 000)"
-          [[ "$code" == "200" || "$code" == "401" || "$code" == "403" ]]
-
-      - name: Ensure CI EKS access (pre-plan)
-        shell: bash
-        env:
-          GITHUB_CI_ROLE_NAME: nat20-github-ci
-          GITHUB_CI_ROLE_ARN: ${{ secrets.GITHUB_CI_ROLE_ARN }}
-        run: |
-          set -euo pipefail
-          CI_ARN="${GITHUB_CI_ROLE_ARN:-}"
-          if [ -z "${CI_ARN}" ]; then
-            CI_ARN="$(aws iam get-role --role-name "${GITHUB_CI_ROLE_NAME:-nat20-github-ci}" --query 'Role.Arn' --output text)"
-          fi
-          echo "CI role ARN: ${CI_ARN}"
-          if ! aws eks describe-access-entry --cluster-name "${CLUSTER_NAME}" --principal-arn "${CI_ARN}" >/dev/null 2>&1; then
-            aws eks create-access-entry --cluster-name "${CLUSTER_NAME}" --principal-arn "${CI_ARN}" --type STANDARD --username github-ci >/dev/null
-          fi
-          if [ "$(aws eks list-associated-access-policies --cluster-name "${CLUSTER_NAME}" --principal-arn "${CI_ARN}" \
-                --query "associatedAccessPolicies[?policyArn=='arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy'] | length(@)" --output text)" != "1" ]; then
-            aws eks associate-access-policy --cluster-name "${CLUSTER_NAME}" --principal-arn "${CI_ARN}" \
-              --policy-arn arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy --access-scope type=cluster >/dev/null
-          fi
-
-      - name: Re-check API reachability (idempotent)
-        shell: bash
-        run: |
-          set -euo pipefail
-          ENDPOINT="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --query 'cluster.endpoint' --output text)"
-          code="$(curl -k -sS -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 10 "${ENDPOINT}/version" || echo 000)"
-          if [[ "$code" != "200" && "$code" != "401" && "$code" != "403" ]]; then
-            RUNNER_CIDR="$(curl -s https://checkip.amazonaws.com | tr -d '\r\n')/32"
-            CUR_JSON="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --query 'cluster.resourcesVpcConfig.publicAccessCidrs' --output json)"
-            [[ -z "${CUR_JSON}" || "${CUR_JSON}" == "null" ]] && CUR_JSON='[]'
-            NEW_CSV="$(printf '%s' "${CUR_JSON}" | jq -r --arg ip "$RUNNER_CIDR" '(. // []) + [$ip] | unique | join(",")')"
-            aws eks update-cluster-config --name "${CLUSTER_NAME}" --resources-vpc-config "endpointPublicAccess=true,publicAccessCidrs=${NEW_CSV}" >/dev/null
-            sleep 10
-          fi
+          for i in 1 2 3 4 5; do
+            code="$(curl -k -sS -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 10 "${ENDPOINT}/version" || echo 000)"
+            if [[ "$code" == "200" || "$code" == "401" || "$code" == "403" ]]; then
+              echo "API reachable (HTTP ${code})."
+              break
+            fi
+            sleep 5
+          done
 
       - name: Ensure namespaces and PSS labels
         shell: bash
@@ -185,14 +143,23 @@ jobs:
             pod-security.kubernetes.io/warn=restricted \
             --overwrite || true
 
-      - name: Ensure External Secrets CRDs (pinned)
+      - name: Ensure External Secrets Operator (Helm fallback)
         shell: bash
         run: |
           set -euo pipefail
-          kubectl apply --server-side -f https://raw.githubusercontent.com/external-secrets/external-secrets/v0.19.2/deploy/crds/bundle.yaml
-          kubectl wait --for=condition=Established crd clustersecretstores.external-secrets.io --timeout=90s
-          kubectl wait --for=condition=Established crd secretstores.external-secrets.io --timeout=90s
-          kubectl wait --for=condition=Established crd externalsecrets.external-secrets.io --timeout=90s
+          ACCOUNT_ID="$(aws sts get-caller-identity --query 'Account' --output text)"
+          IRSA_ARN="arn:aws:iam::${ACCOUNT_ID}:role/nat20-external-secrets-irsa"
+          if ! kubectl -n externalsecrets get deploy external-secrets >/dev/null 2>&1; then
+            helm repo add external-secrets https://charts.external-secrets.io
+            helm repo update
+            helm upgrade --install external-secrets external-secrets/external-secrets \
+              --namespace externalsecrets --create-namespace \
+              --set installCRDs=true \
+              --set serviceAccount.create=true \
+              --set serviceAccount.name=external-secrets \
+              --set-string serviceAccount.annotations."eks\.amazonaws\.com/role-arn"="${IRSA_ARN}"
+            kubectl -n externalsecrets rollout status deploy/external-secrets --timeout=180s
+          fi
 
       - name: Apply ClusterSecretStore and backend ExternalSecret
         shell: bash
@@ -233,9 +200,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          kubectl -n "${NAMESPACE}" set image deployment/backend backend="${IMAGE_URI}" --record
+          kubectl -n "${NAMESPACE}" set image deployment/backend backend="${IMAGE_URI}"
           kubectl -n "${NAMESPACE}" annotate deployment/backend kubernetes.io/change-cause="kubectl set image to ${IMAGE_URI}" --overwrite
-          kubectl -n "${NAMESPACE}" rollout status deployment/backend --timeout=420s
+          kubectl -n "${NAMESPACE}" rollout status deployment/backend --timeout=600s
 
       - name: Wait for backend Ingress hostname
         id: alb
@@ -298,22 +265,26 @@ jobs:
           aws route53 change-resource-record-sets --hosted-zone-id "${HZ_ID}" --change-batch file:///tmp/r53-api.json
 
       - name: Cleanup temporary runner CIDR
-        if: always() && steps.preflight.outputs.ok != 'true'
+        if: always()
         shell: bash
         run: |
           set -euo pipefail
           if [[ -z "${RUNNER_CIDR:-}" ]]; then
             echo "No RUNNER_CIDR set; skipping cleanup."; exit 0
           fi
-          CUR_JSON="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --query 'cluster.resourcesVpcConfig.publicAccessCidrs' --output json)"
-          [[ -z "${CUR_JSON}" || "${CUR_JSON}" == "null" ]] && CUR_JSON='[]'
+          CUR_JSON="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --query 'cluster.resourcesVpcConfig.publicAccessCidrs' --output json || echo '[]')"
+          if [[ -z "${CUR_JSON}" || "${CUR_JSON}" == "null" ]]; then CUR_JSON='[]'; fi
           REST_CSV="$(printf '%s' "${CUR_JSON}" | jq -r --arg ip "$RUNNER_CIDR" '(. // []) | map(select(. != $ip)) | unique | join(",")')"
-          UPDATE_ID="$(aws eks update-cluster-config --name "${CLUSTER_NAME}" --resources-vpc-config "endpointPublicAccess=true,publicAccessCidrs=${REST_CSV}" --query 'update.id' --output text)"
+          echo "Reverting EKS publicAccessCidrs to: ${REST_CSV}"
+          UPDATE_ID="$(aws eks update-cluster-config \
+            --name "${CLUSTER_NAME}" \
+            --resources-vpc-config "endpointPublicAccess=true,publicAccessCidrs=${REST_CSV}" \
+            --query 'update.id' --output text)"
           for _ in {1..30}; do
             PHASE="$(aws eks describe-update --name "${CLUSTER_NAME}" --update-id "${UPDATE_ID}" --query 'update.status' --output text)"
             [[ "${PHASE}" == "Successful" ]] && break
             [[ "${PHASE}" == "Failed" ]] && { echo "Cleanup EKS update failed"; exit 1; }
-            sleep 10
+            sleep 5
           done
 
       - name: "On failure: collect diagnostics (fast, gated)"
@@ -323,7 +294,6 @@ jobs:
           MAX_TRIES: 5
         run: |
           set -euo pipefail
-          # Quick reachability gate (5 fast tries)
           ENDPOINT="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --query 'cluster.endpoint' --output text 2>/dev/null || true)"
           ok="false"
           for i in $(seq 1 "${MAX_TRIES}"); do
@@ -335,22 +305,16 @@ jobs:
             echo "Skipping diagnostics: API unreachable after ${MAX_TRIES} quick checks."
             exit 0
           fi
-
-          # Short kubectl timeouts for everything below
           RT="${KUBECTL_TIMEOUT:-10s}"
-
           echo "=== cluster nodes ==="
           kubectl --request-timeout="${RT}" get nodes -o wide || true
-
           echo "=== objects (backend ns) ==="
           kubectl -n "${NAMESPACE}" --request-timeout="${RT}" get all -o wide || true
           kubectl -n "${NAMESPACE}" --request-timeout="${RT}" describe deployment backend || true
           kubectl -n "${NAMESPACE}" --request-timeout="${RT}" get rs -o wide || true
           kubectl -n "${NAMESPACE}" --request-timeout="${RT}" get ingress backend -o yaml || true
-
           echo "=== events (last 300) ==="
           kubectl -n "${NAMESPACE}" --request-timeout="${RT}" get events --sort-by=.lastTimestamp | tail -n 300 || true
-
           echo "=== backend pod logs (last 400) ==="
           for p in $(kubectl -n "${NAMESPACE}" --request-timeout="${RT}" get pods -l app=backend -o name 2>/dev/null | sed 's|pod/||'); do
             echo "--- $p ---"
