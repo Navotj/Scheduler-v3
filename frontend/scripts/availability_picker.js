@@ -17,9 +17,11 @@
 
   // vertical-only zoom; text size stays constant
   let zoomFactor = 1.0;
-  const ZOOM_MIN = 0.6;
   const ZOOM_MAX = 2.0;
   const ZOOM_STEP = 0.1;
+
+  // dynamic lower bound that prevents dead space (table shorter than container)
+  let zoomMinFit = 0.6;
 
   const selected = new Set();
 
@@ -159,7 +161,7 @@
     requestAnimationFrame(updateNowMarker);
   }
 
-  // Compute a zoom that fits the full 24h into the visible grid area (like schedule matcher)
+  // Compute fit zoom to ensure table body fills the scrollable area, and set it as the minimum allowed zoom.
   function initialZoomToFit24h() {
     const baseRow = 18; // px at zoom 1.0
     if (!grid || !table) return;
@@ -170,9 +172,13 @@
     const available = Math.max(0, contentEl.clientHeight - thead.offsetHeight - 2);
     const rowsPerDay = (HOURS_END - HOURS_START) * SLOTS_PER_HOUR; // 48
     const needed = rowsPerDay * baseRow;
-    const zFit = clamp(available / needed, ZOOM_MIN, ZOOM_MAX);
+    const zFit = Math.max(available / needed, 0.1);
 
-    zoomFactor = zFit >= ZOOM_MIN ? zFit : ZOOM_MIN;
+    // dynamic lower bound prevents zooming out below "fills container"
+    zoomMinFit = Math.min(zFit, ZOOM_MAX);
+
+    // default to exactly-fit and enforce min
+    zoomFactor = Math.max(zoomFactor, zoomMinFit);
     applyZoomStyles();
   }
 
@@ -299,7 +305,7 @@
 
     setupZoomHandlers();
 
-    // start zoomed-out to fit 24h (like schedule matcher)
+    // start zoomed-out to the fit value (and set dynamic min bound)
     requestAnimationFrame(() => requestAnimationFrame(initialZoomToFit24h));
     requestAnimationFrame(updateNowMarker);
   }
@@ -462,7 +468,7 @@
       }
     });
 
-    // Recompute now marker geometry on window resize
+    // Recompute now marker geometry & dynamic zoom floor on resize
     window.addEventListener('resize', () => {
       requestAnimationFrame(() => {
         initialZoomToFit24h();
@@ -477,15 +483,16 @@
       if (!e.shiftKey) return; // normal vertical panning
       e.preventDefault();
       const delta = Math.sign(e.deltaY);
-      zoomFactor = clamp(zoomFactor - delta * ZOOM_STEP, ZOOM_MIN, ZOOM_MAX);
+      // clamp to dynamic minimum to avoid dead space
+      zoomFactor = clamp(zoomFactor - delta * ZOOM_STEP, zoomMinFit, ZOOM_MAX);
       applyZoomStyles();
     }, { passive: false });
 
     // Optional keyboard zoom with Shift held, vertical-only effect
     window.addEventListener('keydown', (e) => {
       if (!e.shiftKey) return;
-      if (e.key === '=' || e.key === '+') { zoomFactor = clamp(zoomFactor + ZOOM_STEP, ZOOM_MIN, ZOOM_MAX); applyZoomStyles(); }
-      else if (e.key === '-' || e.key === '_') { zoomFactor = clamp(zoomFactor - ZOOM_STEP, ZOOM_MIN, ZOOM_MAX); applyZoomStyles(); }
+      if (e.key === '=' || e.key === '+') { zoomFactor = clamp(zoomFactor + ZOOM_STEP, zoomMinFit, ZOOM_MAX); applyZoomStyles(); }
+      else if (e.key === '-' || e.key === '_') { zoomFactor = clamp(zoomFactor - ZOOM_STEP, zoomMinFit, ZOOM_MAX); applyZoomStyles(); }
       else if (e.key === '0') { initialZoomToFit24h(); }
     });
 
@@ -595,7 +602,7 @@
 
     // start from defaultZoom only for first paint; then we fit to viewport
     const dz = (typeof settings.defaultZoom === 'number') ? settings.defaultZoom : 1.0;
-    zoomFactor = clamp(dz, ZOOM_MIN, ZOOM_MAX);
+    zoomFactor = dz;
     saveLocal(settings);
 
     applyZoomStyles();
