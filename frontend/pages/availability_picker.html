@@ -5,6 +5,7 @@
   <title>My Availability • NAT20 Scheduling</title>
   <link rel="icon" href="/assets/favicon.ico" type="image/x-icon">
   <link rel="stylesheet" href="/styles/common.css" />
+  <link rel="stylesheet" href="/styles/topbar.css" />
   <link rel="stylesheet" href="/styles/availability_picker.css" />
   <style>
     /* small page-specific tweaks */
@@ -23,17 +24,7 @@
     <div id="modal-container"></div>
   </div>
 
-  <!-- Top bar -->
-  <header class="top-bar">
-    <div class="top-left">
-      <a href="/">&larr; Home</a>
-      <h1 class="title">My Availability</h1>
-    </div>
-    <div class="user-info">
-      <span id="user-label" class="user-label" style="display:none;"></span>
-      <button id="auth-button">Login</button>
-    </div>
-  </header>
+  <div id="topbar-root" data-title="My Availability"></div>
 
   <main class="page-shell">
     <div class="header-row">
@@ -69,71 +60,8 @@
   <script src="/scripts/login.js"></script>
   <script src="/scripts/register.js"></script>
   <script src="/scripts/availability_picker.js"></script>
+  <script src="/scripts/topbar.js"></script>
   <script>
-    // ---- Auth UI (mirrors index.html) ----
-    let isAuthenticated = false;
-    let currentUsername = null;
-
-    async function checkAuth() {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 3000);
-      try {
-        const res = await fetch('/auth/check', {
-          credentials: 'include',
-          cache: 'no-cache',
-          signal: controller.signal
-        });
-        if (res.ok) {
-          const data = await res.json().catch(() => ({}));
-          const uname =
-            (data && data.user && data.user.username) ||
-            data.username ||
-            data.name ||
-            null;
-          isAuthenticated = !!uname;
-          currentUsername = uname;
-        } else {
-          isAuthenticated = false;
-          currentUsername = null;
-        }
-      } catch {
-        isAuthenticated = false;
-        currentUsername = null;
-      } finally {
-        clearTimeout(timeout);
-      }
-      updateAuthUI();
-      if (window.schedule && window.schedule.setAuth) window.schedule.setAuth(isAuthenticated);
-    }
-
-    function updateAuthUI() {
-      const userLabel = document.getElementById('user-label');
-      const authButton = document.getElementById('auth-button');
-      if (!userLabel || !authButton) return;
-
-      if (isAuthenticated) {
-        userLabel.textContent = `Signed in as ${currentUsername}`;
-        userLabel.style.display = 'inline';
-        authButton.textContent = 'Logout';
-        authButton.onclick = logout;
-      } else {
-        userLabel.style.display = 'none';
-        userLabel.textContent = '';
-        authButton.textContent = 'Login';
-        authButton.onclick = () => openModal('/pages/login.html');
-      }
-    }
-
-    async function logout() {
-      try {
-        await fetch('/auth/logout', { method: 'POST', credentials: 'include' });
-      } catch {}
-      isAuthenticated = false;
-      currentUsername = null;
-      updateAuthUI();
-      if (window.schedule && window.schedule.setAuth) window.schedule.setAuth(false);
-    }
-
     function runModalInit(path) {
       if (path.includes('register.html') && window.initRegisterForm) {
         window.initRegisterForm();
@@ -178,11 +106,17 @@
     window.swapModal = swapModal;
     window.closeModal = closeModal;
 
-    // ---- Page init ----
+    // Page-specific auth reaction (called by topbar.js)
+    window.onAuthStateChange = function(isAuthed) {
+      if (window.schedule && window.schedule.setAuth) window.schedule.setAuth(!!isAuthed);
+    };
+
     document.addEventListener('DOMContentLoaded', async () => {
-      await checkAuth();                // sets header + schedule auth gate
       if (window.schedule && window.schedule.init) {
-        window.schedule.init();         // builds the table/grid
+        window.schedule.init();
+      }
+      if (window.topbar && typeof window.topbar.refreshAuth === 'function') {
+        window.topbar.refreshAuth();
       }
     });
   </script>
