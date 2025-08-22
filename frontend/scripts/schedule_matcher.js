@@ -14,12 +14,12 @@
   let currentUsername = null;
 
   // settings
-  const DEFAULT_SETTINGS = { timezone: 'auto', clock: '24', weekStart: 'sun', defaultZoom: 1.0, heatmap: 'blackgreen' };
+  const DEFAULT_SETTINGS = { timezone: 'auto', clock: '24', weekStart: 'sun', defaultZoom: 1.0, heatmap: 'viridis' };
   let settings = { ...DEFAULT_SETTINGS };
   let tz = resolveTimezone(settings.timezone);
   let hour12 = settings.clock === '12';
   let weekStartIdx = settings.weekStart === 'mon' ? 1 : 0;
-  let heatmapName = settings.heatmap || 'blackgreen';
+  let heatmapName = settings.heatmap || 'viridis';
 
   // vertical zoom only
   let zoomFactor = 1.0;
@@ -170,7 +170,6 @@
   }
 
   const COLORMAPS = {
-    blackgreen: [[0,'#0a0a0a'],[1,'#39ff88']],
     viridis:    [[0,'#440154'],[0.25,'#3b528b'],[0.5,'#21918c'],[0.75,'#5ec962'],[1,'#fde725']],
     plasma:     [[0,'#0d0887'],[0.25,'#6a00a8'],[0.5,'#b12a90'],[0.75,'#e16462'],[1,'#fca636']],
     cividis:    [[0,'#00204c'],[0.25,'#2c3e70'],[0.5,'#606c7c'],[0.75,'#9da472'],[1,'#f9e721']],
@@ -179,7 +178,7 @@
   };
 
   function colormapColor(t) {
-    const stops = COLORMAPS[heatmapName] || COLORMAPS.blackgreen;
+    const stops = COLORMAPS[heatmapName] || COLORMAPS.viridis;
     const rgb = interpStops(stops, t);
     return rgbToCss(rgb);
   }
@@ -934,7 +933,7 @@ please confirm`;
       tz = resolveTimezone(settings.timezone);
       hour12 = settings.clock === '12';
       weekStartIdx = settings.weekStart === 'mon' ? 1 : 0;
-      heatmapName = settings.heatmap || 'blackgreen';
+      heatmapName = settings.heatmap || 'viridis';
     }
 
     // react live to changes from settings page
@@ -946,7 +945,7 @@ please confirm`;
           const newTz = resolveTimezone(settings.timezone);
           const newHour12 = settings.clock === '12';
           const newWeekStartIdx = settings.weekStart === 'mon' ? 1 : 0;
-          const newHeatmap = settings.heatmap || 'blackgreen';
+          const newHeatmap = settings.heatmap || 'viridis';
 
           const needsRebuild = (newTz !== tz) || (newWeekStartIdx !== weekStartIdx);
           tz = newTz; hour12 = newHour12; weekStartIdx = newWeekStartIdx;
