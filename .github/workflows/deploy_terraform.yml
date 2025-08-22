@@ -165,43 +165,49 @@ jobs:
             sleep 5
           done
 
-      - name: Resolve CI role ARN and import access entry if it exists
+      - name: Ensure CI EKS access (pre-plan)
         env:
+          AWS_REGION: ${{ env.AWS_REGION }}
           CLUSTER_NAME: ${{ env.CLUSTER_NAME }}
-          # Optional override if your role name is different:
+          # set if your role name differs:
           GITHUB_CI_ROLE_NAME: nat20-github-ci
-          # Optional hard override if you want to pass the ARN via secret:
+          # or set an explicit ARN via secret to skip lookup:
           GITHUB_CI_ROLE_ARN: ${{ secrets.GITHUB_CI_ROLE_ARN }}
         run: |
           set -euo pipefail
 
-          # 1) Try TF state (resource name: aws_iam_role.github_ci). May be absent if pruned.
-          CI_ARN="$(terraform state show aws_iam_role.github_ci 2>/dev/null | awk -F'= ' '/^arn = /{print $2}' || true)"
-
-          # 2) Fallback to AWS IAM by role name (defaults to nat20-github-ci; change if needed)
+          CI_ARN="${GITHUB_CI_ROLE_ARN:-}"
           if [ -z "${CI_ARN}" ]; then
-            ROLE_NAME="${GITHUB_CI_ROLE_NAME:-nat20-github-ci}"
-            CI_ARN="$(aws iam get-role --role-name "$ROLE_NAME" --query 'Role.Arn' --output text 2>/dev/null || true)"
-          fi
-
-          # 3) Final fallback from secret/env (if you set one)
-          if [ -z "${CI_ARN}" ] && [ -n "${GITHUB_CI_ROLE_ARN:-}" ]; then
-            CI_ARN="${GITHUB_CI_ROLE_ARN}"
-          fi
-
-          if [ -z "${CI_ARN}" ]; then
-            echo "Could not resolve CI role ARN (aws_iam_role.github_ci not in state, and IAM get-role failed)."
-            echo "Set GITHUB_CI_ROLE_NAME or GITHUB_CI_ROLE_ARN if your role name differs."
-            exit 1
+            CI_ARN="$(aws iam get-role --role-name "${GITHUB_CI_ROLE_NAME:-nat20-github-ci}" --query 'Role.Arn' --output text)"
           fi
           echo "CI role ARN: ${CI_ARN}"
 
-          # If an access entry for this principal already exists, import it to avoid 409.
-          if aws eks describe-access-entry --cluster-name "${CLUSTER_NAME}" --principal-arn "${CI_ARN}" >/dev/null 2>&1; then
-            echo "EKS access entry exists; importing into Terraform state…"
-            terraform import aws_eks_access_entry.github_ci "${CLUSTER_NAME},${CI_ARN}" || true
-          else
-            echo "No existing EKS access entry found; Terraform will create it."
+          # Create access entry if missing
+          if ! aws eks describe-access-entry \
+               --region "${AWS_REGION}" \
+               --cluster-name "${CLUSTER_NAME}" \
+               --principal-arn "${CI_ARN}" >/dev/null 2>&1; then
+            aws eks create-access-entry \
+              --region "${AWS_REGION}" \
+              --cluster-name "${CLUSTER_NAME}" \
+              --principal-arn "${CI_ARN}" \
+              --type STANDARD \
+              --username github-ci
+          fi
+
+          # Ensure ClusterAdmin policy association
+          if [ "$(aws eks list-associated-access-policies \
+                  --region "${AWS_REGION}" \
+                  --cluster-name "${CLUSTER_NAME}" \
+                  --principal-arn "${CI_ARN}" \
+                  --query "associatedAccessPolicies[?policyArn=='arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy'] | length(@)" \
+                  --output text)" != "1" ]; then
+            aws eks associate-access-policy \
+              --region "${AWS_REGION}" \
+              --cluster-name "${CLUSTER_NAME}" \
+              --principal-arn "${CI_ARN}" \
+              --policy-arn arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy \
+              --access-scope type=cluster
           fi
 
 
