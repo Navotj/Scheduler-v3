@@ -36,7 +36,6 @@
   };
 })();
 
-
 (function () {
   function getSystemTZ() {
     return (Intl.DateTimeFormat().resolvedOptions().timeZone) || 'UTC';
@@ -51,7 +50,10 @@
 
   function saveLocal(obj) {
     localStorage.setItem('nat20_settings', JSON.stringify(obj));
-    window.dispatchEvent(new StorageEvent('storage', { key: 'nat20_settings', newValue: JSON.stringify(obj) }));
+    // broadcast to other tabs/windows (for schedule matcher live updates)
+    try {
+      window.dispatchEvent(new StorageEvent('storage', { key: 'nat20_settings', newValue: JSON.stringify(obj) }));
+    } catch {}
   }
 
   function populateTimezones(select) {
@@ -65,7 +67,7 @@
       existing.add(val);
     }
 
-    addOption('auto', 'Automatic (system)'); // placeholder; hidden when select is enabled
+    addOption('auto', 'Automatic (system)');
     try {
       if (typeof Intl.supportedValuesOf === 'function') {
         const list = Intl.supportedValuesOf('timeZone');
@@ -80,13 +82,8 @@
 
   async function fetchRemote() {
     try {
-      const res = await fetch('/settings', {
-        credentials: 'include',
-        cache: 'no-cache'
-      });
-      if (res.ok) {
-        return await res.json();
-      }
+      const res = await fetch('/settings', { credentials: 'include', cache: 'no-cache' });
+      if (res.ok) return await res.json();
     } catch {}
     return null;
   }
@@ -105,10 +102,9 @@
     return res.json();
   }
 
-  // small helper to preview gradients from stops
+  // Map name -> CSS gradient preview
   function gradientCssFor(name) {
     const maps = {
-      // stops: [offset(0..1), color]
       blackgreen: [[0,'#0a0a0a'],[1,'#39ff88']],
       viridis:    [[0,'#440154'],[0.25,'#3b528b'],[0.5,'#21918c'],[0.75,'#5ec962'],[1,'#fde725']],
       plasma:     [[0,'#0d0887'],[0.25,'#6a00a8'],[0.5,'#b12a90'],[0.75,'#e16462'],[1,'#fca636']],
@@ -135,16 +131,23 @@
     const $form = document.getElementById('settings-form');
     const $status = document.getElementById('saveStatus');
 
-    // new heatmap controls
+    // heatmap controls
     const $heatmap = document.getElementById('heatmap');
     const $heatmapPreview = document.getElementById('heatmapPreview');
 
     populateTimezones($tz);
 
-    const defaults = { timezone: 'auto', clock: '24', weekStart: 'sun', defaultZoom: 1.0, highlightWeekends: false, heatmap: 'blackgreen' };
+    const defaults = {
+      timezone: 'auto',
+      clock: '24',
+      weekStart: 'sun',
+      defaultZoom: 1.0,
+      highlightWeekends: false,
+      heatmap: 'blackgreen'
+    };
+
     const remote = await fetchRemote();
     const local = loadLocal();
-
     const s = remote || local || defaults;
 
     // tz mode + select
@@ -165,7 +168,7 @@
     $zoomValue.textContent = zoom.toFixed(1);
     $highlightWeekends.checked = !!s.highlightWeekends;
 
-    // heatmap
+    // heatmap initial + live preview
     const heat = s.heatmap || 'blackgreen';
     if ($heatmap) {
       $heatmap.value = heat;
@@ -184,7 +187,6 @@
       const manual = $tzModeManual.checked;
       $tz.disabled = !manual;
       if (!manual) {
-        // show system TZ in the disabled select for clarity
         const sys = getSystemTZ();
         if (!$tz.querySelector(`option[value="${sys}"]`)) {
           const opt = document.createElement('option');
@@ -214,7 +216,7 @@
 
       try {
         const saved = await saveRemote(obj);
-        saveLocal(saved); // keep local copy in sync and notify other tabs
+        saveLocal(saved);
         $status.textContent = 'Saved ✓';
         setTimeout(() => { $status.textContent = ''; }, 1500);
       } catch (err) {

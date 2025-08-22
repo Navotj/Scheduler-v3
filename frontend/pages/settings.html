@@ -65,6 +65,20 @@
         <span class="hint">Weekend shading is visual only and won’t affect availability.</span>
       </div>
 
+      <div class="field">
+        <label for="heatmap"><strong>Heatmap colours</strong></label>
+        <select id="heatmap">
+          <option value="blackgreen">Black → Green (current)</option>
+          <option value="viridis">Viridis</option>
+          <option value="plasma">Plasma</option>
+          <option value="cividis">Cividis</option>
+          <option value="twilight">Twilight</option>
+          <option value="lava">Lava</option>
+        </select>
+        <div class="gradient-preview" id="heatmapPreview" aria-hidden="true"></div>
+        <span class="hint">Controls the colour scale used in the schedule heatmap and legend.</span>
+      </div>
+
       <div class="actions">
         <button type="submit">Save</button>
         <span id="saveStatus" class="save-status" aria-live="polite"></span>
@@ -149,52 +163,21 @@
     }
 
     function runModalInit(path) {
-      if (path.includes('register.html') && window.initRegisterForm) {
-        window.initRegisterForm();
-      } else if (path.includes('login.html') && window.initLoginForm) {
-        window.initLoginForm();
+      if (window && typeof window.modalInit === 'function') {
+        window.modalInit(path);
       }
     }
 
     function openModal(path) {
       const overlay = document.getElementById('modal-overlay');
       const container = document.getElementById('modal-container');
+      overlay.style.display = 'block';
       fetch(path, { cache: 'no-cache' })
-        .then((res) => res.text())
-        .then((html) => {
-          container.innerHTML = html;
-          overlay.style.display = 'flex';
-          document.body.classList.add('modal-active');
-          runModalInit(path);
-        });
+        .then(r => r.text())
+        .then(html => { container.innerHTML = html; runModalInit(path); });
     }
 
-    function swapModal(path) {
-      const container = document.getElementById('modal-container');
-      fetch(path, { cache: 'no-cache' })
-        .then((res) => res.text())
-        .then((html) => {
-          container.innerHTML = html;
-          runModalInit(path);
-        });
-    }
-
-    function closeModal() {
-      const overlay = document.getElementById('modal-overlay');
-      const container = document.getElementById('modal-container');
-      overlay.style.display = 'none';
-      document.body.classList.remove('modal-active');
-      container.innerHTML = '';
-    }
-
-    window.openModal = openModal;
-    window.swapModal = swapModal;
-    window.closeModal = closeModal;
-
-    document.addEventListener('DOMContentLoaded', () => {
-      checkAuth();
-    });
+    checkAuth();
   </script>
-
 </body>
 </html>

@@ -1,15 +1,5 @@
-/* base */
-.settings-form { 
-  max-width: 720px; 
-  margin: 24px auto; 
-
-  /* restore card box */
-  background: #0f1117;
-  border: 1px solid #2b2f36;
-  border-radius: 12px;
-  padding: 18px 20px;
-  box-shadow: 0 1px 0 rgba(255,255,255,0.04) inset, 0 8px 24px rgba(0,0,0,0.28);
-}
+/* keep layout only; do NOT alter panel/card colors so it matches the site theme */
+.settings-form { max-width: 720px; margin: 24px auto; }
 
 .settings-form .field { margin-bottom: 18px; }
 .settings-form .row { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
@@ -17,7 +7,7 @@
 .range-readout { min-width: 36px; text-align: right; color:#cfd3d8; }
 .actions { display:flex; align-items:center; gap:12px; }
 
-/* gradient preview */
+/* gradient preview for heatmap */
 .gradient-preview {
   margin-top: 8px;
   height: 18px;
