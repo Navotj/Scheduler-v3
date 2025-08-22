@@ -105,14 +105,13 @@
   // Map name -> CSS gradient preview
   function gradientCssFor(name) {
     const maps = {
-      blackgreen: [[0,'#0a0a0a'],[1,'#39ff88']],
       viridis:    [[0,'#440154'],[0.25,'#3b528b'],[0.5,'#21918c'],[0.75,'#5ec962'],[1,'#fde725']],
       plasma:     [[0,'#0d0887'],[0.25,'#6a00a8'],[0.5,'#b12a90'],[0.75,'#e16462'],[1,'#fca636']],
       cividis:    [[0,'#00204c'],[0.25,'#2c3e70'],[0.5,'#606c7c'],[0.75,'#9da472'],[1,'#f9e721']],
       twilight:   [[0,'#1e1745'],[0.25,'#373a97'],[0.5,'#73518c'],[0.75,'#b06b6d'],[1,'#d3c6b9']],
       lava:       [[0,'#000004'],[0.2,'#320a5a'],[0.4,'#781c6d'],[0.6,'#bb3654'],[0.8,'#ed6925'],[1,'#fcffa4']]
     };
-    const stops = maps[name] || maps.blackgreen;
+    const stops = maps[name] || maps.viridis;
     const parts = stops.map(([t, c]) => `${c} ${(t*100).toFixed(0)}%`);
     return `linear-gradient(90deg, ${parts.join(', ')})`;
   }
@@ -127,7 +126,6 @@
     const $weekMon = document.querySelector('input[name="weekStart"][value="mon"]');
     const $defaultZoom = document.getElementById('defaultZoom');
     const $zoomValue = document.getElementById('zoomValue');
-    const $highlightWeekends = document.getElementById('highlightWeekends');
     const $form = document.getElementById('settings-form');
     const $status = document.getElementById('saveStatus');
 
@@ -142,7 +140,6 @@
       clock: '24',
       weekStart: 'sun',
       defaultZoom: 1.0,
-      highlightWeekends: false,
       heatmap: 'blackgreen'
     };
 
@@ -162,14 +159,13 @@
     (s.clock === '12' ? $clock12 : $clock24).checked = true;
     (s.weekStart === 'mon' ? $weekMon : $weekSun).checked = true;
 
-    // zoom / weekends
+    // zoom
     const zoom = (typeof s.defaultZoom === 'number') ? s.defaultZoom : 1.0;
     $defaultZoom.value = String(zoom);
     $zoomValue.textContent = zoom.toFixed(1);
-    $highlightWeekends.checked = !!s.highlightWeekends;
 
     // heatmap initial + live preview
-    const heat = s.heatmap || 'blackgreen';
+    const heat = s.heatmap || 'viridis';
     if ($heatmap) {
       $heatmap.value = heat;
       if ($heatmapPreview) $heatmapPreview.style.background = gradientCssFor(heat);
@@ -210,8 +206,7 @@
         clock: ($clock12.checked ? '12' : '24'),
         weekStart: ($weekMon.checked ? 'mon' : 'sun'),
         defaultZoom: Number($defaultZoom.value),
-        highlightWeekends: $highlightWeekends.checked,
-        heatmap: ($heatmap ? $heatmap.value : 'blackgreen')
+        heatmap: ($heatmap ? $heatmap.value : 'viridis')
       };
 
       try {

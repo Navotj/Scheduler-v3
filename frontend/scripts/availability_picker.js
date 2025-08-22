@@ -8,13 +8,12 @@
   let paintMode = 'add';
   let isAuthenticated = false;
 
-  const DEFAULT_SETTINGS = { timezone: 'auto', clock: '24', weekStart: 'sun', defaultZoom: 1.0, highlightWeekends: false };
+  const DEFAULT_SETTINGS = { timezone: 'auto', clock: '24', weekStart: 'sun', defaultZoom: 1.0 };
 
   let settings = { ...DEFAULT_SETTINGS };
   let tz = resolveTimezone(settings.timezone);
   let hour12 = settings.clock === '12';
   let weekStartIdx = settings.weekStart === 'mon' ? 1 : 0;
-  let highlightWeekends = !!settings.highlightWeekends;
 
   // vertical-only zoom; text size stays constant
   let zoomFactor = 1.0;
@@ -243,11 +242,6 @@
         td.dataset.row = r;
         td.dataset.col = c;
 
-        if (highlightWeekends) {
-          const weekdayStr = new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'short' }).format(new Date(dayEpochs[c].epoch * 1000));
-          if (weekdayStr === 'Sat' || weekdayStr === 'Sun') td.classList.add('col-weekend');
-        }
-
         if (selected.has(epoch)) td.classList.add('selected');
 
         if (epoch < nowEpoch) td.classList.add('past');
@@ -462,7 +456,6 @@
         tz = resolveTimezone(settings.timezone);
         hour12 = settings.clock === '12';
         weekStartIdx = s.weekStart === 'mon' ? 1 : 0;
-        highlightWeekends = !!s.highlightWeekends;
         // do not take defaultZoom from settings here; keep current user zoom
         applyZoomStyles();
         buildGrid();
@@ -599,7 +592,6 @@
     tz = resolveTimezone(settings.timezone);
     hour12 = settings.clock === '12';
     weekStartIdx = settings.weekStart === 'mon' ? 1 : 0;
-    highlightWeekends = !!settings.highlightWeekends;
 
     // start from defaultZoom only for first paint; then we fit to viewport
     const dz = (typeof settings.defaultZoom === 'number') ? settings.defaultZoom : 1.0;

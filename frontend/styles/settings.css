@@ -5,7 +5,6 @@
 
   /* Bring the box back without changing the site's theme:
      use CSS vars if the theme defines them; fallbacks keep it subtle. */
-  background: var(--card-bg, #0f1117);
   border: 1px solid var(--card-border, #2b2f36);
   border-radius: 12px;
   padding: 18px 20px;
@@ -25,5 +24,4 @@
   height: 18px;
   border-radius: 6px;
   border: 1px solid var(--chip-border, #2b2f36);
-  background: linear-gradient(90deg, #0a0a0a 0%, #39ff88 100%);
 }
