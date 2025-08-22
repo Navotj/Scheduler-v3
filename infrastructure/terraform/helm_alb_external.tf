@@ -1,3 +1,31 @@
+############################################################
+# Kubernetes/Helm addons (bootstrap-friendly)
+# Phase 1: terraform apply -var='install_addons=false'  -> creates EKS + node group
+# Phase 2: terraform apply -var='install_addons=true'   -> installs addons
+#
+# NOTE:
+# - EBS CSI is managed via the EKS managed add-on (created by workflows).
+#   We intentionally DO NOT install the Helm chart here to avoid conflicts
+#   (immutable label mismatch when both are present).
+############################################################
+
+# Namespace for External Secrets
+resource "kubernetes_namespace" "externalsecrets" {
+  count = var.install_addons ? 1 : 0
+
+  metadata {
+    name = "externalsecrets"
+    labels = {
+      "app.kubernetes.io/name" = "external-secrets"
+    }
+  }
+
+  depends_on = [
+    aws_eks_cluster.this,
+    aws_eks_node_group.default
+  ]
+}
+
 # AWS Load Balancer Controller (IRSA: aws_iam_role.alb_controller)
 resource "helm_release" "aws_load_balancer_controller" {
   count      = var.install_addons ? 1 : 0
@@ -22,7 +50,7 @@ resource "helm_release" "aws_load_balancer_controller" {
 
   # Ensure the IngressClass "alb" exists
   set {
-    name  = "inressClass" # backward compat if chart tolerates; real key is below
+    name  = "inressClass" # kept for backward-compat in some forks; no-op otherwise
     value = "alb"
   }
   set {
