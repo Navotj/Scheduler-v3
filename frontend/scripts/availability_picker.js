@@ -1,36 +1,67 @@
-// NAT20 Availability Picker — keeps user selection grid (30-min slots), supports drag-add/subtract.
-// This file is the original implementation with styling/behavior as provided.
-
-/* global navigator */
-
 (function () {
-  'use strict';
-
-  // ---- Constants ----
-  const GRID_DAYS = 7;
-  const SLOTS_PER_HOUR = 2; // 30-min slots
-  const SLOT_SEC = 3600 / SLOTS_PER_HOUR;
+  const SLOTS_PER_HOUR = 2;
   const HOURS_START = 0;
   const HOURS_END = 24;
+  const SLOT_SEC = 30 * 60;
 
-  // ---- State ----
-  let tzName = resolveTimezone();
-  let weekStartIdx = 1; // 1=Mon
-  let weekOffset = 0;   // how many weeks offset from "this week"
-  let hour12 = false;
+  let weekOffset = 0;
+  let paintMode = 'add';
+  let isAuthenticated = false;
 
+  const DEFAULT_SETTINGS = { timezone: 'auto', clock: '24', weekStart: 'sun', defaultZoom: 1.0 };
+
+  let settings = { ...DEFAULT_SETTINGS };
+  let tz = resolveTimezone(settings.timezone);
+  let hour12 = settings.clock === '12';
+  let weekStartIdx = settings.weekStart === 'mon' ? 1 : 0;
+
+  // vertical-only zoom; text size stays constant
   let zoomFactor = 1.0;
-  let zoomMinFit = 0.35;
+  const ZOOM_MAX = 2.0;
+  const ZOOM_STEP = 0.1;
 
-  const selected = new Set(); // epoch seconds for selected slots
+  // dynamic lower bound that prevents dead space (table shorter than container)
+  let zoomMinFit = 0.6;
 
-  // elements
-  let grid, gridContent, table, weekLabelEl, dragHintEl, signinTooltipEl;
+  const selected = new Set();
 
-  // ---- Utilities (time) ----
-  function resolveTimezone() {
-    try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; }
-    catch { return 'UTC'; }
+  let isDragging = false;
+  let dragStart = null;
+  let dragEnd = null;
+
+  // drag hint (floating box that follows cursor)
+  let dragHintEl = null;
+
+  let table;
+  let grid;
+  let gridContent;
+  let nowMarker;
+
+  function resolveTimezone(val) {
+    if (!val || val === 'auto') return (Intl.DateTimeFormat().resolvedOptions().timeZone) || 'UTC';
+    return val;
+  }
+
+  function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+  function loadLocal() {
+    try {
+      const raw = localStorage.getItem('nat20_settings');
+      return raw ? JSON.parse(raw) : null;
+    } catch { return null; }
+  }
+
+  async function fetchRemoteSettings() {
+    try {
+      const res = await fetch('/settings', { credentials: 'include', cache: 'no-cache' });
+      if (res.ok) return await res.json();
+    } catch {}
+    return null;
+  }
+
+  function saveLocal(obj) {
+    localStorage.setItem('nat20_settings', JSON.stringify(obj));
+    window.dispatchEvent(new StorageEvent('storage', { key: 'nat20_settings', newValue: JSON.stringify(obj) }));
   }
 
   function tzOffsetMinutes(tzName, date) {
@@ -42,120 +73,217 @@
     }).formatToParts(date);
     const map = {};
     for (const p of parts) map[p.type] = p.value;
-    const asUTC = Date.UTC(Number(map.year), Number(map.month) - 1, Number(map.day),
-                           Number(map.hour), Number(map.minute), Number(map.second));
+    const asUTC = Date.UTC(Number(map.year), Number(map.month) - 1, Number(map.day), Number(map.hour), Number(map.minute), Number(map.second));
     return Math.round((asUTC - date.getTime()) / 60000);
   }
 
   function epochFromZoned(y, m, d, hh, mm, tzName) {
-    const utc = Date.UTC(y, m - 1, d, hh, mm, 0);
-    const fake = new Date(utc);
-    const off = tzOffsetMinutes(tzName, fake);
-    return Math.floor((utc - off * 60000) / 1000);
+    const guess = Date.UTC(y, m - 1, d, hh, mm, 0, 0);
+    let off = tzOffsetMinutes(tzName, new Date(guess));
+    let ts = guess - off * 60000;
+    off = tzOffsetMinutes(tzName, new Date(ts));
+    ts = guess - off * 60000;
+    return Math.floor(ts / 1000);
   }
 
   function getTodayYMDInTZ(tzName) {
-    const now = new Date();
-    const off = tzOffsetMinutes(tzName, now);
-    const local = new Date(now.getTime() + off * 60000);
-    return { y: local.getUTCFullYear(), m: local.getUTCMonth() + 1, d: local.getUTCDate() };
+    const parts = new Intl.DateTimeFormat('en-US', { timeZone: tzName, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
+    const map = {};
+    for (const p of parts) map[p.type] = p.value;
+    return { y: Number(map.year), m: Number(map.month), d: Number(map.day) };
   }
 
-  function ymdAddDays(ymd, days) {
-    const dt = new Date(Date.UTC(ymd.y, ymd.m - 1, ymd.d) + days * 86400000);
-    return { y: dt.getUTCFullYear(), m: dt.getUTCMonth() + 1, d: dt.getUTCDate() };
+  function ymdAddDays(ymd, add) {
+    const tmp = new Date(Date.UTC(ymd.y, ymd.m - 1, ymd.d));
+    tmp.setUTCDate(tmp.getUTCDate() + add);
+    return { y: tmp.getUTCFullYear(), m: tmp.getUTCMonth() + 1, d: tmp.getUTCDate() };
   }
 
-  function weekdayIndexInTZ(ymd, tzName) {
-    const dt = new Date(Date.UTC(ymd.y, ymd.m - 1, ymd.d));
-    const tzOff = tzOffsetMinutes(tzName, dt);
-    const local = new Date(dt.getTime() + tzOff * 60000);
-    return local.getUTCDay();
+  function weekdayIndexInTZ(epochSec, tzName) {
+    const wd = new Intl.DateTimeFormat('en-US', { timeZone: tzName, weekday: 'short' }).format(new Date(epochSec * 1000));
+    return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(wd);
   }
 
-  function formatHourLabel(h, hour12) {
-    if (hour12) {
-      const ampm = h < 12 ? 'AM' : 'PM';
-      const hh = h % 12 === 0 ? 12 : h % 12;
-      return `${hh}:00 ${ampm}`;
-    }
-    const hh = h.toString().padStart(2, '0');
-    return `${hh}:00`;
+  function formatHourLabel(hour) {
+    if (!hour12) return `${String(hour).padStart(2, '0')}:00`;
+    const h = (hour % 12) || 12;
+    const ampm = hour < 12 ? 'AM' : 'PM';
+    return `${h} ${ampm}`;
   }
 
-  // ---- Grid base (start of this week in local TZ) ----
-  function getWeekStartEpochAndYMD(opts) {
-    const tz = opts.tzName;
-    const weekStartIdx = opts.weekStartIdx ?? 1; // 1=Mon
-    const today = getTodayYMDInTZ(tz);
-    const dow = weekdayIndexInTZ(today, tz);
-    const delta = (dow - weekStartIdx + 7) % 7;
-    const baseYMD = ymdAddDays(today, -delta + (opts.weekOffset || 0) * 7);
+  function renderWeekLabel(startEpoch) {
+    const startDate = new Date(startEpoch * 1000);
+    const endDate = new Date((startEpoch + 6 * 86400) * 1000);
+    const fmt = (dt) => new Intl.DateTimeFormat(undefined, { timeZone: tz, month: 'short', day: 'numeric' }).format(dt);
+    const startYear = new Intl.DateTimeFormat('en-US', { timeZone: tz, year: 'numeric' }).format(startDate);
+    const endYear = new Intl.DateTimeFormat('en-US', { timeZone: tz, year: 'numeric' }).format(endDate);
+    const year = startYear === endYear ? startYear : `${startYear}–${endYear}`;
+    const el = document.getElementById('week-label');
+    if (el) el.textContent = `${fmt(startDate)} – ${fmt(endDate)}, ${year}`;
+  }
+
+  function getWeekStartEpochAndYMD() {
+    const todayYMD = getTodayYMDInTZ(tz);
+    const todayMid = epochFromZoned(todayYMD.y, todayYMD.m, todayYMD.d, 0, 0, tz);
+    const todayIdx = weekdayIndexInTZ(todayMid, tz);
+    const diff = (todayIdx - weekStartIdx + 7) % 7;
+    const baseYMD = ymdAddDays(todayYMD, -diff + weekOffset * 7);
     const baseEpoch = epochFromZoned(baseYMD.y, baseYMD.m, baseYMD.d, 0, 0, tz);
     return { baseEpoch, baseYMD };
   }
 
-  // ---- Build table skeleton ----
+  function ensureNowMarker() {
+    grid = document.getElementById('grid');
+    gridContent = document.getElementById('grid-content');
+    table = document.getElementById('schedule-table');
+    nowMarker = document.getElementById('now-marker');
+
+    if (!nowMarker && gridContent) {
+      nowMarker = document.createElement('div');
+      nowMarker.id = 'now-marker';
+      nowMarker.className = 'now-marker';
+      const bubble = document.createElement('span');
+      bubble.className = 'bubble';
+      bubble.textContent = 'NOW';
+      nowMarker.appendChild(bubble);
+      gridContent.appendChild(nowMarker);
+    } else if (nowMarker && nowMarker.parentElement !== gridContent && gridContent) {
+      nowMarker.parentElement.removeChild(nowMarker);
+      gridContent.appendChild(nowMarker);
+    }
+  }
+
+  // Zoom only changes vertical row height; header/body text size remains constant.
+  function applyZoomStyles() {
+    const root = document.documentElement;
+    const baseRow = 18;
+    root.style.setProperty('--row-height', `${(baseRow * zoomFactor).toFixed(2)}px`);
+    requestAnimationFrame(updateNowMarker);
+  }
+
+  // Compute fit zoom to ensure table body fills the scrollable area, and set it as the minimum allowed zoom.
+  function initialZoomToFit24h() {
+    const baseRow = 18; // px at zoom 1.0
+    if (!grid || !table) return;
+    const thead = table.querySelector('thead');
+    const contentEl = document.getElementById('grid-content');
+    if (!thead || !contentEl) return;
+
+    const available = Math.max(0, contentEl.clientHeight - thead.offsetHeight - 2);
+    const rowsPerDay = (HOURS_END - HOURS_START) * SLOTS_PER_HOUR; // 48
+    const needed = rowsPerDay * baseRow;
+    const zFit = Math.max(available / needed, 0.1);
+
+    // dynamic lower bound prevents zooming out below "fills container"
+    zoomMinFit = Math.min(zFit, ZOOM_MAX);
+
+    // default to exactly-fit and enforce min
+    zoomFactor = Math.max(zoomFactor, zoomMinFit);
+    applyZoomStyles();
+  }
+
   function buildGrid() {
+    table = document.getElementById('schedule-table');
+    grid = document.getElementById('grid');
+    gridContent = document.getElementById('grid-content');
+    ensureNowMarker();
     table.innerHTML = '';
+
+    const { baseEpoch, baseYMD } = getWeekStartEpochAndYMD();
+    renderWeekLabel(baseEpoch);
+
+    const nowEpoch = Math.floor(Date.now() / 1000);
+
     const thead = document.createElement('thead');
-    const trh = document.createElement('tr');
+    const hr = document.createElement('tr');
 
     const thTime = document.createElement('th');
     thTime.className = 'time-col';
     thTime.textContent = 'Time';
-    trh.appendChild(thTime);
+    hr.appendChild(thTime);
 
     const dayEpochs = [];
-    const { baseEpoch, baseYMD } = getWeekStartEpochAndYMD({ tzName, weekStartIdx, weekOffset });
-
-    for (let i = 0; i < GRID_DAYS; i++) {
+    for (let i = 0; i < 7; i++) {
       const ymd = ymdAddDays(baseYMD, i);
-      const dayEpoch = epochFromZoned(ymd.y, ymd.m, ymd.d, 0, 0, tzName);
+      const dayEpoch = epochFromZoned(ymd.y, ymd.m, ymd.d, 0, 0, tz);
       dayEpochs.push({ ymd, epoch: dayEpoch });
 
       const th = document.createElement('th');
-      th.className = 'day';
-      th.dataset.dayIndex = String(i);
-      th.textContent = new Intl.DateTimeFormat(undefined, {
-        timeZone: tzName, weekday: 'short', month: 'short', day: 'numeric'
-      }).format(new Date(dayEpoch * 1000));
-      trh.appendChild(th);
+      const label = new Intl.DateTimeFormat(undefined, { timeZone: tz, weekday: 'short', month: 'short', day: 'numeric' }).format(new Date(dayEpoch * 1000));
+      th.textContent = label;
+      th.dataset.col = String(i);
+      hr.appendChild(th);
     }
-    thead.appendChild(trh);
+    thead.appendChild(hr);
     table.appendChild(thead);
 
     const tbody = document.createElement('tbody');
-    const rowsPerDay = (HOURS_END - HOURS_START) * SLOTS_PER_HOUR;
 
-    for (let r = 0; r < rowsPerDay; r++) {
+    const totalRows = (HOURS_END - HOURS_START) * SLOTS_PER_HOUR;
+    for (let r = 0; r < totalRows; r++) {
       const tr = document.createElement('tr');
 
-      if (r % SLOTS_PER_HOUR === 0) {
-        const hour = HOURS_START + Math.floor(r / SLOTS_PER_HOUR);
-        const th = document.createElement('th');
-        th.className = 'time-col hour';
-        th.textContent = formatHourLabel(hour, hour12);
-        tr.appendChild(th);
-      } else {
-        const th = document.createElement('th');
-        th.className = 'time-col';
-        th.textContent = '';
-        tr.appendChild(th);
+      const hour = Math.floor(r / SLOTS_PER_HOUR) + HOURS_START;
+      const half = r % SLOTS_PER_HOUR === 1;
+      tr.className = half ? 'row-half' : 'row-hour';
+
+      if (!half) {
+        const timeCell = document.createElement('td');
+        timeCell.className = 'time-col hour';
+        timeCell.rowSpan = 2;
+        const spanHour = document.createElement('span');
+        spanHour.className = 'time-label hour';
+        spanHour.textContent = formatHourLabel(hour);
+        timeCell.appendChild(spanHour);
+        tr.appendChild(timeCell);
       }
 
-      for (let c = 0; c < GRID_DAYS; c++) {
-        const startEpoch = dayEpochs[c].epoch + r * SLOT_SEC;
+      for (let c = 0; c < 7; c++) {
+        const ymd = dayEpochs[c].ymd;
+        const epoch = epochFromZoned(ymd.y, ymd.m, ymd.d, hour, half ? 30 : 0, tz);
+
         const td = document.createElement('td');
         td.className = 'slot-cell';
+        td.dataset.epoch = String(epoch);
+        td.dataset.row = r;
+        td.dataset.col = c;
 
-        td.dataset.epoch = String(startEpoch);
-        td.dataset.day = String(c);
-        td.dataset.row = String(r);
+        if (selected.has(epoch)) td.classList.add('selected');
 
-        if (selected.has(startEpoch)) td.classList.add('selected');
+        if (epoch < nowEpoch) td.classList.add('past');
 
-        attachEvents(td, { day: c, row: r, epoch: startEpoch });
+        td.addEventListener('mousedown', (e) => {
+          if (!isAuthenticated) return showSigninTooltip(e);
+          if (td.classList.contains('past')) return;
+          e.preventDefault();
+          isDragging = true;
+          dragStart = { row: r, col: c };
+          dragEnd = { row: r, col: c };
+          updatePreview();
+          showDragHint(e);
+        });
+
+        td.addEventListener('mouseenter', (e) => {
+          if (!isAuthenticated) return moveSigninTooltip(e);
+          if (!isDragging) return;
+          if (td.classList.contains('past')) return;
+          dragEnd = { row: r, col: c };
+          updatePreview();
+          updateDragHint(e);
+        });
+
+        td.addEventListener('mouseup', () => {
+          if (!isAuthenticated) return;
+          if (!isDragging) return;
+          if (td.classList.contains('past')) return;
+          dragEnd = { row: r, col: c };
+          applyBoxSelection();
+          clearPreview();
+          hideDragHint();
+          isDragging = false;
+          dragStart = dragEnd = null;
+        });
+
         tr.appendChild(td);
       }
 
@@ -164,296 +292,341 @@
 
     table.appendChild(tbody);
 
-    // Label
-    renderWeekLabel(dayEpochs[0].epoch);
-
-    // Fit zoom to container, then ensure NOW marker position
-    initialZoomToFit24h();
-
-    ensureNowMarker();
-    bindNowMarker();
-    markPastCells(dayEpochs[0].epoch);
-  }
-
-  function renderWeekLabel(baseEpoch) {
-    if (!weekLabelEl) return;
-    const start = new Date(baseEpoch * 1000);
-    const end = new Date((baseEpoch + 6 * 86400) * 1000);
-    const fmt = new Intl.DateTimeFormat(undefined, { timeZone: tzName, month: 'short', day: 'numeric' });
-    weekLabelEl.textContent = `${fmt.format(start)} – ${fmt.format(end)}`;
-  }
-
-  // ---- NOW marker ----
-  function ensureNowMarker() {
-    let nowMarker = gridContent.querySelector('.now-marker');
-    if (!nowMarker) {
-      nowMarker = document.createElement('div');
-      nowMarker.className = 'now-marker';
-      const bubble = document.createElement('span');
-      bubble.className = 'bubble';
-      bubble.textContent = 'NOW';
-      nowMarker.appendChild(bubble);
-      gridContent.appendChild(nowMarker);
-    }
-    return nowMarker;
-  }
-
-  function bindNowMarker() {
-    const update = () => positionNow();
-    gridContent.addEventListener('scroll', () => requestAnimationFrame(update));
-    window.addEventListener('resize', () => requestAnimationFrame(update));
-    setInterval(update, 60000);
-    update();
-  }
-
-  function positionNow() {
-    const tableEl = table;
-    const gridContentEl = gridContent;
-    const thead = tableEl.querySelector('thead');
-
-    const nowEpoch = Math.floor(Date.now() / 1000);
-    const ctx = getWeekStartEpochAndYMD({ tzName, weekStartIdx, weekOffset });
-    const start = ctx.baseEpoch;
-    const end = start + 7 * 86400;
-
-    const marker = ensureNowMarker();
-    if (nowEpoch < start || nowEpoch >= end) {
-      marker.style.display = 'none';
-      return;
-    }
-
-    const dayIndex = Math.floor((nowEpoch - start) / 86400);
-    const dayStartEpoch = start + dayIndex * 86400;
-
-    const rowHeight = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--row-height')) || 18;
-    const theadH = thead ? thead.offsetHeight : 0;
-
-    const parts = new Date(dayStartEpoch * 1000);
-    const localStart = epochFromZoned(parts.getUTCFullYear(), parts.getUTCMonth() + 1, parts.getUTCDate(), 0, 0, tzName);
-    const offSec = nowEpoch - localStart;
-
-    const secondsPerRow = (3600 / SLOTS_PER_HOUR);
-    const rowFloat = offSec / secondsPerRow;
-    const top = theadH + rowFloat * rowHeight;
-
-    const headerCells = tableEl.querySelectorAll('thead th.day');
-    if (!headerCells[dayIndex]) {
-      marker.style.display = 'none';
-      return;
-    }
-    const targetHeader = headerCells[dayIndex];
-    const tableRect = tableEl.getBoundingClientRect();
-    const headRect = targetHeader.getBoundingClientRect();
-
-    const left = headRect.left - tableRect.left;
-    const width = headRect.width;
-
-    marker.style.display = 'block';
-    marker.style.top = `${top}px`;
-    marker.style.left = `${left}px`;
-    marker.style.width = `${width}px`;
-  }
-
-  // ---- Past cells within current 7-day range ----
-  function markPastCells(rangeStartEpoch) {
-    const now = Math.floor(Date.now() / 1000);
-    const start = rangeStartEpoch;
-    const end = start + 7 * 86400;
-
-    const cells = table.querySelectorAll('tbody td.slot-cell');
-    for (const td of cells) {
-      const ep = +td.dataset.epoch;
-      td.classList.toggle('past', ep < now && ep >= start && ep < end);
-    }
-  }
-
-  // ---- Selection drag logic ----
-  let mode = 'add'; // 'add' | 'subtract'
-  let dragging = false;
-  let dragWillSelect = true;
-  let dragStart = null;
-
-  function attachEvents(td, info) {
-    td.addEventListener('mousedown', (e) => {
-      if (e.button !== 0) return;
-      dragging = true;
-      dragStart = info.epoch;
-      dragWillSelect = (mode === 'add') ? !selected.has(info.epoch) : false;
-      td.classList.add(dragWillSelect ? 'preview-add' : 'preview-sub');
-      showDragHint(e.clientX, e.clientY);
-      e.preventDefault();
-    });
-    td.addEventListener('mouseenter', (e) => {
-      if (!dragging) return;
-      td.classList.add(dragWillSelect ? 'preview-add' : 'preview-sub');
-      showDragHint(e.clientX, e.clientY);
-    });
-    td.addEventListener('mouseleave', () => {
-      if (!dragging) return;
-      td.classList.remove('preview-add', 'preview-sub');
-    });
-  }
-
-  document.addEventListener('mouseup', (e) => {
-    if (!dragging) return;
-    dragging = false;
-    hideDragHint();
-
-    const over = document.elementFromPoint(e.clientX, e.clientY);
-    const endEpoch = (over && over.closest && over.closest('td.slot-cell')) ? +over.closest('td.slot-cell').dataset.epoch : dragStart;
-
-    const a = Math.min(dragStart, endEpoch);
-    const b = Math.max(dragStart, endEpoch);
-    for (let ep = a; ep <= b; ep += SLOT_SEC) {
-      if (mode === 'add') selected.add(ep);
-      else selected.delete(ep);
-    }
-    rebuildSelections();
-  });
-
-  function rebuildSelections() {
-    const tds = table.querySelectorAll('tbody td.slot-cell');
-    for (const td of tds) {
-      const ep = +td.dataset.epoch;
-      td.classList.toggle('selected', selected.has(ep));
-      td.classList.remove('preview-add', 'preview-sub');
-    }
-  }
-
-  // ---- Drag hint ----
-  function ensureDragHint() {
-    if (dragHintEl) return dragHintEl;
-    dragHintEl = document.createElement('div');
-    dragHintEl.className = 'drag-hint';
-    document.body.appendChild(dragHintEl);
-    return dragHintEl;
-  }
-  function showDragHint(x, y) {
-    const el = ensureDragHint();
-    el.style.display = 'block';
-    el.style.transform = `translate(${x + 12}px, ${y + 14}px)`;
-    el.textContent = mode === 'add' ? 'Add slots' : 'Subtract slots';
-  }
-  function hideDragHint() { if (dragHintEl) dragHintEl.style.display = 'none'; }
-
-  // ---- Zoom (vertical only) ----
-  function applyZoomStyles() {
-    const base = 18;
-    const px = Math.max(10, Math.min(42, Math.round(base * zoomFactor)));
-    document.documentElement.style.setProperty('--row-height', `${px}px`);
-  }
-
-  function setupZoomHandlers() {
-    grid.addEventListener('wheel', (e) => {
-      if (!e.shiftKey) return;
-      e.preventDefault();
-      const delta = Math.sign(e.deltaY);
-      zoomFactor = clamp(zoomFactor - delta * 0.08, zoomMinFit, 2.0);
-      applyZoomStyles();
-    }, { passive: false });
-
-    window.addEventListener('keydown', (e) => {
-      if (!e.shiftKey) return;
-      if (e.key === '=' || e.key === '+') { zoomFactor = clamp(zoomFactor + 0.08, zoomMinFit, 2.0); applyZoomStyles(); }
-      else if (e.key === '-' || e.key === '_') { zoomFactor = clamp(zoomFactor - 0.08, zoomMinFit, 2.0); applyZoomStyles(); }
-    });
-  }
-
-  // ---- Controls & Auth ----
-  function setupControls() {
-    document.getElementById('prev-week')?.addEventListener('click', () => { weekOffset -= 1; buildGrid(); });
-    document.getElementById('next-week')?.addEventListener('click', () => { weekOffset += 1; buildGrid(); });
-
-    document.getElementById('mode-add')?.addEventListener('click', function () {
-      mode = 'add'; this.classList.add('active');
-      document.getElementById('mode-subtract')?.classList.remove('active');
-    });
-    document.getElementById('mode-subtract')?.addEventListener('click', function () {
-      mode = 'subtract'; this.classList.add('active');
-      document.getElementById('mode-add')?.classList.remove('active');
-    });
-
-    document.getElementById('save')?.addEventListener('click', saveAvailability);
-  }
-
-  function setAuth(isAuthed) {
-    if (!signinTooltipEl) return;
-    if (isAuthed) {
-      signinTooltipEl.style.display = 'none';
-    } else {
-      signinTooltipEl.style.display = 'block';
-      setTimeout(() => (signinTooltipEl.style.display = 'none'), 1800);
-    }
-  }
-
-  // ---- Server I/O ----
-  async function loadAvailability() {
-    try {
-      const res = await fetch('/availability/get', { credentials: 'include', cache: 'no-cache' });
-      if (!res.ok) return;
-      const data = await res.json();
-      selected.clear();
-      if (Array.isArray(data?.slots)) {
-        for (const ep of data.slots) selected.add(+ep);
+    document.addEventListener('mouseup', () => {
+      if (!isAuthenticated) return;
+      if (isDragging) {
+        applyBoxSelection();
+        clearPreview();
+        hideDragHint();
       }
-      rebuildSelections();
-    } catch {}
+      isDragging = false;
+      dragStart = dragEnd = null;
+    });
+
+    setupZoomHandlers();
+
+    // start zoomed-out to the fit value (and set dynamic min bound)
+    requestAnimationFrame(() => requestAnimationFrame(initialZoomToFit24h));
+    requestAnimationFrame(updateNowMarker);
   }
 
-  async function saveAvailability() {
+  function forEachCellInBox(fn) {
+    if (!dragStart || !dragEnd) return;
+    const r1 = Math.min(dragStart.row, dragEnd.row);
+    const r2 = Math.max(dragStart.row, dragEnd.row);
+    const c1 = Math.min(dragStart.col, dragEnd.col);
+    const c2 = Math.max(dragStart.col, dragEnd.col);
+
+    for (let r = r1; r <= r2; r++) {
+      for (let c = c1; c <= c2; c++) {
+        const cell = table.querySelector(`td.slot-cell[data-row="${r}"][data-col="${c}"]`);
+        if (cell && !cell.classList.contains('past')) fn(cell);
+      }
+    }
+  }
+
+  function updatePreview() {
+    clearPreview();
+    forEachCellInBox((cell) => {
+      if (paintMode === 'add') cell.classList.add('preview-add');
+      else cell.classList.add('preview-sub');
+    });
+  }
+
+  function clearPreview() {
+    table.querySelectorAll('.preview-add').forEach(el => el.classList.remove('preview-add'));
+    table.querySelectorAll('.preview-sub').forEach(el => el.classList.remove('preview-sub'));
+  }
+
+  function applyBoxSelection() {
+    forEachCellInBox((cell) => {
+      const epoch = Number(cell.dataset.epoch);
+      if (paintMode === 'add') {
+        selected.add(epoch);
+        cell.classList.add('selected');
+      } else {
+        selected.delete(epoch);
+        cell.classList.remove('selected');
+      }
+    });
+  }
+
+  function setMode(mode) {
+    paintMode = mode;
+    document.getElementById('mode-add').classList.toggle('active', mode === 'add');
+    document.getElementById('mode-subtract').classList.toggle('active', mode === 'subtract');
+  }
+
+  function compressToIntervals(sortedEpochs) {
+    const intervals = [];
+    if (!sortedEpochs.length) return intervals;
+    let curFrom = sortedEpochs[0];
+    let prev = sortedEpochs[0];
+    for (let i = 1; i < sortedEpochs.length; i++) {
+      const t = sortedEpochs[i];
+      if (t === prev + SLOT_SEC) prev = t;
+      else { intervals.push({ from: curFrom, to: prev + SLOT_SEC }); curFrom = t; prev = t; }
+    }
+    intervals.push({ from: curFrom, to: prev + SLOT_SEC });
+    return intervals;
+  }
+
+  async function saveWeek() {
+    if (!isAuthenticated) return;
+    const { baseEpoch, baseYMD } = getWeekStartEpochAndYMD();
+    const endYMD = ymdAddDays(baseYMD, 7);
+    const endEpoch = epochFromZoned(endYMD.y, endYMD.m, endYMD.d, 0, 0, tz);
+
+    const inside = Array.from(selected).filter(t => t >= baseEpoch && t < endEpoch).sort((a, b) => a - b);
+    const intervals = compressToIntervals(inside);
     try {
-      const body = JSON.stringify({ slots: Array.from(selected).sort((a, b) => a - b) });
       const res = await fetch('/availability/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body
+        body: JSON.stringify({ from: baseEpoch, to: endEpoch, intervals, sourceTimezone: tz })
       });
-      if (!res.ok) throw new Error('save failed');
-    } catch (e) {
-      console.error(e);
+      if (!res.ok) {
+        const text = await res.text();
+        alert(`Save failed: ${res.status} ${text}`);
+        return;
+      }
+      alert('Saved!');
+    } catch {
+      alert('Connection error while saving');
     }
   }
 
-  // ---- Utils ----
-  function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
-
-  // ---- Init ----
-  function initialZoomToFit24h() {
-    const base = 18;
-    const thead = table.querySelector('thead');
-    if (!thead || !gridContent) return;
-    const available = Math.max(0, gridContent.clientHeight - thead.offsetHeight - 2);
-    const needed = (HOURS_END - HOURS_START) * SLOTS_PER_HOUR * base;
-    const zFit = Math.max(available / needed, 0.35);
-    zoomMinFit = zFit;
-    zoomFactor = Math.max(zoomFactor, zFit);
-    applyZoomStyles();
+  async function loadWeekSelections() {
+    const { baseEpoch, baseYMD } = getWeekStartEpochAndYMD();
+    const endYMD = ymdAddDays(baseYMD, 7);
+    const endEpoch = epochFromZoned(endYMD.y, endYMD.m, endYMD.d, 0, 0, tz);
+    try {
+      const res = await fetch(`/availability/get?from=${baseEpoch}&to=${endEpoch}`, {
+        credentials: 'include',
+        cache: 'no-cache'
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.intervals)) {
+          for (const t of Array.from(selected)) if (t >= baseEpoch && t < endEpoch) selected.delete(t);
+          for (const iv of data.intervals) {
+            const from = Number(iv.from);
+            const to = Number(iv.to);
+            for (let t = from; t < to; t += SLOT_SEC) selected.add(t);
+          }
+        }
+      }
+    } catch {}
   }
 
-  function init() {
-    grid = document.getElementById('grid');
-    gridContent = document.getElementById('grid-content');
-    table = document.getElementById('schedule-table');
-    weekLabelEl = document.getElementById('week-label');
-    signinTooltipEl = document.getElementById('signin-tooltip');
+  function attachEvents() {
+    document.getElementById('prev-week').addEventListener('click', async () => {
+      if (!isAuthenticated) return;
+      weekOffset -= 1;
+      await loadWeekSelections();
+      buildGrid();
+    });
+    document.getElementById('next-week').addEventListener('click', async () => {
+      if (!isAuthenticated) return;
+      weekOffset += 1;
+      await loadWeekSelections();
+      buildGrid();
+    });
+    document.getElementById('mode-add').addEventListener('click', () => { if (!isAuthenticated) return; setMode('add'); });
+    document.getElementById('mode-subtract').addEventListener('click', () => { if (!isAuthenticated) return; setMode('subtract'); });
+    document.getElementById('save').addEventListener('click', saveWeek);
 
-    setupControls();
-    buildGrid();
-    setupZoomHandlers();
+    // live drag-hint follow
+    document.addEventListener('mousemove', (e) => {
+      if (!isAuthenticated) return;
+      if (isDragging) updateDragHint(e);
+    });
 
+    const tt = document.getElementById('signin-tooltip');
+    ['mousemove','mouseenter'].forEach(ev => document.addEventListener(ev, (e) => {
+      if (!isAuthenticated) {
+        tt.style.display = 'block';
+        tt.style.left = (e.clientX + 12) + 'px';
+        tt.style.top = (e.clientY + 14) + 'px';
+      }
+    }));
+    document.addEventListener('mouseleave', () => { tt.style.display = 'none'; });
+    document.addEventListener('mousedown', () => { if (!isAuthenticated) tt.style.display = 'block'; });
+
+    window.addEventListener('storage', (e) => {
+      if (e.key === 'nat20_settings') {
+        const s = loadLocal();
+        if (!s) return;
+        settings = { ...DEFAULT_SETTINGS, ...s };
+        tz = resolveTimezone(settings.timezone);
+        hour12 = settings.clock === '12';
+        weekStartIdx = s.weekStart === 'mon' ? 1 : 0;
+        // do not take defaultZoom from settings here; keep current user zoom
+        applyZoomStyles();
+        buildGrid();
+      }
+    });
+
+    // Recompute now marker geometry & dynamic zoom floor on resize
     window.addEventListener('resize', () => {
       requestAnimationFrame(() => {
         initialZoomToFit24h();
+        updateNowMarker();
       });
     });
-
-    loadAvailability();
   }
 
-  window.schedule = {
-    init,
-    setAuth
-  };
+  function setupZoomHandlers() {
+    if (!grid) grid = document.getElementById('grid');
+    grid.addEventListener('wheel', (e) => {
+      if (!e.shiftKey) return; // normal vertical panning
+      e.preventDefault();
+      const delta = Math.sign(e.deltaY);
+      // clamp to dynamic minimum to avoid dead space
+      zoomFactor = clamp(zoomFactor - delta * ZOOM_STEP, zoomMinFit, ZOOM_MAX);
+      applyZoomStyles();
+    }, { passive: false });
 
+    // Optional keyboard zoom with Shift held, vertical-only effect
+    window.addEventListener('keydown', (e) => {
+      if (!e.shiftKey) return;
+      if (e.key === '=' || e.key === '+') { zoomFactor = clamp(zoomFactor + ZOOM_STEP, zoomMinFit, ZOOM_MAX); applyZoomStyles(); }
+      else if (e.key === '-' || e.key === '_') { zoomFactor = clamp(zoomFactor - ZOOM_STEP, zoomMinFit, ZOOM_MAX); applyZoomStyles(); }
+      else if (e.key === '0') { initialZoomToFit24h(); }
+    });
+
+    /* No scroll listener needed for the now marker:
+       it's positioned inside .grid-content so it naturally scrolls with the table. */
+  }
+
+  // --- Drag hint helpers ---
+  function ensureDragHint() {
+    if (dragHintEl) return;
+    dragHintEl = document.createElement('div');
+    dragHintEl.className = 'drag-hint';
+    document.body.appendChild(dragHintEl);
+  }
+  function rowToHM(rowIndex) {
+    const hour = Math.floor(rowIndex / SLOTS_PER_HOUR) + HOURS_START;
+    const minute = (rowIndex % SLOTS_PER_HOUR) * (60 / SLOTS_PER_HOUR);
+    return { hour, minute };
+  }
+  function formatTimeLabel(h, m) {
+    if (!hour12) {
+      const hh = String(h).padStart(2, '0');
+      const mm = String(m).padStart(2, '0');
+      return `${hh}:${mm}`;
+    }
+    const ampm = h < 12 ? 'AM' : 'PM';
+    const h12 = (h % 12) || 12;
+    const mm = String(m).padStart(2, '0');
+    return `${h12}:${mm} ${ampm}`;
+  }
+  function currentDragRangeLabel() {
+    if (!dragStart || !dragEnd) return '';
+    const r1 = Math.min(dragStart.row, dragEnd.row);
+    const r2 = Math.max(dragStart.row, dragEnd.row);
+    const start = rowToHM(r1);
+    const end   = rowToHM(r2 + 1); // end is exclusive of last slot
+    return `${formatTimeLabel(start.hour, start.minute)} – ${formatTimeLabel(end.hour, end.minute)}`;
+  }
+  function positionDragHint(e) {
+    if (!dragHintEl) return;
+    dragHintEl.style.left = `${e.clientX}px`;
+    dragHintEl.style.top  = `${e.clientY}px`;
+  }
+  function showDragHint(e) {
+    ensureDragHint();
+    dragHintEl.style.display = 'block';
+    dragHintEl.textContent = currentDragRangeLabel();
+    positionDragHint(e);
+  }
+  function updateDragHint(e) {
+    if (!dragHintEl || dragHintEl.style.display !== 'block') return;
+    dragHintEl.textContent = currentDragRangeLabel();
+    positionDragHint(e);
+  }
+  function hideDragHint() {
+    if (dragHintEl) dragHintEl.style.display = 'none';
+  }
+  // --- /Drag hint helpers ---
+
+  // --- NOW MARKER (locked to content layer; no scroll math) ---
+  function updateNowMarker() {
+    ensureNowMarker();
+    if (!gridContent || !table || !nowMarker) return;
+
+    const { baseYMD } = getWeekStartEpochAndYMD();
+    const todayYMD = getTodayYMDInTZ(tz);
+
+    const dayOffset = Math.round((Date.UTC(todayYMD.y, todayYMD.m - 1, todayYMD.d) - Date.UTC(baseYMD.y, baseYMD.m - 1, baseYMD.d)) / 86400000);
+    if (dayOffset < 0 || dayOffset > 6) {
+      nowMarker.style.display = 'none';
+      return;
+    }
+
+    const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour12: false, hour: '2-digit', minute: '2-digit' }).formatToParts(new Date());
+    const hh = Number(parts.find(p => p.type === 'hour').value);
+    const mm = Number(parts.find(p => p.type === 'minute').value);
+
+    const rowIndex = hh * 2 + (mm >= 30 ? 1 : 0);
+    const frac = (mm % 30) / 30;
+
+    const targetCell = table.querySelector(`td.slot-cell[data-col="${dayOffset}"][data-row="${rowIndex}"]`);
+    const colStartCell = table.querySelector(`td.slot-cell[data-col="${dayOffset}"][data-row="0"]`);
+    if (!targetCell || !colStartCell) {
+      nowMarker.style.display = 'none';
+      return;
+    }
+
+    const contentTop = (table.offsetTop || 0) + targetCell.offsetTop + (targetCell.offsetHeight * frac);
+    const contentLeft = (table.offsetLeft || 0) + colStartCell.offsetLeft;
+    const contentWidth = colStartCell.offsetWidth;
+
+    nowMarker.style.display = 'block';
+    nowMarker.style.top = `${contentTop}px`;
+    nowMarker.style.left = `${contentLeft}px`;
+    nowMarker.style.width = `${contentWidth}px`;
+  }
+  // --- /NOW MARKER ---
+
+  async function init() {
+    const remote = await fetchRemoteSettings();
+    const local = loadLocal();
+    const s = remote || local || DEFAULT_SETTINGS;
+    settings = { ...DEFAULT_SETTINGS, ...s };
+    tz = resolveTimezone(settings.timezone);
+    hour12 = settings.clock === '12';
+    weekStartIdx = settings.weekStart === 'mon' ? 1 : 0;
+
+    // start from defaultZoom only for first paint; then we fit to viewport
+    const dz = (typeof settings.defaultZoom === 'number') ? settings.defaultZoom : 1.0;
+    zoomFactor = dz;
+    saveLocal(settings);
+
+    applyZoomStyles();
+    attachEvents();
+    await loadWeekSelections();
+    buildGrid();
+
+    // keep "now" in sync every minute
+    setInterval(updateNowMarker, 60000);
+  }
+
+  function setAuth(authenticated) { isAuthenticated = !!authenticated; }
+
+  function showSigninTooltip(e) {
+    const tt = document.getElementById('signin-tooltip');
+    tt.style.display = 'block';
+    tt.style.left = (e.clientX + 12) + 'px';
+    tt.style.top = (e.clientY + 14) + 'px';
+  }
+  function moveSigninTooltip(e) {
+    const tt = document.getElementById('signin-tooltip');
+    tt.style.left = (e.clientX + 12) + 'px';
+    tt.style.top = (e.clientY + 14) + 'px';
+  }
+
+  window.schedule = { init, setAuth };
 })();
