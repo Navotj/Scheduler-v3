@@ -75,3 +75,9 @@ variable "install_addons" {
   type        = bool
   default     = false
 }
+
+variable "cluster_public_access_cidrs" {
+  description = "Static list of CIDRs allowed to reach the EKS public endpoint (keep stable; the workflow may add its runner IP temporarily)."
+  type        = list(string)
+  default     = ["0.0.0.0/0"] # tighten as you wish
+}

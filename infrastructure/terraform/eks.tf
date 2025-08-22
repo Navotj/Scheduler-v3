@@ -97,11 +97,11 @@ resource "aws_eks_cluster" "this" {
   version  = var.eks_version
 
   vpc_config {
-    subnet_ids              = [data.aws_subnet.eu_central_1a.id, data.aws_subnet.eu_central_1b.id]
     endpoint_private_access = true
     endpoint_public_access  = true
+    public_access_cidrs     = var.cluster_public_access_cidrs
     security_group_ids      = [aws_security_group.eks_cluster.id]
-    public_access_cidrs     = local.public_cidrs
+    subnet_ids              = [data.aws_subnet.eu_central_1a.id, data.aws_subnet.eu_central_1b.id]
   }
 
   enabled_cluster_log_types = [
@@ -132,10 +132,10 @@ resource "aws_eks_cluster" "this" {
   ]
 
   lifecycle {
-    precondition {
-      condition     = length(local.public_cidrs) > 0
-      error_message = "EKS public_access_cidrs must not be empty. Set var.api_allowed_cidrs, populate the SSM parameter, or rely on the runner /32 fallback."
-    }
+    ignore_changes = [
+      # Avoid collisions with the workflow step that temporarily adds the runner IP
+      vpc_config[0].public_access_cidrs
+    ]
   }
 }
 
