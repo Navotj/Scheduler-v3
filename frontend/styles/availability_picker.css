@@ -186,10 +186,11 @@ header + *, nav + *, .navbar + *, .topbar + *, .header + * { margin-top: 0 !impo
   position: absolute;
   height: 0;
   border-top: 2px solid #e53935;
-  z-index: 8;
+  z-index: 4; /* below sticky table headers (z-index: 6) */
   display: none;
   pointer-events: none;
 }
+
 .now-marker .bubble {
   position: absolute;
   top: 0;
