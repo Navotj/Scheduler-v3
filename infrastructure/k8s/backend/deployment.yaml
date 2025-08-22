@@ -23,9 +23,8 @@ spec:
   selector:
     matchLabels:
       app: backend
-  # Prefer rolling update so the new pod can come up before killing old (even at 1 replica)
   strategy:
-    type: RollingUpdate
+    type: Recreate
   template:
     metadata:
       labels:
@@ -37,8 +36,8 @@ spec:
           type: RuntimeDefault
       containers:
         - name: backend
-          image: <ECR_URI_REPLACED_BY_CI>/backend:${GITHUB_SHA}
-          imagePullPolicy: Always              # <— ensure the new SHA always pulls
+          image: ${IMAGE_URI}
+          imagePullPolicy: Always
           ports:
             - containerPort: 3000
               name: http
@@ -49,28 +48,18 @@ spec:
             runAsUser: 1000
             runAsGroup: 1000
             readOnlyRootFilesystem: true
-
-          # NEW: give the app time to boot/wait for Mongo before probes count as failures
-          startupProbe:
-            tcpSocket:
-              port: http
-            periodSeconds: 5
-            failureThreshold: 60            # ~5 minutes max startup
-
           readinessProbe:
             tcpSocket:
               port: http
             initialDelaySeconds: 10
             periodSeconds: 10
             failureThreshold: 6
-
           livenessProbe:
             tcpSocket:
               port: http
             initialDelaySeconds: 20
             periodSeconds: 20
             failureThreshold: 6
-
           resources:
             requests:
               cpu: "100m"
@@ -78,20 +67,16 @@ spec:
             limits:
               cpu: "500m"
               memory: "512Mi"
-
           envFrom:
             - secretRef:
                 name: backend-env
-
           env:
             - name: PORT
               value: "3000"
             - name: COOKIE_SECURE
               value: "true"
-            # The $(VAR) expansion works if keys exist in backend-env Secret
             - name: MONGO_URI
               value: mongodb://$(MONGO_USER):$(MONGO_PASS)@mongo.nat20.svc.cluster.local:27017/$(MONGO_DB)?authSource=admin
-
           volumeMounts:
             - name: tmp
               mountPath: /tmp
