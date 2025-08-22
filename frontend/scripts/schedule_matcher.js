@@ -14,11 +14,12 @@
   let currentUsername = null;
 
   // settings
-  const DEFAULT_SETTINGS = { timezone: 'auto', clock: '24', weekStart: 'sun', defaultZoom: 1.0 };
+  const DEFAULT_SETTINGS = { timezone: 'auto', clock: '24', weekStart: 'sun', defaultZoom: 1.0, heatmap: 'blackgreen' };
   let settings = { ...DEFAULT_SETTINGS };
   let tz = resolveTimezone(settings.timezone);
   let hour12 = settings.clock === '12';
   let weekStartIdx = settings.weekStart === 'mon' ? 1 : 0;
+  let heatmapName = settings.heatmap || 'blackgreen';
 
   // vertical zoom only
   let zoomFactor = 1.0;
@@ -140,28 +141,59 @@
     return { day, row };
   }
 
-  // --- Dynamic gradient (black -> vibrant green), with low-count compression when many members ---
+  // --- Colormap utilities ---
+  function lerp(a, b, t) { return a + (b - a) * t; }
+  function hexToRgb(hex) {
+    const m = /^#?([a-f0-9]{2})([a-f0-9]{2})([a-f0-9]{2})$/i.exec(hex);
+    if (!m) return { r: 0, g: 0, b: 0 };
+    return { r: parseInt(m[1], 16), g: parseInt(m[2], 16), b: parseInt(m[3], 16) };
+  }
+  function rgbToCss({ r, g, b }) { return `rgb(${r}, ${g}, ${b})`; }
+  function interpStops(stops, t) {
+    if (t <= 0) return hexToRgb(stops[0][1]);
+    if (t >= 1) return hexToRgb(stops[stops.length - 1][1]);
+    for (let i = 0; i < stops.length - 1; i++) {
+      const [t0, c0] = stops[i];
+      const [t1, c1] = stops[i + 1];
+      if (t >= t0 && t <= t1) {
+        const k = (t - t0) / (t1 - t0);
+        const a = hexToRgb(c0), b = hexToRgb(c1);
+        return { r: Math.round(lerp(a.r, b.r, k)), g: Math.round(lerp(a.g, b.g, k)), b: Math.round(lerp(a.b, b.b, k)) };
+      }
+    }
+    return hexToRgb(stops[stops.length - 1][1]);
+  }
+
+  const COLORMAPS = {
+    blackgreen: [[0,'#0a0a0a'],[1,'#39ff88']],
+    viridis:    [[0,'#440154'],[0.25,'#3b528b'],[0.5,'#21918c'],[0.75,'#5ec962'],[1,'#fde725']],
+    plasma:     [[0,'#0d0887'],[0.25,'#6a00a8'],[0.5,'#b12a90'],[0.75,'#e16462'],[1,'#fca636']],
+    cividis:    [[0,'#00204c'],[0.25,'#2c3e70'],[0.5,'#606c7c'],[0.75,'#9da472'],[1,'#f9e721']],
+    twilight:   [[0,'#1e1745'],[0.25,'#373a97'],[0.5,'#73518c'],[0.75,'#b06b6d'],[1,'#d3c6b9']],
+    lava:       [[0,'#000004'],[0.2,'#320a5a'],[0.4,'#781c6d'],[0.6,'#bb3654'],[0.8,'#ed6925'],[1,'#fcffa4']]
+  };
+
+  function colormapColor(t) {
+    const stops = COLORMAPS[heatmapName] || COLORMAPS.blackgreen;
+    const rgb = interpStops(stops, t);
+    return rgbToCss(rgb);
+  }
+
+  // --- Dynamic gradient with low-count compression ---
   function shadeForCount(count) {
-    // If 11+ members, compress the lower counts to pure black so the legend stays readable:
-    // counts <= (n-10) are black; the top 10 distinct counts are spread across the gradient.
     const n = totalMembers || 0;
     const threshold = n >= 11 ? (n - 10) : 0;
 
     if (n <= 0) return '#0a0a0a';
     if (count <= threshold) return '#0a0a0a';
 
-    const denom = Math.max(1, n - threshold);       // 1..10
-    const t0 = (count - threshold) / denom;         // 0..1 within top band
+    const denom = Math.max(1, n - threshold); // 1..10
+    const t0 = (count - threshold) / denom;   // 0..1 within top band
     const t = Math.max(0, Math.min(1, t0));
 
-    // Gamma curve for punchier mid-tones
-    const e = Math.pow(t, 0.75);
-
-    // Vibrant green target: #39ff88 (57,255,136)
-    const r = Math.round(57 * e);
-    const g = Math.round(255 * e);
-    const b = Math.round(136 * e);
-    return `rgb(${r}, ${g}, ${b})`;
+    // slight gamma for punchier mid-tones except for twilight (already low-contrast)
+    const g = heatmapName === 'twilight' ? t : Math.pow(t, 0.85);
+    return colormapColor(g);
   }
 
   // --- Build table ---
@@ -887,6 +919,37 @@ please confirm`;
     rightColEl = document.getElementById('right-col');
     controlsEl = document.getElementById('controls');
 
+    // read local settings
+    const local = loadLocalSettings();
+    if (local) {
+      settings = { ...DEFAULT_SETTINGS, ...local };
+      tz = resolveTimezone(settings.timezone);
+      hour12 = settings.clock === '12';
+      weekStartIdx = settings.weekStart === 'mon' ? 1 : 0;
+      heatmapName = settings.heatmap || 'blackgreen';
+    }
+
+    // react live to changes from settings page
+    window.addEventListener('storage', (e) => {
+      if (e && e.key === 'nat20_settings') {
+        const next = loadLocalSettings();
+        if (next) {
+          settings = { ...DEFAULT_SETTINGS, ...next };
+          const newTz = resolveTimezone(settings.timezone);
+          const newHour12 = settings.clock === '12';
+          const newWeekStartIdx = settings.weekStart === 'mon' ? 1 : 0;
+          const newHeatmap = settings.heatmap || 'blackgreen';
+
+          const needsRebuild = (newTz !== tz) || (newWeekStartIdx !== weekStartIdx);
+          tz = newTz; hour12 = newHour12; weekStartIdx = newWeekStartIdx;
+          heatmapName = newHeatmap;
+
+          if (needsRebuild) { buildTable(); fetchMembersAvail(); }
+          else { paintCounts(); updateLegend(); }
+        }
+      }
+    });
+
     document.getElementById('prev-week').addEventListener('click', async () => {
       weekOffset -= 1;
       buildTable();
@@ -918,85 +981,34 @@ please confirm`;
     });
 
     document.getElementById('add-me-btn').addEventListener('click', async () => {
-      if (!isAuthenticated || !currentUsername) return;
-      setMemberError('');
-      if (!members.includes(currentUsername)) members.push(currentUsername);
+      if (!currentUsername) { setMemberError('Please login first.'); return; }
+      if (members.includes(currentUsername)) return;
+      members.push(currentUsername);
       renderMembers();
       await fetchMembersAvail();
     });
 
-    document.getElementById('max-missing').addEventListener('input', () => {
-      applyFilterDimming();
-      syncResultsHeight();
-      findCandidates();
-    });
-    const minHoursEl = document.getElementById('min-hours');
-    minHoursEl.addEventListener('input', () => {
-      applyFilterDimming();
-      syncResultsHeight();
-      findCandidates();
-    });
-    minHoursEl.addEventListener('wheel', (e) => {
-      e.preventDefault();
-      const dir = -Math.sign(e.deltaY);
-      const cur = parseFloat(minHoursEl.value || '0') || 0;
-      let next = cur + dir * 0.5;
-      if (next < 0) next = 0;
-      next = Math.round(next * 2) / 2;
-      minHoursEl.value = String(next);
-      applyFilterDimming();
-      syncResultsHeight();
-      findCandidates();
-    }, { passive: false });
-
-    document.getElementById('sort-method').addEventListener('change', () => {
-      findCandidates();
-    });
-
-    await loadSettings();
-
-    try {
-      const prev = JSON.parse(sessionStorage.getItem('nat20_members') || '[]');
-      if (Array.isArray(prev)) members = prev.filter(x => typeof x === 'string');
-    } catch {}
-
-    buildTable();
-    renderMembers();
-    await fetchMembersAvail();
-
-    window.addEventListener('beforeunload', () => {
-      sessionStorage.setItem('nat20_members', JSON.stringify(members));
-    });
+    document.getElementById('max-missing').addEventListener('input', () => { applyFilterDimming(); findCandidates(); });
+    document.getElementById('min-hours').addEventListener('input', () => { applyFilterDimming(); findCandidates(); });
+    document.getElementById('sort-method').addEventListener('change', () => { findCandidates(); });
 
     setupZoomHandlers();
+
+    buildTable();
+    await fetchMembersAvail();
     bindMarkerReposition();
-
-    syncRightColOffset();
-    syncResultsHeight();
   }
 
-  async function fetchRemoteSettings() {
-    try {
-      const res = await fetch(`${BASE_URL}/settings`, { credentials: 'include', cache: 'no-cache' });
-      if (res.ok) return await res.json();
-    } catch {}
-    return null;
+  // expose for host
+  window.scheduler = {
+    init,
+    setAuth
+  };
+
+  // start
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
   }
-
-  async function loadSettings() {
-    const local = loadLocalSettings();
-    const remote = await fetchRemoteSettings();
-    const s = remote || local || DEFAULT_SETTINGS;
-
-    settings = { ...DEFAULT_SETTINGS, ...s };
-    tz = resolveTimezone(settings.timezone);
-    hour12 = settings.clock === '12';
-    weekStartIdx = settings.weekStart === 'mon' ? 1 : 0;
-    zoomFactor = clamp(typeof settings.defaultZoom === 'number' ? settings.defaultZoom : 1.0, ZOOM_MIN, ZOOM_MAX);
-    applyZoomStyles();
-  }
-
-  window.scheduler = { init, setAuth };
-
-  if (document.readyState !== 'loading') init();
 })();

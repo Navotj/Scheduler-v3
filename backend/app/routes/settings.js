@@ -19,20 +19,29 @@ function requireAuth(req, res, next) {
   return next();
 }
 
-
 const DEFAULTS = {
   timezone: 'auto',
   clock: '24',
   weekStart: 'sun',
   defaultZoom: 1.0,
-  highlightWeekends: false
+  highlightWeekends: false,
+  heatmap: 'blackgreen'
 };
+
+const HEATMAP_ENUM = ['blackgreen', 'viridis', 'plasma', 'cividis', 'twilight', 'lava'];
 
 router.get('/settings', requireAuth, async (req, res) => {
   const doc = await UserSettings.findOne({ userId: req.user.id }).lean();
   if (!doc) return res.json({ ...DEFAULTS });
-  const { timezone, clock, weekStart, defaultZoom, highlightWeekends } = doc;
-  res.json({ timezone, clock, weekStart, defaultZoom, highlightWeekends });
+  const {
+    timezone,
+    clock,
+    weekStart,
+    defaultZoom,
+    highlightWeekends,
+    heatmap = 'blackgreen'
+  } = doc;
+  res.json({ timezone, clock, weekStart, defaultZoom, highlightWeekends, heatmap });
 });
 
 router.post(
@@ -43,6 +52,7 @@ router.post(
   body('weekStart').optional().isIn(['sun', 'mon']),
   body('defaultZoom').optional().isFloat({ min: 0.6, max: 2.0 }).toFloat(),
   body('highlightWeekends').optional().isBoolean().toBoolean(),
+  body('heatmap').optional().isIn(HEATMAP_ENUM),
   async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
@@ -53,10 +63,11 @@ router.post(
       weekStart: req.body.weekStart,
       defaultZoom: typeof req.body.defaultZoom === 'number' ? req.body.defaultZoom : undefined,
       highlightWeekends: typeof req.body.highlightWeekends === 'boolean' ? req.body.highlightWeekends : undefined,
+      heatmap: typeof req.body.heatmap === 'string' ? req.body.heatmap : undefined,
       updatedAt: new Date()
     };
 
-    Object.keys(payload).forEach(k => payload[k] === undefined && delete payload[k]);
+    Object.keys(payload).forEach((k) => payload[k] === undefined && delete payload[k]);
 
     const doc = await UserSettings.findOneAndUpdate(
       { userId: req.user.id },
@@ -64,8 +75,15 @@ router.post(
       { upsert: true, new: true, setDefaultsOnInsert: true }
     ).lean();
 
-    const { timezone, clock, weekStart, defaultZoom, highlightWeekends } = doc;
-    res.json({ timezone, clock, weekStart, defaultZoom, highlightWeekends });
+    const {
+      timezone,
+      clock,
+      weekStart,
+      defaultZoom,
+      highlightWeekends,
+      heatmap = 'blackgreen'
+    } = doc;
+    res.json({ timezone, clock, weekStart, defaultZoom, highlightWeekends, heatmap });
   }
 );
 

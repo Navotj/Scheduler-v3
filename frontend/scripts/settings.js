@@ -105,6 +105,22 @@
     return res.json();
   }
 
+  // small helper to preview gradients from stops
+  function gradientCssFor(name) {
+    const maps = {
+      // stops: [offset(0..1), color]
+      blackgreen: [[0,'#0a0a0a'],[1,'#39ff88']],
+      viridis:    [[0,'#440154'],[0.25,'#3b528b'],[0.5,'#21918c'],[0.75,'#5ec962'],[1,'#fde725']],
+      plasma:     [[0,'#0d0887'],[0.25,'#6a00a8'],[0.5,'#b12a90'],[0.75,'#e16462'],[1,'#fca636']],
+      cividis:    [[0,'#00204c'],[0.25,'#2c3e70'],[0.5,'#606c7c'],[0.75,'#9da472'],[1,'#f9e721']],
+      twilight:   [[0,'#1e1745'],[0.25,'#373a97'],[0.5,'#73518c'],[0.75,'#b06b6d'],[1,'#d3c6b9']],
+      lava:       [[0,'#000004'],[0.2,'#320a5a'],[0.4,'#781c6d'],[0.6,'#bb3654'],[0.8,'#ed6925'],[1,'#fcffa4']]
+    };
+    const stops = maps[name] || maps.blackgreen;
+    const parts = stops.map(([t, c]) => `${c} ${(t*100).toFixed(0)}%`);
+    return `linear-gradient(90deg, ${parts.join(', ')})`;
+  }
+
   document.addEventListener('DOMContentLoaded', async () => {
     const $tzModeAuto = document.getElementById('tz-auto');
     const $tzModeManual = document.getElementById('tz-manual');
@@ -119,9 +135,13 @@
     const $form = document.getElementById('settings-form');
     const $status = document.getElementById('saveStatus');
 
+    // new heatmap controls
+    const $heatmap = document.getElementById('heatmap');
+    const $heatmapPreview = document.getElementById('heatmapPreview');
+
     populateTimezones($tz);
 
-    const defaults = { timezone: 'auto', clock: '24', weekStart: 'sun', defaultZoom: 1.0, highlightWeekends: false };
+    const defaults = { timezone: 'auto', clock: '24', weekStart: 'sun', defaultZoom: 1.0, highlightWeekends: false, heatmap: 'blackgreen' };
     const remote = await fetchRemote();
     const local = loadLocal();
 
@@ -144,6 +164,16 @@
     $defaultZoom.value = String(zoom);
     $zoomValue.textContent = zoom.toFixed(1);
     $highlightWeekends.checked = !!s.highlightWeekends;
+
+    // heatmap
+    const heat = s.heatmap || 'blackgreen';
+    if ($heatmap) {
+      $heatmap.value = heat;
+      if ($heatmapPreview) $heatmapPreview.style.background = gradientCssFor(heat);
+      $heatmap.addEventListener('change', () => {
+        if ($heatmapPreview) $heatmapPreview.style.background = gradientCssFor($heatmap.value);
+      });
+    }
 
     $defaultZoom.addEventListener('input', () => {
       const z = Number($defaultZoom.value);
@@ -178,7 +208,8 @@
         clock: ($clock12.checked ? '12' : '24'),
         weekStart: ($weekMon.checked ? 'mon' : 'sun'),
         defaultZoom: Number($defaultZoom.value),
-        highlightWeekends: $highlightWeekends.checked
+        highlightWeekends: $highlightWeekends.checked,
+        heatmap: ($heatmap ? $heatmap.value : 'blackgreen')
       };
 
       try {
