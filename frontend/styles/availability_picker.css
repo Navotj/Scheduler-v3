@@ -65,20 +65,9 @@ header + *, nav + *, .navbar + *, .topbar + *, .header + * { margin-top: 0 !impo
   height: 100%;
   width: 100%;
   background: #101010;
-  /* Rounded corners are applied here; we toggle right-side rounding based on scrollbar */
-  border-top-left-radius: 12px;
-  border-bottom-left-radius: 12px;
-  border-top-right-radius: 12px;
-  border-bottom-right-radius: 12px;
-  /* Keep space stable when scrollbar appears; avoids jumpy rounding */
-  scrollbar-gutter: stable;
-  /* Draw the left vertical grid border so we can drop cell left-borders for clean rounding */
-  box-shadow: inset 1px 0 0 var(--line);
-}
-.grid-content.has-vscroll {
-  /* When vertical scrollbar is visible, don't round the right side */
-  border-top-right-radius: 0;
-  border-bottom-right-radius: 0;
+  border-radius: 4px;
+  backface-visibility: hidden;
+  transform: translateZ(0);
 }
 .grid-content { scrollbar-width: thin; scrollbar-color: #3a3a3a #101010; }
 .grid-content::-webkit-scrollbar { width: 10px; height: 10px; }
@@ -96,42 +85,24 @@ header + *, nav + *, .navbar + *, .topbar + *, .header + * { margin-top: 0 !impo
   user-select: none;
   font-size: var(--font-size);
   background: #101010;
-  /* Round table; right side will be un-rounded when .grid-content.has-vscroll is set */
-  border-top-left-radius: 12px;
-  border-bottom-left-radius: 12px;
-  border-top-right-radius: 12px;
-  border-bottom-right-radius: 12px;
-}
-.grid-content.has-vscroll .table {
-  border-top-right-radius: 0;
-  border-bottom-right-radius: 0;
 }
 .table th,
 .table td {
   border: 1px solid var(--line);
   text-align: center;
   background: #101010;
-  background-clip: padding-box;
+  background-clip: border-box;
 }
 .table thead th {
   position: sticky;
   top: 0;
-  z-index: 12;
+  z-index: 6;
   background: #151515;
   font-weight: 600;
   padding: 6px 6px;
   box-shadow: inset 0 -1px 0 var(--line);
   font-size: 13px;
-  background-clip: padding-box;
 }
-/* Header corner rounding */
-.table thead tr:first-child th:first-child { border-top-left-radius: 12px; }
-.table thead tr:first-child th:last-child  { border-top-right-radius: 12px; }
-
-/* Bottom corner rounding on the last visible row */
-.table tbody tr:last-child td.slot-cell:first-child  { border-bottom-left-radius: 12px; }
-.table tbody tr:last-child td.slot-cell:last-child   { border-bottom-right-radius: 12px; }
-
 .table thead th.day {
   font-size: clamp(10px, 1.05vw, 13px);
   white-space: nowrap;
@@ -147,11 +118,6 @@ header + *, nav + *, .navbar + *, .topbar + *, .header + * { margin-top: 0 !impo
   background: #151515;
   border-right: 1px solid var(--line);
 }
-/* Remove LEFT borders on the first column (header + body) so rounded left corners are clean */
-.table thead th:first-child { border-left: none; }
-.table tbody tr > th.time-col { border-left: none; }
-.table tbody td.slot-cell:first-child { border-left: none; }
-
 .table tbody td,
 .table tbody th {
   height: var(--row-height);
@@ -183,7 +149,7 @@ header + *, nav + *, .navbar + *, .topbar + *, .header + * { margin-top: 0 !impo
   height: var(--row-height);
   cursor: crosshair;
   background: #101010;
-  background-clip: padding-box;
+  background-clip: border-box;
 }
 .table tbody tr td.slot-cell {
   box-shadow: inset 0 1px 0 var(--line), inset 0 -1px 0 var(--line);

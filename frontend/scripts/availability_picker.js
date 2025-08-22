@@ -153,24 +153,12 @@
     }
   }
 
-  // Toggle class on the scroll container depending on whether vertical scrollbar exists
-  function updateScrollbarClass() {
-    gridContent = document.getElementById('grid-content');
-    if (!gridContent) return;
-    const hasV = gridContent.scrollHeight > Math.ceil(gridContent.clientHeight + 1);
-    gridContent.classList.toggle('has-vscroll', hasV);
-    gridContent.classList.toggle('no-vscroll', !hasV);
-  }
-
   // Zoom only changes vertical row height; header/body text size remains constant.
   function applyZoomStyles() {
     const root = document.documentElement;
     const baseRow = 18;
     root.style.setProperty('--row-height', `${(baseRow * zoomFactor).toFixed(2)}px`);
-    requestAnimationFrame(() => {
-      updateNowMarker();
-      updateScrollbarClass();
-    });
+    requestAnimationFrame(updateNowMarker);
   }
 
   // Compute fit zoom to ensure table body fills the scrollable area, and set it as the minimum allowed zoom.
@@ -192,7 +180,6 @@
     // default to exactly-fit and enforce min
     zoomFactor = Math.max(zoomFactor, zoomMinFit);
     applyZoomStyles();
-    updateScrollbarClass();
   }
 
   function buildGrid() {
@@ -241,7 +228,7 @@
       tr.className = half ? 'row-half' : 'row-hour';
 
       if (!half) {
-        const timeCell = document.createElement('th');
+        const timeCell = document.createElement('td');
         timeCell.className = 'time-col hour';
         timeCell.rowSpan = 2;
         const spanHour = document.createElement('span');
@@ -319,10 +306,7 @@
     setupZoomHandlers();
 
     // start zoomed-out to the fit value (and set dynamic min bound)
-    requestAnimationFrame(() => requestAnimationFrame(() => {
-      initialZoomToFit24h();
-      updateScrollbarClass();
-    }));
+    requestAnimationFrame(() => requestAnimationFrame(initialZoomToFit24h));
     requestAnimationFrame(updateNowMarker);
   }
 
@@ -478,17 +462,17 @@
         tz = resolveTimezone(settings.timezone);
         hour12 = settings.clock === '12';
         weekStartIdx = s.weekStart === 'mon' ? 1 : 0;
+        // do not take defaultZoom from settings here; keep current user zoom
         applyZoomStyles();
         buildGrid();
       }
     });
 
-    // Recompute now marker geometry, dynamic zoom floor, and scrollbar rounding on resize
+    // Recompute now marker geometry & dynamic zoom floor on resize
     window.addEventListener('resize', () => {
       requestAnimationFrame(() => {
         initialZoomToFit24h();
         updateNowMarker();
-        updateScrollbarClass();
       });
     });
   }
@@ -509,8 +493,11 @@
       if (!e.shiftKey) return;
       if (e.key === '=' || e.key === '+') { zoomFactor = clamp(zoomFactor + ZOOM_STEP, zoomMinFit, ZOOM_MAX); applyZoomStyles(); }
       else if (e.key === '-' || e.key === '_') { zoomFactor = clamp(zoomFactor - ZOOM_STEP, zoomMinFit, ZOOM_MAX); applyZoomStyles(); }
-      else if (e.key === '0') { initialZoomToFit24h(); updateScrollbarClass(); }
+      else if (e.key === '0') { initialZoomToFit24h(); }
     });
+
+    /* No scroll listener needed for the now marker:
+       it's positioned inside .grid-content so it naturally scrolls with the table. */
   }
 
   // --- Drag hint helpers ---
@@ -613,6 +600,7 @@
     hour12 = settings.clock === '12';
     weekStartIdx = settings.weekStart === 'mon' ? 1 : 0;
 
+    // start from defaultZoom only for first paint; then we fit to viewport
     const dz = (typeof settings.defaultZoom === 'number') ? settings.defaultZoom : 1.0;
     zoomFactor = dz;
     saveLocal(settings);
@@ -623,10 +611,7 @@
     buildGrid();
 
     // keep "now" in sync every minute
-    setInterval(() => {
-      updateNowMarker();
-      updateScrollbarClass();
-    }, 60000);
+    setInterval(updateNowMarker, 60000);
   }
 
   function setAuth(authenticated) { isAuthenticated = !!authenticated; }
