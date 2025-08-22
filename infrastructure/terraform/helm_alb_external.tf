@@ -1,7 +1,12 @@
 ############################################################
-# Kubernetes/Helm addons (gated to avoid plan-time provider init)
-# 1) terraform apply (install_addons=false) -> creates EKS + node group
-# 2) terraform apply -var='install_addons=true' -> installs addons (where applicable)
+# Kubernetes/Helm addons (bootstrap-friendly)
+# Phase 1: terraform apply -var='install_addons=false'  -> creates EKS + node group
+# Phase 2: terraform apply -var='install_addons=true'   -> installs addons
+#
+# NOTE:
+# - EBS CSI is managed via the EKS managed add-on (created by workflows).
+#   We intentionally DO NOT install the Helm chart here to avoid conflicts
+#   (immutable label mismatch when both are present).
 ############################################################
 
 # Namespace for External Secrets
@@ -21,70 +26,7 @@ resource "kubernetes_namespace" "externalsecrets" {
   ]
 }
 
-# AWS EBS CSI Driver (IRSA: aws_iam_role.ebs_csi)
-resource "helm_release" "aws_ebs_csi_driver" {
-  count      = var.install_addons ? 1 : 0
-  name       = "aws-ebs-csi-driver"
-  repository = "https://kubernetes-sigs.github.io/aws-ebs-csi-driver"
-  chart      = "aws-ebs-csi-driver"
-  namespace  = "kube-system"
-  version    = "2.30.0"
-
-  set {
-    name  = "controller.serviceAccount.create"
-    value = "true"
-  }
-  set {
-    name  = "controller.serviceAccount.name"
-    value = "ebs-csi-controller-sa"
-  }
-  set {
-    name  = "controller.serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
-    value = aws_iam_role.ebs_csi.arn
-  }
-
-  timeout = 600
-
-  depends_on = [
-    aws_eks_cluster.this,
-    aws_eks_node_group.default,
-    aws_iam_openid_connect_provider.eks,
-    aws_iam_role.ebs_csi
-  ]
-}
-
-# Default StorageClass: gp3 (encrypted)
-resource "kubernetes_storage_class" "gp3" {
-  count = var.install_addons ? 1 : 0
-
-  metadata {
-    name = "gp3"
-    annotations = {
-      "storageclass.kubernetes.io/is-default-class" = "true"
-    }
-  }
-
-  storage_provisioner = "ebs.csi.aws.com"
-
-  parameters = {
-    type       = "gp3"
-    encrypted  = "true"
-    fsType     = "xfs"
-    iops       = "3000"
-    throughput = "125"
-  }
-
-  allow_volume_expansion = true
-  reclaim_policy         = "Delete"
-  volume_binding_mode    = "WaitForFirstConsumer"
-
-  depends_on = [
-    helm_release.aws_ebs_csi_driver
-  ]
-}
-
 # AWS Load Balancer Controller (IRSA: aws_iam_role.alb_controller)
-# Gate on install_addons to avoid provider init when cluster doesn't exist yet
 resource "helm_release" "aws_load_balancer_controller" {
   count      = var.install_addons ? 1 : 0
   name       = "aws-load-balancer-controller"
@@ -108,10 +50,13 @@ resource "helm_release" "aws_load_balancer_controller" {
 
   # Ensure the IngressClass "alb" exists
   set {
+    name  = "inressClass" # backward compat if chart tolerates; real key is below
+    value = "alb"
+  }
+  set {
     name  = "ingressClass"
     value = "alb"
   }
-  # Chart key is createIngressClassResource
   set {
     name  = "createIngressClassResource"
     value = "true"

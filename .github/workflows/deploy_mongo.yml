@@ -270,21 +270,41 @@ jobs:
             sleep 10
           done
 
-      - name: "On failure: collect diagnostics"
+      - name: "On failure: collect diagnostics (fast, gated)"
         if: failure()
         shell: bash
+        env:
+          MAX_TRIES: 5
         run: |
           set -euo pipefail
+          ENDPOINT="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --query 'cluster.endpoint' --output text 2>/dev/null || true)"
+          ok="false"
+          for i in $(seq 1 "${MAX_TRIES}"); do
+            code="$(curl -k -sS -o /dev/null -w '%{http_code}' --connect-timeout 3 --max-time 5 "${ENDPOINT}/version" || echo 000)"
+            if [[ "$code" == "200" || "$code" == "401" || "$code" == "403" ]]; then ok="true"; break; fi
+            sleep 2
+          done
+          if [[ "${ok}" != "true" ]]; then
+            echo "Skipping diagnostics: API unreachable after ${MAX_TRIES} quick checks."
+            exit 0
+          fi
+
+          RT="${KUBECTL_TIMEOUT:-10s}"
+
           echo "=== nodes ==="
-          kubectl get nodes -o wide || true
+          kubectl --request-timeout="${RT}" get nodes -o wide || true
+
           echo "=== ns objects (nat20) ==="
-          kubectl -n "${NAMESPACE}" get all -o wide || true
+          kubectl -n "${NAMESPACE}" --request-timeout="${RT}" get all -o wide || true
+
           echo "=== events (last 300) ==="
-          kubectl -n "${NAMESPACE}" get events --sort-by=.lastTimestamp | tail -n 300 || true
+          kubectl -n "${NAMESPACE}" --request-timeout="${RT}" get events --sort-by=.lastTimestamp | tail -n 300 || true
+
           echo "=== sts describe ==="
-          kubectl -n "${NAMESPACE}" describe sts mongo || true
+          kubectl -n "${NAMESPACE}" --request-timeout="${RT}" describe sts mongo || true
+
           echo "=== pod logs (last 200) ==="
-          for p in $(kubectl -n "${NAMESPACE}" get pods -l app=mongo -o name 2>/dev/null | sed 's|pod/||'); do
+          for p in $(kubectl -n "${NAMESPACE}" --request-timeout="${RT}" get pods -l app=mongo -o name 2>/dev/null | sed 's|pod/||'); do
             echo "--- $p ---"
-            kubectl -n "${NAMESPACE}" logs "$p" --tail=200 2>/dev/null || true
+            kubectl -n "${NAMESPACE}" --request-timeout="${RT}" logs "$p" --tail=200 2>/dev/null || true
           done
