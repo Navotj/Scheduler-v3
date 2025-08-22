@@ -95,6 +95,8 @@ jobs:
         if: steps.probe.outputs.exists == 'false'
         run: terraform apply -input=false -lock-timeout=2m -auto-approve tfplan_base
 
+      # Ensure EKS API is reachable from this runner before any Helm/K8s provider refresh.
+      # Wait for the endpoint-access update we trigger to finish to avoid 409 races with TF.
       - name: Ensure EKS API reachability (add runner IP CIDR, wait for success)
         env:
           AWS_REGION: ${{ env.AWS_REGION }}
@@ -104,6 +106,7 @@ jobs:
 
           RUNNER_IP="$(curl -s https://checkip.amazonaws.com/ | tr -d '\r\n')"
           CIDR="${RUNNER_IP}/32"
+          export CIDR
           echo "Runner public IP: ${RUNNER_IP}"
 
           # Wait until cluster is describable (after create)

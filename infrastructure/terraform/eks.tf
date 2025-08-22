@@ -36,18 +36,10 @@ data "aws_ssm_parameter" "eks_api_allowed_cidrs" {
   with_decryption = false
 }
 
-# Fallback: detect current runner/bastion public IP to avoid opening API.
-data "http" "runner_ip" {
-  url = "https://checkip.amazonaws.com/"
-}
-
 locals {
   ssm_cidrs_raw  = var.use_ssm_api_cidrs && length(data.aws_ssm_parameter.eks_api_allowed_cidrs) > 0 ? data.aws_ssm_parameter.eks_api_allowed_cidrs[0].value : ""
   ssm_cidrs_list = length(trimspace(local.ssm_cidrs_raw)) > 0 ? [for c in split(",", local.ssm_cidrs_raw) : trimspace(c)] : []
   explicit_cidrs = var.api_allowed_cidrs
-  runner_ip      = trimspace(data.http.runner_ip.response_body)
-  runner_cidr    = can(regex("^\\d+\\.\\d+\\.\\d+\\.\\d+$", local.runner_ip)) ? ["${local.runner_ip}/32"] : []
-  public_cidrs   = length(local.ssm_cidrs_list) > 0 ? local.ssm_cidrs_list : (length(local.explicit_cidrs) > 0 ? local.explicit_cidrs : local.runner_cidr)
 }
 
 resource "aws_iam_role" "eks_cluster" {
