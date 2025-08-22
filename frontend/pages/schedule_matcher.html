@@ -6,6 +6,11 @@
   <link rel="icon" href="/assets/favicon.ico" type="image/x-icon">
   <link rel="stylesheet" href="/styles/styles.css" />
   <link rel="stylesheet" href="/styles/common.css" />
+
+  <!-- Shared table/grid + now marker -->
+  <link rel="stylesheet" href="/styles/schedule_shared.css" />
+
+  <!-- Page-specific styles -->
   <link rel="stylesheet" href="/styles/schedule_matcher.css" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 </head>
@@ -31,12 +36,10 @@
         <span class="muted helper">Shift+Scroll = Vertical Zoom, Scroll = Pan</span>
       </div>
 
-      <div class="grid" id="grid">
+      <div class="grid" id="grid" style="height: calc(var(--vh) - var(--topbar-height) - 96px);">
         <div class="grid-content" id="grid-content">
           <table class="table" id="scheduler-table" aria-label="Group availability grid"></table>
-          <div id="now-marker" class="now-marker" style="display:none;">
-            <span class="bubble">now</span>
-          </div>
+          <!-- NOW marker injected by schedule_shared.js -->
         </div>
       </div>
     </div>
@@ -62,7 +65,7 @@
             <input type="number" id="max-missing" min="0" value="0" />
           </div>
 
-        <div class="field">
+          <div class="field">
             <label for="min-hours">Min length</label>
             <div class="row">
               <input type="number" id="min-hours" min="0" step="0.5" value="1" />
@@ -100,7 +103,13 @@
   <div id="cell-tooltip" class="cell-tooltip" style="display:none;"></div>
 
   <script src="/scripts/lib/httpClient.js"></script>
+
+  <!-- Shared utilities -->
+  <script src="/scripts/schedule_shared.js"></script>
+
+  <!-- Page logic -->
   <script src="/scripts/schedule_matcher.js"></script>
+
   <script src="/scripts/login.js"></script>
   <script src="/scripts/register.js"></script>
   <script>
@@ -135,57 +144,8 @@
       } finally {
         clearTimeout(timeout);
       }
-      updateAuthUI();
       if (window.scheduler && typeof window.scheduler.setAuth === 'function') {
         window.scheduler.setAuth(isAuthenticated, currentUsername);
-      }
-    }
-
-    function updateAuthUI() {
-      const userLabel = document.getElementById('user-label');
-      const authButton = document.getElementById('auth-button');
-      if (!userLabel || !authButton) return;
-
-      if (isAuthenticated) {
-        userLabel.textContent = `Signed in as ${currentUsername}`;
-        userLabel.style.display = 'inline';
-        authButton.textContent = 'Logout';
-        authButton.onclick = logout;
-      } else {
-        userLabel.style.display = 'none';
-        userLabel.textContent = '';
-        authButton.textContent = 'Login';
-        authButton.onclick = () => openModal('/pages/login.html');
-      }
-    }
-
-    window.setAuthState = function (authenticated, username) {
-      isAuthenticated = !!authenticated;
-      currentUsername = authenticated ? username : null;
-      updateAuthUI();
-      if (window.scheduler && typeof window.scheduler.setAuth === 'function') {
-        window.scheduler.setAuth(isAuthenticated, currentUsername);
-      }
-    };
-
-    async function logout() {
-      try {
-        await fetch('/auth/logout', {
-          method: 'POST',
-          credentials: 'include'
-        });
-      } catch {}
-      isAuthenticated = false;
-      currentUsername = null;
-      updateAuthUI();
-      window.location.href = '/index.html';
-    }
-
-    function runModalInit(path) {
-      if (path.includes('register.html') && window.initRegisterForm) {
-        window.initRegisterForm();
-      } else if (path.includes('login.html') && window.initLoginForm) {
-        window.initLoginForm();
       }
     }
 
@@ -198,32 +158,11 @@
           container.innerHTML = html;
           overlay.style.display = 'flex';
           document.body.classList.add('modal-active');
-          runModalInit(path);
+          if (path.includes('register.html') && window.initRegisterForm) window.initRegisterForm();
+          if (path.includes('login.html') && window.initLoginForm) window.initLoginForm();
         });
     }
-
-    function swapModal(path) {
-      const container = document.getElementById('modal-container');
-      fetch(path, { cache: 'no-cache' })
-        .then((res) => res.text())
-        .then((html) => {
-          container.innerHTML = html;
-          document.body.classList.add('modal-active');
-          runModalInit(path);
-        });
-    }
-
-    function closeModal() {
-      const overlay = document.getElementById('modal-overlay');
-      const container = document.getElementById('modal-container');
-      overlay.style.display = 'none';
-      document.body.classList.remove('modal-active');
-      container.innerHTML = '';
-    }
-
     window.openModal = openModal;
-    window.swapModal = swapModal;
-    window.closeModal = closeModal;
 
     document.addEventListener('DOMContentLoaded', () => {
       checkAuth();
@@ -232,6 +171,5 @@
       }
     });
   </script>
-
 </body>
 </html>

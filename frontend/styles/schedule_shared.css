@@ -1,0 +1,181 @@
+/* Shared weekly grid/table styling extracted from both pages.
+   Sources for duplication reference:
+   availability_picker.css table/grid core and sticky header :contentReference[oaicite:0]{index=0} :contentReference[oaicite:1]{index=1}
+   schedule_matcher.css table/grid core and sticky header :contentReference[oaicite:2]{index=2}
+   Centralized NOW marker style (z-index below header for correct stacking). :contentReference[oaicite:3]{index=3}
+*/
+
+/* Core vars (kept here so both pages inherit consistent geometry) */
+:root {
+  --row-height: 18px;
+  --font-size: 12px;
+  --line: #2b2b2b;
+  --line-strong: #3a3a3a;
+  --control-height: 32px;
+  --timecol-width: 76px;
+  --grid-pad: 8px;
+  --topbar-height: 40px;
+  --vh: 100vh;
+}
+@supports (height: 100dvh) { :root { --vh: 100dvh; } }
+@supports (height: 100svh) { :root { --vh: 100svh; } }
+
+/* Outer grid shell */
+.grid {
+  position: relative;
+  background: #101010;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: var(--grid-pad);
+  box-sizing: border-box;
+  isolation: isolate;
+}
+
+/* The scrollable content wrapper */
+.grid-content {
+  position: relative;
+  overflow-y: auto;
+  overflow-x: hidden;
+  height: 100%;
+  width: 100%;
+  background: #101010;
+  border-radius: 6px;
+  backface-visibility: hidden;
+  transform: translateZ(0);
+  scrollbar-width: thin;
+  scrollbar-color: #3a3a3a #101010;
+}
+.grid-content::-webkit-scrollbar { width: 10px; height: 10px; }
+.grid-content::-webkit-scrollbar-track { background: #101010; }
+.grid-content::-webkit-scrollbar-thumb { background: #3a3a3a; border-radius: 8px; }
+.grid-content::-webkit-scrollbar-thumb:hover { background: #4a4a4a; }
+.grid-content::-webkit-scrollbar-corner { background: #101010; }
+
+/* Table core */
+.table {
+  width: 100%;
+  min-width: 0;
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 0;
+  user-select: none;
+  font-size: var(--font-size);
+  background: #101010;
+}
+.table th,
+.table td {
+  border: 1px solid var(--line);
+  text-align: center;
+  background: #101010;
+  background-clip: border-box;
+}
+
+/* Sticky header (top row only) — must sit above now marker */
+.table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 6;
+  background: #151515;
+  font-weight: 600;
+  padding: 6px 6px;
+  box-shadow: inset 0 -1px 0 var(--line);
+  font-size: 13px;
+}
+.table thead th.day {
+  font-size: clamp(10px, 1.05vw, 13px);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border: 1px solid var(--line);
+  background-clip: padding-box;
+}
+
+/* Time column (scrolls with body; not sticky-left) */
+.table tbody tr > th.time-col {
+  position: static;
+  left: auto;
+  z-index: auto;
+  background: #151515;
+  border-right: 1px solid var(--line);
+}
+.time-col {
+  width: var(--timecol-width);
+  min-width: var(--timecol-width);
+  max-width: var(--timecol-width);
+  text-align: right;
+  padding-right: 6px;
+  color: #cfcfcf;
+  background: #151515;
+}
+.time-col.hour {
+  font-size: calc(var(--font-size) * 1.15);
+  line-height: normal;
+}
+
+/* Row sizing */
+.table tbody td,
+.table tbody th {
+  height: var(--row-height);
+  line-height: var(--row-height);
+  padding: 0;
+}
+
+/* Day columns width */
+.table thead th.day,
+.table tbody td.slot-cell {
+  width: calc((100% - var(--timecol-width)) / 7);
+  min-width: 0;
+}
+
+/* Cells */
+.slot-cell {
+  position: relative;
+  box-sizing: border-box;
+  height: var(--row-height);
+  background: #101010;
+  background-clip: border-box;
+}
+.table tbody tr td.slot-cell {
+  box-shadow: inset 0 1px 0 var(--line), inset 0 -1px 0 var(--line);
+}
+
+/* Weekend background helper (opt-in by JS via .col-weekend) */
+.slot-cell.col-weekend:not(.selected) {
+  background-image: repeating-linear-gradient(
+    135deg,
+    rgba(255,255,255,0.045) 0px,
+    rgba(255,255,255,0.045) 8px,
+    rgba(255,255,255,0.02) 8px,
+    rgba(255,255,255,0.02) 16px
+  );
+}
+.slot-cell.col-weekend.selected { box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06); }
+
+/* NOW marker — positioned within .grid-content so it scrolls with content */
+.now-marker {
+  position: absolute;
+  height: 0;
+  border-top: 2px solid #e53935;
+  z-index: 4; /* BELOW sticky thead (z=6) so headers are always above */
+  display: none;
+  pointer-events: none;
+}
+.now-marker .bubble {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: #0f0f0f;
+  color: #e53935;
+  border: 1px solid #e53935;
+  border-radius: 6px;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  line-height: 1;
+  white-space: nowrap;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.35);
+}
+.now-marker .bubble::before,
+.now-marker .bubble::after { display: none; content: none; }
