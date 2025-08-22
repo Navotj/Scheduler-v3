@@ -45,6 +45,11 @@
   let counts = [];                 // length WEEK_ROWS, number available at slot
   let sets = [];                   // length WEEK_ROWS, Set of users available at slot
 
+  // init guard + add-user reentrancy guards
+  let __initDone = false;
+  let __addingUser = false;
+  let __addingMe = false;
+
   // --- Utils ---
   function resolveTimezone(val) {
     if (!val || val === 'auto') return (Intl.DateTimeFormat().resolvedOptions().timeZone) || 'UTC';
@@ -354,8 +359,8 @@
       const epoch = Number(td.dataset.epoch);
       const raw = slotCount(epoch);
 
-      // Dynamic gradient background
-      td.style.backgroundColor = shadeForCount(raw);
+      // Force color even if CSS has !important rules
+      td.style.setProperty('background-color', shadeForCount(raw), 'important');
 
       // Keep dataset.c only to cooperate with existing CSS (e.g., .compress-low blacks 0..4 with !important)
       if (n >= 11) {
@@ -697,7 +702,7 @@
         for (const item of group) {
           const chip = document.createElement('div');
           chip.className = 'chip slot-cell';
-          chip.style.backgroundColor = shadeForCount(item.raw);
+          chip.style.setProperty('background-color', shadeForCount(item.raw), 'important');
 
           // Protect against CSS .compress-low overriding with !important by setting dataset.c > 4 when not black
           if (n >= 11) {
@@ -744,7 +749,7 @@
       for (const item of chips) {
         const chip = document.createElement('div');
         chip.className = 'chip slot-cell';
-        chip.style.backgroundColor = shadeForCount(item.raw);
+        chip.style.setProperty('background-color', shadeForCount(item.raw), 'important');
 
         if (n >= 11) {
           const threshold = Math.max(0, n - 10);
@@ -911,6 +916,9 @@ please confirm`;
 
   // --- Init / wiring ---
   async function init() {
+    if (__initDone) return;
+    __initDone = true;
+
     table = document.getElementById('scheduler-table');
     grid = document.getElementById('grid');
     resultsEl = document.getElementById('results');
@@ -962,30 +970,41 @@ please confirm`;
     });
 
     document.getElementById('add-user-btn').addEventListener('click', async () => {
-      const input = document.getElementById('add-username');
-      const name = (input.value || '').trim();
-      if (!name) return;
-      if (members.includes(name)) { input.value = ''; return; }
+      if (__addingUser) return;
+      __addingUser = true;
+      try {
+        const input = document.getElementById('add-username');
+        const name = (input.value || '').trim();
+        if (!name) return;
+        if (members.includes(name)) { input.value = ''; return; }
 
-      setMemberError('');
-      const exists = await userExists(name);
-      if (!exists) {
-        setMemberError('User not found');
-        return;
+        setMemberError('');
+        const exists = await userExists(name);
+        if (!exists) {
+          setMemberError('User not found');
+          return;
+        }
+
+        if (!members.includes(name)) members.push(name);
+        input.value = '';
+        renderMembers();
+        await fetchMembersAvail();
+      } finally {
+        __addingUser = false;
       }
-
-      members.push(name);
-      input.value = '';
-      renderMembers();
-      await fetchMembersAvail();
     });
 
     document.getElementById('add-me-btn').addEventListener('click', async () => {
-      if (!currentUsername) { setMemberError('Please login first.'); return; }
-      if (members.includes(currentUsername)) return;
-      members.push(currentUsername);
-      renderMembers();
-      await fetchMembersAvail();
+      if (__addingMe) return;
+      __addingMe = true;
+      try {
+        if (!currentUsername) { setMemberError('Please login first.'); return; }
+        if (!members.includes(currentUsername)) members.push(currentUsername);
+        renderMembers();
+        await fetchMembersAvail();
+      } finally {
+        __addingMe = false;
+      }
     });
 
     document.getElementById('max-missing').addEventListener('input', () => { applyFilterDimming(); findCandidates(); });
