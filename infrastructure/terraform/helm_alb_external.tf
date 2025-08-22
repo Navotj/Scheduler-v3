@@ -1,31 +1,3 @@
-############################################################
-# Kubernetes/Helm addons (bootstrap-friendly)
-# Phase 1: terraform apply -var='install_addons=false'  -> creates EKS + node group
-# Phase 2: terraform apply -var='install_addons=true'   -> installs addons
-#
-# NOTE:
-# - EBS CSI is managed via the EKS managed add-on (created by workflows).
-#   We intentionally DO NOT install the Helm chart here to avoid conflicts
-#   (immutable label mismatch when both are present).
-############################################################
-
-# Namespace for External Secrets
-resource "kubernetes_namespace" "externalsecrets" {
-  count = var.install_addons ? 1 : 0
-
-  metadata {
-    name = "externalsecrets"
-    labels = {
-      "app.kubernetes.io/name" = "external-secrets"
-    }
-  }
-
-  depends_on = [
-    aws_eks_cluster.this,
-    aws_eks_node_group.default
-  ]
-}
-
 # AWS Load Balancer Controller (IRSA: aws_iam_role.alb_controller)
 resource "helm_release" "aws_load_balancer_controller" {
   count      = var.install_addons ? 1 : 0
@@ -80,7 +52,9 @@ resource "helm_release" "aws_load_balancer_controller" {
     value = aws_iam_role.alb_controller.arn
   }
 
-  timeout = 600
+  wait    = true
+  atomic  = true
+  timeout = 900
 
   depends_on = [
     aws_eks_cluster.this,
@@ -120,7 +94,9 @@ resource "helm_release" "external_secrets" {
     value = aws_iam_role.external_secrets.arn
   }
 
-  timeout = 600
+  wait    = true
+  atomic  = true
+  timeout = 900
 
   depends_on = [
     aws_eks_cluster.this,
@@ -128,6 +104,7 @@ resource "helm_release" "external_secrets" {
     aws_iam_openid_connect_provider.eks,
     kubernetes_namespace.externalsecrets,
     aws_iam_role.external_secrets,
-    aws_iam_role_policy_attachment.external_secrets_attach
+    aws_iam_role_policy_attachment.external_secrets_attach,
+    helm_release.aws_load_balancer_controller
   ]
 }
