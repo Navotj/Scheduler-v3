@@ -16,121 +16,95 @@
 @supports (height: 100dvh) { :root { --vh: 100dvh; } }
 @supports (height: 100svh) { :root { --vh: 100svh; } }
 
-/* Unified height used by the schedule grid and the entire right column (below the top bar) */
-:root { --panels-height: calc(var(--vh) - var(--topbar-height) - 96px); }
-
-/* ───────────────────────── Layout Shell ───────────────────────── */
-.two-col {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) clamp(320px, 24vw, 520px);
-  gap: clamp(12px, 1.2vw, 24px);
-  align-items: start;
+/* Page layout */
+.container {
+  width: min(var(--container-max, 1200px), 96vw);
+  margin: 12px auto 32px;
+  padding: 0 var(--gutter, 12px);
 }
 
-/* Right column */
-.right-col {
+/* Top bar */
+.top-bar {
+  display:flex;
+  align-items:center;
+  gap: 10px;
+  padding: 6px 10px;
+  background: #101010;
+  border-bottom: 1px solid #2a2a2a;
   position: sticky;
-  top: calc(var(--topbar-height) + 6px);
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  max-height: calc(var(--vh) - var(--topbar-height) - 12px);
-  overflow: auto;
+  top: 0;
+  z-index: 10;
 }
+.breadcrumb { color: #9ecbff; text-decoration: none; }
+.spacer { flex: 1; }
+.user-area { display: flex; align-items: center; gap: 8px; }
+.user-label { color: #eee; font-weight: 600; }
 
-/* Panels */
-.panel {
-  background: #121212;
-  border: 1px solid #242424;
-  border-radius: 12px;
-  padding: 10px 10px 16px 10px;  /* extra bottom padding */
-  box-sizing: border-box;
-}
-.right-col h3 {
-  margin: 0 0 8px 0;
-  font-size: 15px;
-}
-
-/* ─────────────────────── Top bar tweaks ─────────────────────── */
-/* Force non-sticky and tighten spacing regardless of actual class names */
-header, nav, .navbar, .topbar, .top-bar, .appbar, .app-bar, .header, .page-header, .site-header, .toolbar, .masthead {
-  position: static !important;
-  top: auto !important;
-  z-index: auto !important;
-  padding: 4px 8px !important;     /* tighter bar */
-  margin-bottom: 6px !important;   /* less dead space below */
-  box-shadow: none !important;
-}
-header + *, nav + *, .navbar + *, .topbar + *, .header + * { margin-top: 0 !important; }
-
-/* Controls row above the grid */
-.left-col .controls {
-  display: flex;
-  gap: 8px;
-  align-items: center;
+/* Left column with grid */
+.left-col { min-width: 0; }
+.controls {
+  display:flex;
+  gap:8px;
+  align-items:center;
   margin: 6px 0 6px;
   flex-wrap: wrap;
 }
-.left-col .controls .helper { margin-left: auto; color: #9aa0a6; font-size: 12px; }
-.left-col .controls button { height: 28px; padding: 3px 8px; }
+.controls .helper { margin-left: auto; color: #9aa0a6; font-size: 12px; }
 
-/* ─────────────────────── Grid outer shell ─────────────────────── */
+/* Buttons */
+.btn { display:inline-flex; align-items:center; gap:8px; }
+.btn.btn-primary { background:#2d6cdf; color:#fff; border:0; padding:6px 10px; border-radius: 8px; cursor:pointer; height: var(--control-height); }
+.btn.btn-secondary { background:#262626; color:#fff; border:1px solid #333; padding:6px 10px; border-radius: 8px; cursor:pointer; height: var(--control-height); }
+
+/* Grid wrapper */
 .grid {
   position: relative;
   background: #101010;
   border: 1px solid var(--line);
   border-radius: 12px;
   padding: var(--grid-pad);
-  height: var(--panels-height);   /* matches the right column height */
   box-sizing: border-box;
-  isolation: isolate;             /* new stacking context for sticky children */
+  isolation: isolate;
 }
-
-/* The actual scroller sits inside the padded box */
 .grid-content {
   position: relative;
   overflow-y: auto;
-  overflow-x: hidden;            /* never allow horizontal scrolling */
+  overflow-x: hidden;
   height: 100%;
   width: 100%;
   background: #101010;
-  border-radius: 8px;
+  border-radius: 6px;
   backface-visibility: hidden;
   transform: translateZ(0);
+  scrollbar-width: thin;
+  scrollbar-color: #3a3a3a #101010;
 }
-
-/* Fix scrollbar corner (WebKit) */
-.grid-content::-webkit-scrollbar-corner { background: #101010; }
-
-/* Scrollbar styling (dark mode) */
-.grid-content { scrollbar-width: thin; scrollbar-color: #3a3a3a #101010; }
 .grid-content::-webkit-scrollbar { width: 10px; height: 10px; }
 .grid-content::-webkit-scrollbar-track { background: #101010; }
 .grid-content::-webkit-scrollbar-thumb { background: #3a3a3a; border-radius: 8px; }
 .grid-content::-webkit-scrollbar-thumb:hover { background: #4a4a4a; }
+.grid-content::-webkit-scrollbar-corner { background: #101010; }
 
-/* ────────────────────────── Table core ───────────────────────── */
+/* Table core */
 .table {
   width: 100%;
+  min-width: 0;
   table-layout: fixed;
-  border-collapse: separate;     /* prevent collapsed-border bleed-through */
-  border-spacing: 0;             /* keep cells flush */
+  border-collapse: separate;
+  border-spacing: 0;
   user-select: none;
   font-size: var(--font-size);
-  min-width: 0;
-  background: #101010;           /* ensure no transparency anywhere */
+  background: #101010;
 }
-
-/* Headers & cells */
 .table th,
 .table td {
   border: 1px solid var(--line);
   text-align: center;
-  background: #101010;           /* SOLID background so nothing can shine through */
-  background-clip: border-box;   /* paint under the border to avoid 1px gaps */
+  background: #101010;
+  background-clip: border-box;
 }
 
-/* Sticky header (top row only) */
+/* Sticky header */
 .table thead th {
   position: sticky;
   top: 0;
@@ -140,8 +114,6 @@ header + *, nav + *, .navbar + *, .topbar + *, .header + * { margin-top: 0 !impo
   padding: 6px 6px;
   box-shadow: inset 0 -1px 0 var(--line);
 }
-
-/* Day headers — visible grey outline on ALL days */
 .table thead th.day {
   font-size: clamp(10px, 1.05vw, 13px);
   white-space: nowrap;
@@ -151,7 +123,7 @@ header + *, nav + *, .navbar + *, .topbar + *, .header + * { margin-top: 0 !impo
   background-clip: padding-box;
 }
 
-/* Time column — NOT sticky-left; scrolls with the grid */
+/* Time column */
 .table tbody tr > th.time-col {
   position: static;
   left: auto;
@@ -159,16 +131,6 @@ header + *, nav + *, .navbar + *, .topbar + *, .header + * { margin-top: 0 !impo
   background: #151515;
   border-right: 1px solid var(--line);
 }
-
-/* Row sizing */
-.table tbody td,
-.table tbody th {
-  height: var(--row-height);
-  line-height: var(--row-height);
-  padding: 0;
-}
-
-/* Time column width */
 .time-col {
   width: var(--timecol-width);
   min-width: var(--timecol-width);
@@ -176,7 +138,6 @@ header + *, nav + *, .navbar + *, .topbar + *, .header + * { margin-top: 0 !impo
   text-align: right;
   padding-right: 6px;
   color: #cfcfcf;
-  border-right: 1px solid var(--line);
   background: #151515;
 }
 .time-col.hour {
@@ -184,23 +145,32 @@ header + *, nav + *, .navbar + *, .topbar + *, .header + * { margin-top: 0 !impo
   line-height: normal;
 }
 
-/* Distribute 7 day columns evenly (prevents horizontal scroll) */
+/* Rows */
+.table tbody td,
+.table tbody th {
+  height: var(--row-height);
+  line-height: var(--row-height);
+  padding: 0;
+}
+
+/* Day columns */
 .table thead th.day,
 .table tbody td.slot-cell {
   width: calc((100% - var(--timecol-width)) / 7);
   min-width: 0;
 }
 
-/* Slot cells */
+/* Cells */
 .slot-cell {
   position: relative;
   box-sizing: border-box;
-  background: #101010;          /* solid to block any bleed from sticky left "time" */
+  height: var(--row-height);
+  background: #101010;
   background-clip: border-box;
 }
-
-/* Reinforce horizontal separators to avoid any gaps on scroll */
-.table tbody tr td.slot-cell { box-shadow: inset 0 1px 0 var(--line), inset 0 -1px 0 var(--line); }
+.table tbody tr td.slot-cell {
+  box-shadow: inset 0 1px 0 var(--line), inset 0 -1px 0 var(--line);
+}
 
 /* Thicker separators at each full hour */
 tr.row-hour > td,
@@ -213,7 +183,7 @@ tr.row-hour > th {
 .slot-cell.dim { filter: grayscale(40%) brightness(0.85); opacity: 0.45; }
 
 /* Past slots — subtle grey overlay */
-.slot-cell.past { pointer-events: none; }
+.slot-cell.past { cursor: not-allowed; }
 .slot-cell.past::after {
   content: "";
   position: absolute;
@@ -222,93 +192,7 @@ tr.row-hour > th {
   pointer-events: none;
 }
 
-/* Compress-low mode (>=11 members): 0..4 all render as black */
-.compress-low .slot-cell[data-c="0"],
-.compress-low .slot-cell[data-c="1"],
-.compress-low .slot-cell[data-c="2"],
-.compress-low .slot-cell[data-c="3"],
-.compress-low .slot-cell[data-c="4"] { background: #0b0b0b !important; }
-
-/* Hover tooltip */
-.cell-tooltip {
-  position: fixed;
-  z-index: 6000;
-  background: #141414;
-  border: 1px solid #333;
-  color: #eee;
-  padding: 6px 8px;
-  border-radius: 8px;
-  font-size: 11px;
-  max-width: 260px;
-  pointer-events: none;
-  box-shadow: 0 10px 28px rgba(0,0,0,0.45);
-}
-
-/* Results highlight */
-.slot-cell.highlight { outline: 2px solid #ffd54a; outline-offset: -2px; }
-
-/* Results list area inside the results panel */
-.results { flex: 1 1 auto; overflow: auto; box-sizing: border-box; padding: 0 6px; min-height: 0; }
-
-/* Sleek scrollbar (results only, dark mode) */
-.results { scrollbar-width: thin; scrollbar-color: #3a3a3a #121212; }
-.results::-webkit-scrollbar { width: 8px; }
-.results::-webkit-scrollbar-track { background: #121212; }
-.results::-webkit-scrollbar-thumb { background: #3a3a3a; border-radius: 8px; }
-.results::-webkit-scrollbar-thumb:hover { background: #4a4a4a; }
-
-/* Result cards */
-.results .result {
-  position: relative;
-  background: #121212;
-  border: 1px solid #2a2a2a;
-  border-radius: 10px;
-  padding: 8px 10px 26px 10px; /* bottom space for copy link */
-  margin: 8px 6px;
-  transition: border-color 0.12s ease;
-}
-.results .result .res-top { font-weight: 600; margin-bottom: 3px; font-size: 13px; }
-.results .result .res-sub { font-size: 11px; color: #bbb; margin-bottom: 3px; }
-.results .result .res-users { font-size: 11px; color: #cfe9cf; word-break: break-word; }
-
-/* Yellow outline on hover (all sides) */
-.results .result.hovered { border-color: #ffd54a; }
-
-/* Minimal "Copy" link bottom-right, no box; custom tooltip */
-.results .result button {
-  position: absolute;
-  right: 10px;
-  bottom: 8px;
-  background: none;
-  border: none;
-  padding: 0;
-  cursor: pointer;
-  color: transparent;     /* hide original long text */
-  font-size: 0;           /* prevent layout from text length */
-}
-.results .result button::before {
-  content: "Copy";
-  font-weight: 700;
-  font-size: 12px;
-  color: #e6e6e6;
-}
-.results .result button:hover::after {
-  content: "Copy Discord invitation";
-  position: fixed;
-  z-index: 7000;
-  font-size: 11px;
-  background: #141414;
-  color: #eee;
-  border: 1px solid #333;
-  border-radius: 8px;
-  padding: 6px 8px;
-  margin-left: 10px;
-  pointer-events: none;
-  transform: translate(0, -28px);
-  box-shadow: 0 10px 28px rgba(0,0,0,0.45);
-}
-
-/* NOW marker — positioned within .grid-content so it scrolls with content */
+/* NOW marker (this page’s original z-layer) */
 .now-marker {
   position: absolute;
   height: 0;
@@ -335,12 +219,42 @@ tr.row-hour > th {
   box-shadow: 0 2px 10px rgba(0,0,0,0.35);
 }
 
-/* ─────────────── Right column: Filters / Members ─────────────── */
-.right-col .field { display: grid; grid-template-columns: 1fr; gap: 4px; min-width: 0; }
-.field-row { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 8px; margin-bottom: 8px; }
-.right-col .field label { white-space: nowrap; font-size: 12px; }
+/* Right column / panels */
+.two-col {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) clamp(320px, 24vw, 520px);
+  gap: clamp(12px, 1.2vw, 24px);
+  align-items: start;
+}
 
-/* Inputs — compact and readable */
+/* Right column */
+.right-col {
+  position: sticky;
+  top: calc(var(--topbar-height) + 6px);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: calc(var(--vh) - var(--topbar-height) - 96px);
+  overflow: auto;
+}
+.panel {
+  background: #121212;
+  border: 1px solid #242424;
+  border-radius: 12px;
+  padding: 10px 10px 16px 10px;
+  box-sizing: border-box;
+}
+.right-col h3 { margin: 0 0 8px 0; font-size: 15px; }
+
+/* Members list */
+.member-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; }
+.member-list li { display: flex; align-items: center; justify-content: space-between; background: #0f0f0f; border: 1px solid #2a2a2a; border-radius: 8px; padding: 6px 8px; }
+.error-text { color: #ff6b6b; font-size: 12px; min-height: 14px; }
+
+/* Filters */
+.field-row { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 8px; margin-bottom: 8px; }
+.right-col .field { display: grid; grid-template-columns: 1fr; gap: 4px; min-width: 0; }
+.right-col .field label { white-space: nowrap; font-size: 12px; }
 .right-col input[type="text"],
 .right-col input[type="number"],
 .right-col select {
@@ -355,194 +269,79 @@ tr.row-hour > th {
   box-sizing: border-box;
   font-size: 14px;
 }
-
-/* Number inputs: keep native spinners, DARK scheme, spinners pinned hard-right (no right padding) */
-.right-col input[type="number"] {
-  color-scheme: dark;
-  padding-right: 0;        /* ensure spinner sits flush to the right edge */
-  text-align: center;
-}
-
-/* Min/Max are one digit: sane middle-ground width */
-.right-col > .panel:nth-of-type(2) input[type="number"] {
-  width: 6.2ch;
-  min-width: 52px;
-}
-
-/* Restore native spinners (no custom geometry) */
+.right-col input[type="number"] { color-scheme: dark; padding-right: 0; text-align: center; }
 input[type="number"] { appearance: auto; -moz-appearance: auto; }
-/* Optional subtle hover brightening of the native spinner (WebKit only) */
-.right-col input[type="number"]::-webkit-inner-spin-button,
-.right-col input[type="number"]::-webkit-outer-spin-button { opacity: 0.85; margin: 0; }
-.right-col input[type="number"]:hover::-webkit-inner-spin-button,
-.right-col input[type="number"]:hover::-webkit-outer-spin-button,
-.right-col input[type="number"]:focus::-webkit-inner-spin-button,
-.right-col input[type="number"]:focus::-webkit-outer-spin-button { opacity: 1; }
 
-/* layout of the input + suffix */
-.field .row {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;          /* small space between box and 'h' */
-  position: relative;
-  overflow: visible;
-}
-
-.field .row input { width: 100%; position: relative; z-index: 1; }
-
-/* the 'h' sits directly after the input, not absolutely positioned */
-.field .row span {
-  position: static;
-  transform: none;
-  margin-left: 0;
-  pointer-events: none;
-  white-space: nowrap;
-}
-
-/* no extra right padding; keep spinner hard against the right edge */
-#min-hours { padding-right: 0; }
-
-/* Members input row */
-.add-user {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
-  gap: 8px;
-  align-items: center;
-}
-.add-user input { height: 28px; min-width: 0; }
-.add-user button { height: 28px; line-height: 28px; white-space: nowrap; padding: 0 8px; font-size: 12px; }
-
-/* Member list: compact chips, multiple per row */
-.member-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.member-list li {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  background: #121212;
-  border: 1px solid #2a2a2a;
-  border-radius: 10px;
-  padding: 4px 22px 4px 10px;   /* room for the X */
-  max-width: 100%;
-  font-size: 12px;
-  line-height: 1.2;
-}
-
-/* Remove control: force absolute top-right red X and hide any text */
-.member-list li :is(button, .btn, .remove, .remove-btn, .member-remove, [data-remove], [aria-label="Remove"]) {
-  position: absolute !important;
-  top: 4px !important;
-  right: 4px !important;
-  width: 16px !important;
-  height: 16px !important;
-  padding: 0 !important;
-  margin: 0 !important;
-  background: transparent !important;
-  border: 0 !important;
-  cursor: pointer !important;
-  line-height: 1 !important;
-  color: transparent !important;
-  font-size: 0 !important;
-}
-.member-list li :is(button, .btn, .remove, .remove-btn, .member-remove, [data-remove], [aria-label="Remove"])::before {
-  content: "×";
-  font-size: 16px;
-  line-height: 1;
-  color: #ff4d4d;
-}
-.member-list li :is(button, .btn, .remove, .remove-btn, .member-remove, [data-remove], [aria-label="Remove"]):hover::before { color: #ff6b6b; }
-.member-list li :is(button, .btn, .remove, .remove-btn, .member-remove, [data-remove], [aria-label="Remove"]) * { display: none !important; }
-
-/* Inline error */
-.error-text { color: #ff6b6b; font-size: 12px; min-height: 1.2em; margin: 4px 2px 2px 2px; }
-
-/* Buttons */
-.btn { display: inline-flex; align-items: center; gap: 8px; }
-.btn.btn-primary { background: #2d6cdf; color: #fff; border: 0; padding: 5px 8px; border-radius: 8px; cursor: pointer; height: 28px; }
-.btn.btn-secondary { background: #272727; color: #fff; border: 1px solid #3a3a3a; padding: 5px 8px; border-radius: 8px; cursor: pointer; height: 28px; }
-
-/* Ensure Find matches select height exactly */
-.btn-find {
-  align-self: center;
-  height: var(--control-height);
-  line-height: calc(var(--control-height) - 2px);
-  padding: 0 8px;
-  box-sizing: border-box;
-}
-
-/* Legend — alternate rows: colors then numbers, repeat; fixed 5 columns per row */
+/* Legend */
 .legend { margin-top: 6px; }
 .legend-blocks { display: grid; gap: 6px; }
 .legend-blocks .steps-row,
 .legend-blocks .labels-row { display: grid; gap: 3px; grid-template-columns: repeat(5, 1fr); }
 .legend-blocks .chip { width: 100%; height: 10px; border-radius: 6px; border: 1px solid var(--line); }
 .legend-blocks .labels-row span { text-align: center; font-size: 12px; }
-/* Fillers so last row items don't stretch */
 .legend-blocks .spacer { visibility: hidden; pointer-events: none; }
 
-/* Back-compat for old single-row legend structure (if present) */
-.legend-steps { display: grid; gap: 3px; grid-template-columns: repeat(5, 1fr); }
-.legend-steps .chip { width: 100%; height: 10px; border-radius: 6px; border: 1px solid var(--line); }
-.legend-labels { display: grid; gap: 3px; margin-top: 2px; font-size: 12px; grid-template-columns: repeat(5, 1fr); }
-.legend-labels span { text-align: center; }
+/* Results */
+.results { display: grid; gap: 8px; }
+.results .result {
+  position: relative;
+  background: #0f0f0f;
+  border: 1px solid #2a2a2a;
+  border-radius: 10px;
+  padding: 8px 10px 26px 10px;
+  margin: 8px 6px;
+  transition: border-color 0.12s ease;
+}
+.results .result .res-top { font-weight: 600; margin-bottom: 3px; font-size: 13px; }
+.results .result .res-sub { font-size: 11px; color: #bbb; margin-bottom: 3px; }
+.results .result .res-users { font-size: 11px; color: #cfe9cf; word-break: break-word; }
+.results .result.hovered { border-color: #ffd54a; }
+.results .result button {
+  position: absolute; right: 10px; bottom: 8px;
+  background: none; border: none; padding: 0; cursor: pointer;
+  color: transparent; font-size: 0;
+}
+.results .result button::before { content: "Copy"; font-weight: 700; font-size: 12px; color: #e6e6e6; }
 
-/* ──────────────────────────────────────────────────────────────
-   WIDE SCREENS: Right column under Members uses the REMAINING height.
-   Row 1 (Members) is auto; Row 2 expands (1fr) to fill, keeping bottoms aligned with the table.
-   ────────────────────────────────────────────────────────────── */
+/* Tooltip for cell hover (lightweight) */
+.cell-tooltip {
+  position: fixed;
+  z-index: 7000;
+  display: none;
+  font-size: 12px;
+  background: #141414;
+  color: #eee;
+  border: 1px solid #333;
+  border-radius: 8px;
+  padding: 6px 8px;
+  box-shadow: 0 10px 28px rgba(0,0,0,0.45);
+  pointer-events: none;
+}
+
+/* Responsive right column layout (wide screens) */
 @media (min-width: 1101px) {
   .right-col {
     display: grid;
-    height: var(--panels-height);                 /* entire column = table height */
+    height: calc(var(--vh) - var(--topbar-height) - 96px);
     grid-template-columns: 1fr 1fr;
-    grid-template-rows: auto 1fr;                 /* remaining space is row 2 */
+    grid-template-rows: auto 1fr;
     gap: 12px;
     align-items: stretch;
     max-height: none;
     overflow: visible;
   }
-
-  /* Members spans row 1 across both columns */
   .right-col > *:first-child { grid-column: 1 / -1; grid-row: 1; }
-
-  /* Filters -> row2/col1, Results -> row2/col2 */
   .right-col > *:nth-child(2) { grid-column: 1; grid-row: 2; }
   .right-col > *:nth-child(3) { grid-column: 2; grid-row: 2; }
-
-  /* Make BOTH row-2 boxes identical height and scrolling behavior */
-  .right-col > *:nth-child(2),
-  .right-col > *:nth-child(3) {
-    height: 100% !important;
-    min-height: 0 !important;
-    overflow: auto;
-    box-sizing: border-box;
-    background: #121212;
-    border: 1px solid #242424;
-    border-radius: 12px;
-    padding: 10px 10px 16px 10px;
-  }
-
-  /* Results inner list must flex to fill the panel */
-  .right-col > *:nth-child(3) .results { flex: 1 1 auto; overflow: auto; min-height: 0; }
 }
 
-/* One-column fallback on narrow screens */
-@media (max-width: 1100px) {
-  .two-col { grid-template-columns: 1fr; }
-  .right-col { position: static; max-height: none; overflow: visible; }
-  .grid { height: auto; min-height: 60vh; }
+/* Normalize any sticky top bars on this page (keep compact) */
+header, nav, .navbar, .topbar, .top-bar, .appbar, .app-bar, .header, .page-header, .site-header, .toolbar, .masthead {
+  position: static !important;
+  top: auto !important;
+  z-index: auto !important;
+  padding: 4px 8px !important;
+  margin-bottom: 6px !important;
+  box-shadow: none !important;
 }
-
-/* ──────────── Filters panel: extra-thin, dark scrollbar ─────────── */
-#filters-panel { scrollbar-width: thin; scrollbar-color: #3a3a3a #121212; }
-#filters-panel::-webkit-scrollbar { width: 6px; }
-#filters-panel::-webkit-scrollbar-track { background: #121212; }
-#filters-panel::-webkit-scrollbar-thumb { background: #3a3a3a; border-radius: 8px; }
-#filters-panel::-webkit-scrollbar-thumb:hover { background: #4a4a4a; }
+header + *, nav + *, .navbar + *, .topbar + *, .header + * { margin-top: 0 !important; }
