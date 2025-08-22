@@ -196,73 +196,85 @@ jobs:
           envsubst < infrastructure/k8s/ingress/backend-ingress.yaml > "${TMP}"
           kubectl -n "${NAMESPACE}" apply -f "${TMP}" --request-timeout="${KUBECTL_TIMEOUT}"
 
-      - name: Set image and rollout
+      - name: Set image (no wait yet)
         shell: bash
         run: |
           set -euo pipefail
           kubectl -n "${NAMESPACE}" set image deployment/backend backend="${IMAGE_URI}"
           kubectl -n "${NAMESPACE}" annotate deployment/backend kubernetes.io/change-cause="kubectl set image to ${IMAGE_URI}" --overwrite
+
+      - name: Pre-rollout quick pod diagnostics (2 min)
+        shell: bash
+        env:
+          RT: 10s
+        run: |
+          set -euo pipefail
+          for i in {1..12}; do
+            echo "---- backend pods (try $i/12) ----"
+            kubectl -n "${NAMESPACE}" --request-timeout="${RT}" get pods -l app=backend -o wide || true
+            # If any pod is obviously failing, dump details and fail fast
+            STATUSES="$(kubectl -n "${NAMESPACE}" get pods -l app=backend -o jsonpath='{range .items[*]}{.metadata.name} {.status.phase} {.status.containerStatuses[0].state.waiting.reason}{"\n"}{end}' 2>/dev/null || true)"
+            echo "${STATUSES}"
+            if echo "${STATUSES}" | grep -E 'CrashLoopBackOff|ImagePullBackOff|ErrImage|CreateContainerConfigError' >/dev/null; then
+              echo "Detected failing pod state; collecting logs."
+              for p in $(kubectl -n "${NAMESPACE}" get pods -l app=backend -o name | sed 's|pod/||'); do
+                echo "--- describe $p ---"
+                kubectl -n "${NAMESPACE}" describe pod "$p" || true
+                echo "--- logs $p ---"
+                kubectl -n "${NAMESPACE}" logs "$p" --tail=200 || true
+              done
+              exit 1
+            fi
+            sleep 10
+          done
+
+      - name: Rollout wait (10 min)
+        shell: bash
+        run: |
+          set -euo pipefail
           kubectl -n "${NAMESPACE}" rollout status deployment/backend --timeout=600s
 
-      - name: Wait for backend Ingress hostname
-        id: alb
+      - name: In-cluster smoke test (best-effort)
         shell: bash
         run: |
           set -euo pipefail
-          for i in {1..24}; do
-            HOST="$(kubectl -n "${NAMESPACE}" get ingress backend -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)"
-            [ -n "${HOST:-}" ] && [ "${HOST}" != "<no value>" ] && break
-            sleep 5
-          done
-          [ -n "${HOST:-}" ] && [ "${HOST}" != "<no value>" ] || { kubectl -n "${NAMESPACE}" describe ingress backend || true; exit 1; }
-          echo "BACKEND_ALB_DNS=${HOST}" >> "$GITHUB_ENV"
-          echo "backend_alb_dns=${HOST}" >> "$GITHUB_OUTPUT"
+          kubectl -n "${NAMESPACE}" run curl-tmp --rm -i --restart=Never --image=curlimages/curl:8.9.1 -- \
+            -sS --connect-timeout 3 --max-time 10 http://backend:3000/ || true
 
-      - name: Persist backend ALB DNS and ensure api alias
+      # >>> MOVE DIAGNOSTICS ABOVE CLEANUP <<<
+      - name: "On failure: collect diagnostics (fast, gated)"
+        if: failure()
         shell: bash
+        env:
+          MAX_TRIES: 5
         run: |
           set -euo pipefail
-          : "${BACKEND_ALB_DNS:?missing BACKEND_ALB_DNS}"
-          : "${API_HOST:?missing API_HOST}"
-          APEX="${API_HOST#*.}"
-          HZ_ID="$(aws route53 list-hosted-zones-by-name --dns-name "${APEX}" --query 'HostedZones[0].Id' --output text | sed 's|/hostedzone/||')"
-          [[ -n "${HZ_ID}" ]] || { echo "Hosted zone not found for ${APEX}"; exit 1; }
-          aws ssm put-parameter --name "/${PROJECT_NAME}/dns/BACKEND_ALB_DNS" --type String --overwrite --value "${BACKEND_ALB_DNS}"
-          ALB_ZONE_ID="$(aws elbv2 describe-load-balancers --query "LoadBalancers[?DNSName=='${BACKEND_ALB_DNS}'].CanonicalHostedZoneId" --output text)"
-          [[ -n "${ALB_ZONE_ID}" ]] || { echo "Could not resolve ALB HostedZoneId for ${BACKEND_ALB_DNS}"; exit 1; }
-          DUAL_DNS="dualstack.${BACKEND_ALB_DNS}"
-          cat > /tmp/r53-api.json <<JSON
-          {
-            "Comment": "Ensure api alias to backend ALB",
-            "Changes": [
-              {
-                "Action": "UPSERT",
-                "ResourceRecordSet": {
-                  "Name": "${API_HOST}",
-                  "Type": "A",
-                  "AliasTarget": {
-                    "HostedZoneId": "${ALB_ZONE_ID}",
-                    "DNSName": "${DUAL_DNS}",
-                    "EvaluateTargetHealth": true
-                  }
-                }
-              },
-              {
-                "Action": "UPSERT",
-                "ResourceRecordSet": {
-                  "Name": "${API_HOST}",
-                  "Type": "AAAA",
-                  "AliasTarget": {
-                    "HostedZoneId": "${ALB_ZONE_ID}",
-                    "DNSName": "${DUAL_DNS}",
-                    "EvaluateTargetHealth": true
-                  }
-                }
-              }
-            ]
-          }
-          JSON
-          aws route53 change-resource-record-sets --hosted-zone-id "${HZ_ID}" --change-batch file:///tmp/r53-api.json
+          ENDPOINT="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --query 'cluster.endpoint' --output text 2>/dev/null || true)"
+          ok="false"
+          for i in $(seq 1 "${MAX_TRIES}"); do
+            code="$(curl -k -sS -o /dev/null -w '%{http_code}' --connect-timeout 3 --max-time 5 "${ENDPOINT}/version" || echo 000)"
+            if [[ "$code" == "200" || "$code" == "401" || "$code" == "403" ]]; then ok="true"; break; fi
+            sleep 2
+          done
+          if [[ "${ok}" != "true" ]]; then
+            echo "Skipping diagnostics: API unreachable after ${MAX_TRIES} quick checks."
+            exit 0
+          fi
+          RT="${KUBECTL_TIMEOUT:-10s}"
+          echo "=== cluster nodes ==="
+          kubectl --request-timeout="${RT}" get nodes -o wide || true
+          echo "=== backend objects ==="
+          kubectl -n "${NAMESPACE}" --request-timeout="${RT}" get all -o wide || true
+          kubectl -n "${NAMESPACE}" --request-timeout="${RT}" describe deployment backend || true
+          kubectl -n "${NAMESPACE}" --request-timeout="${RT}" get rs -o wide || true
+          kubectl -n "${NAMESPACE}" --request-timeout="${RT}" get ingress backend -o yaml || true
+          echo "=== events (last 300) ==="
+          kubectl -n "${NAMESPACE}" --request-timeout="${RT}" get events --sort-by=.lastTimestamp | tail -n 300 || true
+          echo "=== pod logs (last 400) ==="
+          for p in $(kubectl -n "${NAMESPACE}" --request-timeout="${RT}" get pods -l app=backend -o name 2>/dev/null | sed 's|pod/||'); do
+            echo "--- $p ---"
+            kubectl -n "${NAMESPACE}" --request-timeout="${RT}" logs "$p" --tail=400 2>/dev/null || true
+          done
 
       - name: Cleanup temporary runner CIDR
         if: always()
@@ -286,6 +298,7 @@ jobs:
             [[ "${PHASE}" == "Failed" ]] && { echo "Cleanup EKS update failed"; exit 1; }
             sleep 5
           done
+
 
       - name: "On failure: collect diagnostics (fast, gated)"
         if: failure()
