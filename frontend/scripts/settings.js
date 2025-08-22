@@ -140,7 +140,7 @@
       clock: '24',
       weekStart: 'sun',
       defaultZoom: 1.0,
-      heatmap: 'blackgreen'
+      heatmap: 'viridis'
     };
 
     const remote = await fetchRemote();
