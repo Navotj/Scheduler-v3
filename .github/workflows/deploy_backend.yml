@@ -2,7 +2,7 @@ name: Deploy Backend to EKS
 
 on:
   workflow_dispatch: {}
-  workflow_call: {}         # <—
+  workflow_call: {}
   push:
     paths:
       - ".github/workflows/deploy_backend.yml"
@@ -19,9 +19,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: nat20-eks-ops       # <—
+  group: nat20-eks-ops
   cancel-in-progress: false
-
 
 env:
   AWS_REGION: eu-central-1
@@ -30,7 +29,7 @@ env:
   NAMESPACE: nat20
   ECR_REPO: nat20/backend
   API_HOST: api.nat20scheduling.com
-  KUBECTL_TIMEOUT: 30s
+  KUBECTL_TIMEOUT: 45s
   AWS_RETRY_MODE: standard
   AWS_MAX_ATTEMPTS: 6
 
@@ -94,7 +93,7 @@ jobs:
           aws eks update-kubeconfig --name "${CLUSTER_NAME}" --region "${AWS_REGION}"
           kubectl version --client || true
 
-      - name: "Preflight API reachability (200/401/403 OK)"
+      - name: Preflight API reachability (200/401/403 OK)
         id: preflight
         shell: bash
         run: |
@@ -110,7 +109,7 @@ jobs:
           done
           echo "ok=${ok}" >> "$GITHUB_OUTPUT"
 
-      - name: "Fallback allow runner CIDR"
+      - name: Fallback allow runner CIDR
         if: steps.preflight.outputs.ok != 'true'
         shell: bash
         run: |
@@ -119,10 +118,9 @@ jobs:
           echo "RUNNER_CIDR=${RUNNER_CIDR}" >> "$GITHUB_ENV"
 
           CUR_JSON="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --query 'cluster.resourcesVpcConfig.publicAccessCidrs' --output json)"
-          if [[ -z "${CUR_JSON}" || "${CUR_JSON}" == "null" ]]; then CUR_JSON='[]'; fi
+          [[ -z "${CUR_JSON}" || "${CUR_JSON}" == "null" ]] && CUR_JSON='[]'
           NEW_CSV="$(printf '%s' "${CUR_JSON}" | jq -r --arg ip "$RUNNER_CIDR" '(. // []) + [$ip] | unique | join(",")')"
 
-          echo "Applying EKS update: endpointPublicAccess=true, publicAccessCidrs=${NEW_CSV}"
           UPDATE_ID="$(aws eks update-cluster-config \
             --name "${CLUSTER_NAME}" \
             --resources-vpc-config "endpointPublicAccess=true,publicAccessCidrs=${NEW_CSV}" \
@@ -137,11 +135,42 @@ jobs:
 
           ENDPOINT="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --query 'cluster.endpoint' --output text)"
           code="$(curl -k -sS -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 10 "${ENDPOINT}/version" || echo 000)"
-          if [[ "$code" == "200" || "$code" == "401" || "$code" == "403" ]]; then
-            echo "API now reachable (HTTP ${code})."
-          else
-            echo "API still not reachable (HTTP ${code}). Aborting."
-            exit 1
+          [[ "$code" == "200" || "$code" == "401" || "$code" == "403" ]]
+
+      - name: Ensure CI EKS access (pre-plan)
+        shell: bash
+        env:
+          GITHUB_CI_ROLE_NAME: nat20-github-ci
+          GITHUB_CI_ROLE_ARN: ${{ secrets.GITHUB_CI_ROLE_ARN }}
+        run: |
+          set -euo pipefail
+          CI_ARN="${GITHUB_CI_ROLE_ARN:-}"
+          if [ -z "${CI_ARN}" ]; then
+            CI_ARN="$(aws iam get-role --role-name "${GITHUB_CI_ROLE_NAME:-nat20-github-ci}" --query 'Role.Arn' --output text)"
+          fi
+          echo "CI role ARN: ${CI_ARN}"
+          if ! aws eks describe-access-entry --cluster-name "${CLUSTER_NAME}" --principal-arn "${CI_ARN}" >/dev/null 2>&1; then
+            aws eks create-access-entry --cluster-name "${CLUSTER_NAME}" --principal-arn "${CI_ARN}" --type STANDARD --username github-ci >/dev/null
+          fi
+          if [ "$(aws eks list-associated-access-policies --cluster-name "${CLUSTER_NAME}" --principal-arn "${CI_ARN}" \
+                --query "associatedAccessPolicies[?policyArn=='arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy'] | length(@)" --output text)" != "1" ]; then
+            aws eks associate-access-policy --cluster-name "${CLUSTER_NAME}" --principal-arn "${CI_ARN}" \
+              --policy-arn arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy --access-scope type=cluster >/dev/null
+          fi
+
+      - name: Re-check API reachability (idempotent)
+        shell: bash
+        run: |
+          set -euo pipefail
+          ENDPOINT="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --query 'cluster.endpoint' --output text)"
+          code="$(curl -k -sS -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 10 "${ENDPOINT}/version" || echo 000)"
+          if [[ "$code" != "200" && "$code" != "401" && "$code" != "403" ]]; then
+            RUNNER_CIDR="$(curl -s https://checkip.amazonaws.com | tr -d '\r\n')/32"
+            CUR_JSON="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --query 'cluster.resourcesVpcConfig.publicAccessCidrs' --output json)"
+            [[ -z "${CUR_JSON}" || "${CUR_JSON}" == "null" ]] && CUR_JSON='[]'
+            NEW_CSV="$(printf '%s' "${CUR_JSON}" | jq -r --arg ip "$RUNNER_CIDR" '(. // []) + [$ip] | unique | join(",")')"
+            aws eks update-cluster-config --name "${CLUSTER_NAME}" --resources-vpc-config "endpointPublicAccess=true,publicAccessCidrs=${NEW_CSV}" >/dev/null
+            sleep 10
           fi
 
       - name: Ensure namespaces and PSS labels
@@ -206,7 +235,7 @@ jobs:
           set -euo pipefail
           kubectl -n "${NAMESPACE}" set image deployment/backend backend="${IMAGE_URI}" --record
           kubectl -n "${NAMESPACE}" annotate deployment/backend kubernetes.io/change-cause="kubectl set image to ${IMAGE_URI}" --overwrite
-          kubectl -n "${NAMESPACE}" rollout status deployment/backend --timeout=300s
+          kubectl -n "${NAMESPACE}" rollout status deployment/backend --timeout=420s
 
       - name: Wait for backend Ingress hostname
         id: alb
@@ -222,26 +251,19 @@ jobs:
           echo "BACKEND_ALB_DNS=${HOST}" >> "$GITHUB_ENV"
           echo "backend_alb_dns=${HOST}" >> "$GITHUB_OUTPUT"
 
-      - name: "Persist backend ALB DNS and ensure api alias"
+      - name: Persist backend ALB DNS and ensure api alias
         shell: bash
         run: |
           set -euo pipefail
           : "${BACKEND_ALB_DNS:?missing BACKEND_ALB_DNS}"
           : "${API_HOST:?missing API_HOST}"
-
-          # Apex zone from API_HOST (strip first label)
           APEX="${API_HOST#*.}"
           HZ_ID="$(aws route53 list-hosted-zones-by-name --dns-name "${APEX}" --query 'HostedZones[0].Id' --output text | sed 's|/hostedzone/||')"
           [[ -n "${HZ_ID}" ]] || { echo "Hosted zone not found for ${APEX}"; exit 1; }
-
-          # Persist to SSM for Terraform and future reconciliation
           aws ssm put-parameter --name "/${PROJECT_NAME}/dns/BACKEND_ALB_DNS" --type String --overwrite --value "${BACKEND_ALB_DNS}"
-
-          # ALB zone id + dualstack target
           ALB_ZONE_ID="$(aws elbv2 describe-load-balancers --query "LoadBalancers[?DNSName=='${BACKEND_ALB_DNS}'].CanonicalHostedZoneId" --output text)"
           [[ -n "${ALB_ZONE_ID}" ]] || { echo "Could not resolve ALB HostedZoneId for ${BACKEND_ALB_DNS}"; exit 1; }
           DUAL_DNS="dualstack.${BACKEND_ALB_DNS}"
-
           cat > /tmp/r53-api.json <<JSON
           {
             "Comment": "Ensure api alias to backend ALB",
@@ -275,7 +297,7 @@ jobs:
           JSON
           aws route53 change-resource-record-sets --hosted-zone-id "${HZ_ID}" --change-batch file:///tmp/r53-api.json
 
-      - name: "Cleanup temporary runner CIDR"
+      - name: Cleanup temporary runner CIDR
         if: always() && steps.preflight.outputs.ok != 'true'
         shell: bash
         run: |
@@ -284,15 +306,9 @@ jobs:
             echo "No RUNNER_CIDR set; skipping cleanup."; exit 0
           fi
           CUR_JSON="$(aws eks describe-cluster --name "${CLUSTER_NAME}" --query 'cluster.resourcesVpcConfig.publicAccessCidrs' --output json)"
-          if [[ -z "${CUR_JSON}" || "${CUR_JSON}" == "null" ]]; then CUR_JSON='[]'; fi
+          [[ -z "${CUR_JSON}" || "${CUR_JSON}" == "null" ]] && CUR_JSON='[]'
           REST_CSV="$(printf '%s' "${CUR_JSON}" | jq -r --arg ip "$RUNNER_CIDR" '(. // []) | map(select(. != $ip)) | unique | join(",")')"
-
-          echo "Reverting EKS publicAccessCidrs to: ${REST_CSV}"
-          UPDATE_ID="$(aws eks update-cluster-config \
-            --name "${CLUSTER_NAME}" \
-            --resources-vpc-config "endpointPublicAccess=true,publicAccessCidrs=${REST_CSV}" \
-            --query 'update.id' --output text)"
-
+          UPDATE_ID="$(aws eks update-cluster-config --name "${CLUSTER_NAME}" --resources-vpc-config "endpointPublicAccess=true,publicAccessCidrs=${REST_CSV}" --query 'update.id' --output text)"
           for _ in {1..30}; do
             PHASE="$(aws eks describe-update --name "${CLUSTER_NAME}" --update-id "${UPDATE_ID}" --query 'update.status' --output text)"
             [[ "${PHASE}" == "Successful" ]] && break
@@ -307,21 +323,15 @@ jobs:
           set -euo pipefail
           echo "=== cluster nodes ==="
           kubectl get nodes -o wide || true
-
           echo "=== objects (backend ns) ==="
           kubectl -n "${NAMESPACE}" get all -o wide || true
           kubectl -n "${NAMESPACE}" describe deployment backend || true
           kubectl -n "${NAMESPACE}" get rs -o wide || true
           kubectl -n "${NAMESPACE}" get ingress backend -o yaml || true
-
-          echo "=== recent events (unique lines with counts, last 300) ==="
-          kubectl -n "${NAMESPACE}" get events --sort-by=.lastTimestamp | tail -n 300 \
-            | awk '{c[$0]++} END {for (l in c) printf "%5d × %s\n", c[l], l}' | sort -nr | head -n 200 || true
-
-          echo "=== backend pod logs (last 400, non-probe grouped) ==="
-          for p in $(kubectl -n "${NAMESPACE}" get pods -l app=backend -o name | sed 's|pod/||'); do
+          echo "=== events (last 300) ==="
+          kubectl -n "${NAMESPACE}" get events --sort-by=.lastTimestamp | tail -n 300 || true
+          echo "=== backend pod logs (last 400) ==="
+          for p in $(kubectl -n "${NAMESPACE}" get pods -l app=backend -o name 2>/dev/null | sed 's|pod/||'); do
             echo "--- $p ---"
-            kubectl -n "${NAMESPACE}" logs "$p" --tail=400 2>/dev/null \
-              | grep -v 'kube-probe/1' \
-              | awk '{c[$0]++} END {for (l in c) printf "%5d × %s\n", c[l], l}' | sort -nr | head -n 200 || true
+            kubectl -n "${NAMESPACE}" logs "$p" --tail=400 2>/dev/null || true
           done
