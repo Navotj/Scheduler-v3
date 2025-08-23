@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Group Scheduler — NAT20</title>
+  <link rel="icon" href="../assets/favicon.ico" type="image/x-icon" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="../styles/common-v2.css?v=2" />
+  <link rel="stylesheet" href="../styles/schedule_matcher-v2.css?v=2" />
+</head>
+<body>
+  <!-- Template -->
+  <script src="../templates/app-page.js?v=2"></script>
+
+  <!-- Components (V2 only; no legacy, no unknown deps) -->
+  <script src="../components/sm-grid-v2.js?v=2"></script>
+  <script src="../components/sm-controls-v2.js?v=2"></script>
+  <script src="../components/sm-members-v2.js?v=2"></script>
+  <script src="../components/sm-filters-v2.js?v=2"></script>
+  <script src="../components/sm-results-v2.js?v=2"></script>
+
+  <!-- Page markup using ONLY the modular components -->
+  <app-page title="Group Scheduler">
+    <div class="sm-layout" id="layout-root">
+      <aside id="ads-panel" class="panel"><div class="muted">ADS</div></aside>
+
+      <section id="table-panel">
+        <!-- NO CONTROLS INSIDE TABLE -->
+        <sm-grid-v2></sm-grid-v2>
+      </section>
+
+      <aside id="mf-panel">
+        <!-- Bottom area (controls | members | filters) -->
+        <sm-controls-v2></sm-controls-v2>
+        <sm-members-v2></sm-members-v2>
+        <sm-filters-v2></sm-filters-v2>
+      </aside>
+
+      <aside id="results-wrap">
+        <sm-results-v2></sm-results-v2>
+      </aside>
+    </div>
+  </app-page>
+</body>
+</html>
