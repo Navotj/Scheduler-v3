@@ -13,9 +13,6 @@ class SmMembers extends HTMLElement {
         <ul id="member-list" class="member-list" aria-live="polite"></ul>
       </div>
     `;
-    if (window.scheduler && typeof window.scheduler.initMembers === 'function') {
-      window.scheduler.initMembers();
-    }
   }
 }
 customElements.define('sm-members', SmMembers);

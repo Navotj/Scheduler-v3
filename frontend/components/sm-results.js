@@ -7,9 +7,6 @@ class SmResults extends HTMLElement {
         <div id="results" class="results" aria-live="polite"></div>
       </div>
     `;
-    if (window.scheduler && typeof window.scheduler.initResults === 'function') {
-      window.scheduler.initResults();
-    }
   }
 }
 customElements.define('sm-results', SmResults);

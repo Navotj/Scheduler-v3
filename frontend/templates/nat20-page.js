@@ -1,5 +1,5 @@
 // templates/nat20-page.js
-// Minimal page template: topbar + modal + shared page padding controlled by topbar.css (.page-shell).
+// Page shell: injects topbar + shared padded container. Moves light-DOM children into .page-shell.
 
 class Nat20Page extends HTMLElement {
   static get observedAttributes() { return ['title']; }
@@ -10,67 +10,22 @@ class Nat20Page extends HTMLElement {
   }
 
   connectedCallback() {
+    // Skeleton
     this.innerHTML = `
-      <div id="modal-overlay" style="display:none;">
-        <div id="modal-container"></div>
-      </div>
-
       <div id="topbar-root" data-title="${this._title}"></div>
-
-      <!-- shared page wrapper using .page-shell (padding/width defined in topbar.css) -->
       <div id="page-shell" class="page-shell"></div>
-
-      <div id="cell-tooltip" class="cell-tooltip" style="display:none;"></div>
     `;
 
-    const overlay = this.querySelector('#modal-overlay');
-    const container = this.querySelector('#modal-container');
+    // Move all user content into #page-shell
     const shell = this.querySelector('#page-shell');
-
-    // Move existing light-DOM children into #page-shell (flat flow)
-    const toMove = Array.from(this.childNodes).filter(
-      n => !(n.id === 'modal-overlay' || n.id === 'topbar-root' || n.id === 'page-shell' || n.id === 'cell-tooltip')
-    );
-    toMove.forEach(n => shell.appendChild(n));
-
-    function runModalInit(path) {
-      if (path.includes('register.html') && window.initRegisterForm) window.initRegisterForm();
-      else if (path.includes('login.html') && window.initLoginForm) window.initLoginForm();
+    const toMove = [];
+    for (const node of Array.from(this.childNodes)) {
+      if (node.id === 'topbar-root' || node.id === 'page-shell') continue;
+      toMove.push(node);
     }
+    for (const n of toMove) shell.appendChild(n);
 
-    window.openModal = (path) => {
-      fetch(path, { cache: 'no-cache' })
-        .then(res => res.text())
-        .then(html => {
-          container.innerHTML = html;
-          overlay.style.display = 'flex';
-          document.body.classList.add('modal-active');
-          runModalInit(path);
-        });
-    };
-
-    window.swapModal = (path) => {
-      fetch(path, { cache: 'no-cache' })
-        .then(res => res.text())
-        .then(html => {
-          container.innerHTML = html;
-          document.body.classList.add('modal-active');
-          runModalInit(path);
-        });
-    };
-
-    window.closeModal = () => {
-      overlay.style.display = 'none';
-      document.body.classList.remove('modal-active');
-      container.innerHTML = '';
-    };
-
-    window.onAuthStateChange = (isAuthed, username) => {
-      if (window.scheduler && typeof window.scheduler.setAuth === 'function') {
-        window.scheduler.setAuth(!!isAuthed, isAuthed ? username : null);
-      }
-    };
-
+    // Apply initial title to topbar
     if (window.topbar && typeof window.topbar.refreshAuth === 'function') {
       window.topbar.refreshAuth();
     }

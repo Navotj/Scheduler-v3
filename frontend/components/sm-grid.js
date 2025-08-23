@@ -1,6 +1,4 @@
 // components/sm-grid.js
-// Availability grid only (NO controls here). No Shadow DOM so global CSS applies.
-
 class SmGrid extends HTMLElement {
   connectedCallback() {
     this.innerHTML = `
@@ -12,10 +10,8 @@ class SmGrid extends HTMLElement {
           </div>
         </div>
       </div>
+      <div id="cell-tooltip" class="cell-tooltip" style="display:none;"></div>
     `;
-    if (window.scheduler && typeof window.scheduler.initGrid === 'function') {
-      window.scheduler.initGrid();
-    }
   }
 }
 customElements.define('sm-grid', SmGrid);

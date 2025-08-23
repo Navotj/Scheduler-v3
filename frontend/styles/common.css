@@ -1,4 +1,4 @@
-:root {
+:root{
   --background: #121212;
   --surface-1: #1e1e1e;
   --surface-2: #2a2a2a;
@@ -10,83 +10,62 @@
   --error: #e57373;
 }
 
-html, body {
-  margin: 0;
-  padding: 0;
+html, body{
+  margin:0;
+  padding:0;
   background: var(--background);
   color: var(--text);
-  font-family: system-ui, sans-serif;
-  height: 100%;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Liberation Sans", sans-serif;
+  height:100%;
 }
 
-a { color: var(--accent); text-decoration: none; }
-a:hover { text-decoration: underline; }
-
-/* Shared page padding/width wrapper (force with !important to beat older rules) */
-.container {
-  width: min(var(--container-max, 1200px), 96vw) !important;
-  margin: 16px auto 32px !important;
-  padding: 0 16px !important;
-}
-
-/* Generic bordered panels (NO fill as requested) */
-.panel {
-  background: transparent;
+/* Simple panel + buttons used by schedule matcher */
+.panel{
+  background: var(--surface-1);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 12px;
   padding: 12px;
-  margin-bottom: 16px;
 }
 
-.panel h3 { margin: 0 0 8px 0; font-size: 14px; }
-
-.btn {
-  background: var(--surface-3);
-  color: var(--text);
+.btn{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:8px;
+  padding: 6px 10px;
+  height: 32px;
+  border-radius: 8px;
   border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 4px 8px;
-  cursor: pointer;
-}
-.btn:hover { background: var(--surface-2); }
-.btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-.btn-primary:hover { background: #357ae8; }
-.btn-secondary { background: var(--surface-2); color: var(--text); }
-.btn-secondary:hover { background: var(--surface-3); }
-
-.error-text { color: var(--error); font-size: 12px; margin-top: 4px; }
-
-.member-list { list-style: none; margin: 0; padding: 0; }
-.member-list li { padding: 4px 0; border-bottom: 1px solid var(--border); }
-.member-list li:last-child { border-bottom: none; }
-
-.muted { color: var(--text-muted); font-size: 12px; }
-
-.field-row { display: flex; gap: 12px; }
-.field { display: flex; flex-direction: column; flex: 1; }
-.field label { font-size: 12px; color: var(--text-muted); margin-bottom: 2px; }
-.row { display: flex; align-items: center; gap: 4px; }
-
-.legend { margin-top: 8px; }
-.legend-blocks { display: flex; gap: 4px; flex-wrap: wrap; }
-
-/* Dark UI for form controls */
-input, select, textarea, button { color-scheme: dark; }
-select, input[type="number"] {
   background: var(--surface-2);
   color: var(--text);
-  border: 1px solid var(--border);
+  cursor: pointer;
+}
+.btn:hover{ filter: brightness(1.08); }
+.btn-primary{ background: #2d6cdf; border-color: #264fa8; color: #fff; }
+.btn-secondary{ background: #2a2a2a; }
+
+.muted{ color: var(--text-muted); }
+
+/* Inputs */
+input[type="text"],
+input[type="number"],
+select{
+  background: #0f0f0f;
+  color: #eee;
+  border: 1px solid #333;
   border-radius: 8px;
   padding: 4px 8px;
+  height: 32px;
 }
-input[type="number"]::-webkit-outer-spin-button,
-input[type="number"]::-webkit-inner-spin-button {
-  -webkit-appearance: auto;
-  margin: 0;
-  filter: invert(1);
-}
-@-moz-document url-prefix() {
-  input[type="number"] { -moz-appearance: textfield; }
+
+/* Accessibility helpers */
+.visually-hidden{
+  position: absolute !important;
+  clip: rect(1px, 1px, 1px, 1px);
+  padding: 0 !important;
+  border: 0 !important;
+  height: 1px !important; width: 1px !important;
+  overflow: hidden;
 }
 
 /* Absolutely NO .two-col anywhere */

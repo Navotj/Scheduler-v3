@@ -1,108 +1,122 @@
-/* Topbar loader with Shadow DOM encapsulation.
-   Renders /templates/topbar.html with /styles/topbar.css and keeps padding/width consistent across pages.
-   Exposes: window.topbar.refreshAuth(isAuthed?, username?), window.setAuthState(isAuthed, username)
+/* scripts/topbar.js
+   Shadow DOM topbar renderer + shared padding control (via topbar.css).
+   Looks for #topbar-root (placed by <nat20-page>).
 */
 (() => {
   let shadowRoot = null;
-  let state = { isAuthed: false, username: null };
+  let auth = { ok: false, user: null };
 
-  async function fetchText(url) {
-    const res = await fetch(url, { cache: 'no-cache', credentials: 'same-origin' });
-    if (!res.ok) throw new Error(`Failed to fetch ${url}`);
-    return res.text();
+  async function fetchFirst(paths) {
+    for (const p of paths) {
+      try {
+        const res = await fetch(p, { cache: 'no-cache', credentials: 'same-origin' });
+        if (res.ok) return await res.text();
+      } catch {}
+    }
+    throw new Error('Topbar asset(s) not found at any expected path.');
   }
 
-  function hardResetCSS() {
-    return `
-      :host, * { box-sizing: border-box; }
-      :host { all: initial; display:block; }
-      *, *::before, *::after { box-sizing: inherit; }
-      ._root { all: unset; display:block; }
-    `;
+  function titleFromHost() {
+    const host = document.getElementById('topbar-root');
+    return (host && host.dataset.title) || document.title || 'NAT20';
+  }
+
+  function applyTitle() {
+    if (!shadowRoot) return;
+    const el = shadowRoot.getElementById('topbar-title');
+    if (el) el.textContent = titleFromHost();
+  }
+
+  function renderAuthUI() {
+    if (!shadowRoot) return;
+    const userLabel = shadowRoot.getElementById('user-label');
+    const authBtn = shadowRoot.getElementById('auth-button');
+    if (!authBtn || !userLabel) return;
+
+    if (auth.ok) {
+      userLabel.textContent = `Signed in as ${auth.user}`;
+      userLabel.style.display = 'inline';
+      authBtn.textContent = 'Logout';
+      authBtn.onclick = () => {
+        auth = { ok: false, user: null };
+        if (typeof window.onAuthStateChange === 'function') {
+          try { window.onAuthStateChange(false, null); } catch {}
+        }
+        renderAuthUI();
+      };
+    } else {
+      userLabel.textContent = '';
+      userLabel.style.display = 'none';
+      authBtn.textContent = 'Login';
+      authBtn.onclick = () => {
+        // Keep simple: navigate to login page (modal loader can hook into this if present)
+        location.href = '/pages/login.html';
+      };
+    }
   }
 
   async function mount() {
     const host = document.getElementById('topbar-root');
     if (!host) return;
 
-    const html = await fetchText('/templates/topbar.html').catch(() => fetchText('../templates/topbar.html'));
-    const css = await fetchText('/styles/topbar.css').catch(() => fetchText('../styles/topbar.css'));
+    // Resolve assets for both /frontend/ and site-root hosting
+    const html = await fetchFirst([
+      '/components/topbar.html',
+      '../components/topbar.html',
+      './components/topbar.html',
+      '/frontend/components/topbar.html'
+    ]);
+
+    const css = await fetchFirst([
+      '/styles/topbar.css',
+      '../styles/topbar.css',
+      './styles/topbar.css',
+      '/frontend/styles/topbar.css'
+    ]);
 
     shadowRoot = host.attachShadow({ mode: 'open' });
-    const styleReset = document.createElement('style');
-    styleReset.textContent = hardResetCSS();
+
     const style = document.createElement('style');
-    style.textContent = css;
+    style.textContent = `
+      :host, * { box-sizing: border-box; }
+      :host { display:block; }
+    `;
 
-    const wrapper = document.createElement('div');
-    wrapper.className = '_root';
-    wrapper.innerHTML = html;
+    const styleBar = document.createElement('style');
+    styleBar.textContent = css;
 
-    shadowRoot.appendChild(styleReset);
+    const wrap = document.createElement('div');
+    wrap.innerHTML = html;
+
     shadowRoot.appendChild(style);
-    shadowRoot.appendChild(wrapper);
+    shadowRoot.appendChild(styleBar);
+    shadowRoot.appendChild(wrap);
 
     applyTitle();
-    wireAuthUI();
-  }
+    renderAuthUI();
 
-  function applyTitle() {
-    const host = document.getElementById('topbar-root');
-    const title = (host && host.dataset.title) || document.title || 'NAT20';
-    const el = shadowRoot && shadowRoot.getElementById('topbar-title');
-    if (el) el.textContent = title;
-  }
-
-  function wireAuthUI() {
-    const userLabel = shadowRoot.getElementById('user-label');
-    const authButton = shadowRoot.getElementById('auth-button');
-
-    function render() {
-      if (!authButton || !userLabel) return;
-      if (state.isAuthed) {
-        userLabel.textContent = `Signed in as ${state.username}`;
-        userLabel.style.display = 'inline';
-        authButton.textContent = 'Logout';
-        authButton.onclick = () => {
-          state = { isAuthed: false, username: null };
-          if (typeof window.onAuthStateChange === 'function') window.onAuthStateChange(false, null);
-          render();
-        };
-      } else {
-        userLabel.textContent = '';
-        userLabel.style.display = 'none';
-        authButton.textContent = 'Login';
-        authButton.onclick = () => {
-          if (typeof window.openModal === 'function') {
-            window.openModal('/pages/login.html');
-          } else {
-            location.href = '/pages/login.html';
-          }
-        };
+    // Public hooks
+    window.setAuthState = (isOk, username) => {
+      auth = { ok: !!isOk, user: isOk ? username : null };
+      if (typeof window.onAuthStateChange === 'function') {
+        try { window.onAuthStateChange(auth.ok, auth.user); } catch {}
       }
-    }
-    render();
-
-    window.setAuthState = (isAuthed, username) => {
-      state = { isAuthed: !!isAuthed, username: isAuthed ? username : null };
-      if (typeof window.onAuthStateChange === 'function') window.onAuthStateChange(state.isAuthed, state.username);
-      render();
+      renderAuthUI();
     };
-
     window.topbar = {
-      refreshAuth(isAuthed, username) {
-        if (typeof isAuthed !== 'undefined') {
-          state = { isAuthed: !!isAuthed, username: isAuthed ? username : null };
+      refreshAuth(isOk, username) {
+        if (typeof isOk !== 'undefined') {
+          auth = { ok: !!isOk, user: isOk ? username : null };
         }
-        render();
         applyTitle();
+        renderAuthUI();
       }
     };
   }
 
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', mount);
+    document.addEventListener('DOMContentLoaded', mount, { once: true });
   } else {
-    mount();
+    void mount();
   }
 })();
