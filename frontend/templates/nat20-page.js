@@ -1,6 +1,7 @@
 // templates/nat20-page.js
-// Reusable NAT20 page template custom element. Renders topbar, shared modal, and a two-column container with slots.
-// NOTE: Intentionally does NOT use Shadow DOM so existing global selectors/IDs and CSS continue to work.
+// Reusable NAT20 page template custom element. Renders topbar, shared modal,
+// a two-column container, and ingests any light-DOM nodes tagged with slot="left"/"right"
+// into the proper columns. No Shadow DOM is used so global CSS applies.
 
 class Nat20Page extends HTMLElement {
   static get observedAttributes() { return ['title']; }
@@ -11,7 +12,6 @@ class Nat20Page extends HTMLElement {
   }
 
   connectedCallback() {
-    // Build the page chrome (topbar + container + modal overlay)
     this.innerHTML = `
       <div id="modal-overlay" style="display:none;">
         <div id="modal-container"></div>
@@ -19,22 +19,18 @@ class Nat20Page extends HTMLElement {
 
       <div id="topbar-root" data-title="${this._title}"></div>
 
-      <div class="container two-col">
-        <div class="left-col">
-          <slot name="left"></slot>
-        </div>
-        <div class="right-col">
-          <slot name="right"></slot>
-        </div>
+      <div class="container two-col" id="nat20-columns">
+        <div class="left-col" id="nat20-left"></div>
+        <div class="right-col" id="nat20-right"></div>
       </div>
 
       <div id="cell-tooltip" class="cell-tooltip" style="display:none;"></div>
     `;
 
-    // Modal helpers made global for reuse by all pages/components
     const overlay = this.querySelector('#modal-overlay');
     const container = this.querySelector('#modal-container');
 
+    // Modal helpers
     function runModalInit(path) {
       if (path.includes('register.html') && window.initRegisterForm) {
         window.initRegisterForm();
@@ -77,6 +73,9 @@ class Nat20Page extends HTMLElement {
       }
     };
 
+    // Ingest any light-DOM slotted nodes into our columns (since we don't use Shadow DOM)
+    this._ingestSlots();
+
     // Kick topbar auth refresh if available
     if (window.topbar && typeof window.topbar.refreshAuth === 'function') {
       window.topbar.refreshAuth();
@@ -86,10 +85,34 @@ class Nat20Page extends HTMLElement {
   attributeChangedCallback(name, _oldVal, newVal) {
     if (name === 'title') {
       this._title = newVal;
-      const t = document.getElementById('topbar-root');
+      const t = this.querySelector('#topbar-root');
       if (t) t.dataset.title = newVal;
-      if (document.title) document.title = newVal + ' — NAT20';
+      if (document.title) document.title = `${newVal} — NAT20`;
     }
+  }
+
+  _ingestSlots() {
+    const leftCol = this.querySelector('#nat20-left');
+    const rightCol = this.querySelector('#nat20-right');
+    if (!leftCol || !rightCol) return;
+
+    // Collect nodes with slot="left"/"right" that are currently outside columns.
+    // Use Array.from to avoid live NodeList issues as we reparent.
+    const leftNodes = Array.from(this.querySelectorAll('[slot="left"]'));
+    const rightNodes = Array.from(this.querySelectorAll('[slot="right"]'));
+
+    // Helper to move nodes
+    const moveNodes = (nodes, target) => {
+      for (const node of nodes) {
+        // If the node is a whitespace-only text node, skip
+        if (node.nodeType === Node.TEXT_NODE && !node.textContent.trim()) continue;
+        node.removeAttribute && node.removeAttribute('slot');
+        target.appendChild(node);
+      }
+    };
+
+    moveNodes(leftNodes, leftCol);
+    moveNodes(rightNodes, rightCol);
   }
 }
 

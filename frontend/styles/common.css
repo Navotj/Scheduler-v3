@@ -1,149 +1,205 @@
-/* Common shared styles: top bar, modal, auth controls, responsive container */
-
 :root {
-  /* Layout & rhythm */
-  --gutter: 16px;
-  --container-max: 1800px;     /* wide default for ultrawide displays */
-  --topbar-height: 56px;
-  --topbar-bg: #171717;
-  --border: #333;
-  --bg: #111;
-  --text: #eee;
-
-  /* Typography */
-  --font-body: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
-  --font-size: clamp(14px, 0.95vw, 16px);
-  --radius: 12px;
-}
-
-*,
-*::before,
-*::after {
-  box-sizing: border-box;
+  --background: #121212;
+  --surface-1: #1e1e1e;
+  --surface-2: #2a2a2a;
+  --surface-3: #333333;
+  --border: #444444;
+  --text: #eeeeee;
+  --text-muted: #bbbbbb;
+  --accent: #3f8efc;
+  --error: #e57373;
 }
 
 html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--background);
+  color: var(--text);
+  font-family: system-ui, sans-serif;
   height: 100%;
 }
 
-body {
-  background: var(--bg);
-  color: var(--text);
-  margin: 0;
-  font-family: var(--font-body);
-  font-size: var(--font-size);
-  line-height: 1.45;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
-
-/* Top Bar */
-.top-bar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  height: var(--topbar-height);
-  padding: 0 calc(var(--gutter) + 4px);
-  background: var(--topbar-bg);
-  border-bottom: 1px solid var(--border);
-  position: sticky;
-  top: 0;
-  z-index: 10;
-}
-
-.top-left {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.top-bar a {
-  color: #9ecbff;
+a {
+  color: var(--accent);
   text-decoration: none;
 }
 
-.user-info {
+a:hover {
+  text-decoration: underline;
+}
+
+.container {
+  width: min(var(--container-max, 1200px), 96vw);
+  margin: 12px auto 32px;
+  padding: 0 12px;
+}
+
+.panel {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 16px;
+}
+
+.panel h3 {
+  margin-top: 0;
+  margin-bottom: 8px;
+  font-size: 14px;
+}
+
+.btn {
+  background: var(--surface-3);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+
+.btn:hover {
+  background: var(--surface-2);
+}
+
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+
+.btn-primary:hover {
+  background: #357ae8;
+}
+
+.btn-secondary {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.btn-secondary:hover {
+  background: var(--surface-3);
+}
+
+.error-text {
+  color: var(--error);
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+.member-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.member-list li {
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.member-list li:last-child {
+  border-bottom: none;
+}
+
+.results {
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.results .result-item {
+  padding: 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.results .result-item:last-child {
+  border-bottom: none;
+}
+
+.field-row {
   display: flex;
-  align-items: center;
   gap: 12px;
 }
 
-.user-label {
-  opacity: 0.9;
+.field {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
 }
 
-#auth-button {
-  background: #2d6cdf;
-  color: #fff;
-  border: 0;
-  padding: 8px 12px;
-  border-radius: 8px;
-  cursor: pointer;
+.field label {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 2px;
 }
-#auth-button:hover { filter: brightness(1.1); }
 
-/* Modal system */
-#modal-overlay {
-  position: fixed;
-  inset: 0;
-  display: none;
+.row {
+  display: flex;
   align-items: center;
-  justify-content: center;
-  background: rgba(0,0,0,0.6);
-  z-index: 1000;
+  gap: 4px;
 }
 
-#modal-container {
-  background: #151515;
-  border: 1px solid #2b2b2b;
-  border-radius: var(--radius);
-  width: min(520px, 92vw);
-  padding: 20px;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+.legend {
+  margin-top: 8px;
 }
 
-/* Generic layout container (wider for ultrawide screens) */
-.container {
-  width: min(var(--container-max), 96vw);
-  margin: 16px auto 40px;
-  padding: 0 var(--gutter);
+.legend-blocks {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
 }
 
-/* Subtle blur for main content when modal is open (applies across pages) */
-body.modal-active main,
-body.modal-active .container {
-  filter: blur(3px);
-  pointer-events: none;
+.muted {
+  color: var(--text-muted);
+  font-size: 12px;
 }
 
-/* Accessibility: focus outlines */
-a:focus-visible,
-button:focus-visible,
-[tabindex]:focus-visible {
-  outline: 2px solid #2d6cdf;
-  outline-offset: 2px;
+/* Dark UI for form controls */
+input, select, textarea, button {
+  color-scheme: dark;
 }
 
-/* Scrollbar (WebKit) — subtle dark theme */
-*::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
-}
-*::-webkit-scrollbar-thumb {
-  background: #3a3a3a;
+select {
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
   border-radius: 8px;
-}
-*::-webkit-scrollbar-track {
-  background: transparent;
+  padding: 4px;
 }
 
-/* Very wide displays — allow even wider container */
-@media (min-width: 1920px) {
-  :root { --container-max: 2000px; }
+input[type="number"] {
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px;
 }
 
-/* Narrow screens — ensure comfortable gutters */
-@media (max-width: 560px) {
-  :root { --gutter: 12px; }
-  .top-bar { padding: 0 var(--gutter); }
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: auto;
+  margin: 0;
+  filter: invert(1);
+}
+
+@-moz-document url-prefix() {
+  input[type="number"] {
+    -moz-appearance: textfield;
+  }
+}
+
+/* Two-column container owned by the template */
+.container.two-col {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) clamp(320px, 24vw, 520px);
+  gap: clamp(12px, 1.2vw, 24px);
+  align-items: start;
+  min-height: auto !important;
+  height: auto !important;
+  margin-top: 0;
+}
+
+/* Only the grid area should consume vertical calc */
+#grid, .grid {
+  height: var(--grid-height);
+  min-height: 320px;
 }
