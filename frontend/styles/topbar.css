@@ -1,56 +1,115 @@
-/* NAT20 Topbar — visuals centralized here only. Variables come from common.css. */
-
-.top-bar {
-  position: sticky;
-  top: 0;
-  z-index: 100;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  height: var(--topbar-height);
-  padding: 0 calc(var(--gutter) + 4px);
-  background: var(--surface-2);
-  border-bottom: 1px solid var(--border);
+/* NAT20 Topbar — consistent across all pages; also defines shared page gutters. */
+:root {
+  --container-max: 1200px;
+  --page-gutter: 12px;
+  --page-margin-top: 12px;
+  --page-margin-bottom: 32px;
 }
 
-/* Left cluster */
+:host {
+  display: block;
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Liberation Sans", sans-serif;
+  font-size: 14px;
+  line-height: 1.2;
+  color-scheme: dark;
+  --_bar-h: 56px;
+  --_bg: #171717;
+  --_border: #333;
+  --_text: #fff;
+  --_muted: #eee;
+  --_link: #9ecbff;
+  --_btn-bg: #2d6cdf;
+}
+
+/* Top bar container */
+.top-bar,
+.nat20-top-bar {
+  box-sizing: border-box;
+  display: block;
+  height: var(--_bar-h);
+  background: var(--_bg);
+  border-bottom: 1px solid var(--_border);
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+  width: 100%;
+}
+
+/* Centers bar contents and applies same gutters as page */
+.topbar-inner {
+  box-sizing: border-box;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  height: var(--_bar-h);
+  width: min(var(--container-max), 96vw);
+  margin: 0 auto;
+  padding: 0 var(--page-gutter);
+}
+
+/* Shared outer page wrapper — use this class on every page <main> */
+.page-shell {
+  width: min(var(--container-max), 96vw);
+  margin: var(--page-margin-top) auto var(--page-margin-bottom);
+  padding: 0 var(--page-gutter);
+}
+
+/* Left side */
 .top-left {
   display: flex;
   align-items: center;
   gap: 12px;
 }
+
+/* Title */
 #topbar-title,
 .title {
-  display: inline-block;
-  margin: 0;
+  display: inline;
   font-weight: 700;
-  color: #fff;
-  font-size: clamp(16px, 1.1vw, 18px);
+  color: var(--_text);
 }
 
-/* Right cluster (auth) */
+/* Links */
+.top-bar a,
+.nat20-top-bar a,
+.breadcrumb {
+  color: var(--_link);
+  text-decoration: none;
+}
+.top-bar a:hover,
+.nat20-top-bar a:hover,
+.breadcrumb:hover {
+  text-decoration: underline;
+}
+
+/* Right side (user) */
 .user-info {
   display: flex;
   align-items: center;
   gap: 12px;
 }
-.user-label { color: var(--muted); }
+.user-label {
+  opacity: 0.9;
+  color: var(--_muted);
+}
+
+/* Auth button */
+#auth-button.btn,
 #auth-button,
 .auth-btn {
-  background: var(--accent);
-  color: #fff;
-  border: 0;
-  padding: 8px 12px;
+  height: 28px;
+  padding: 6px 10px;
   border-radius: 8px;
+  border: 1px solid var(--_border);
+  background: var(--_btn-bg);
+  color: #fff;
   cursor: pointer;
   line-height: 1;
 }
 #auth-button:hover,
-.auth-btn:hover { filter: brightness(1.1); }
-
-/* Links inside topbar */
-.top-bar a { color: var(--link); text-decoration: none; }
-
-/* Optional spacer that keeps page content from tucking under a fixed topbar
-   (only needed if some page swaps sticky for fixed). Keep default off. */
-.topbar-spacer { height: var(--topbar-height); display: none; }
+.auth-btn:hover {
+  filter: brightness(1.1);
+}

@@ -11,8 +11,8 @@
 }
 
 .card {
-  background: var(--surface-2);
-  border: 1px solid var(--border);
+  background: #171717;
+  border: 1px solid #2a2a2a;
   border-radius: 12px;
   padding: clamp(14px, 1.2vw, 18px);
   display: flex;
@@ -48,14 +48,36 @@
   cursor: pointer;
   transition: background-color 0.15s ease, transform 0.05s ease;
 }
+
 .card a:hover,
-.card button.link:hover { background: #2f2f2f; }
+.card button.link:hover {
+  background: #2f2f2f;
+}
+
 .card a:active,
-.card button.link:active { transform: translateY(1px); }
+.card button.link:active {
+  transform: translateY(1px);
+}
+
+/* Footer */
 
 .footer {
   color: #888;
   text-align: center;
   padding: 24px 0 40px;
   font-size: clamp(12px, 0.9vw, 14px);
+}
+
+/* Modal blur effect for main content while auth modal is open (kept here and in common.css) */
+
+body.modal-active main {
+  filter: blur(3px);
+  pointer-events: none;
+}
+
+/* Minor tweaks for the top bar title spacing on the homepage */
+
+.top-bar h1 {
+  margin: 0;
+  font-size: clamp(18px, 1.2vw, 20px);
 }
