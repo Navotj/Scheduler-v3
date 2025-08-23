@@ -3,36 +3,34 @@
 <head>
   <meta charset="UTF-8" />
   <title>Group Scheduler — NAT20</title>
-  <link rel="icon" href="/assets/favicon.ico" type="image/x-icon">
+  <link rel="icon" href="../assets/favicon.ico" type="image/x-icon">
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
 
   <!-- Shared/global styles -->
-  <link rel="stylesheet" href="/styles/styles.css" />
-  <link rel="stylesheet" href="/styles/common.css" />
-  <link rel="stylesheet" href="/styles/topbar.css" />
+  <link rel="stylesheet" href="../styles/styles.css" />
+  <link rel="stylesheet" href="../styles/common.css" />
+  <link rel="stylesheet" href="../styles/topbar.css" />
+
   <!-- Page/table-specific styles -->
-  <link rel="stylesheet" href="/styles/schedule_matcher.css" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="../styles/schedule_matcher.css" />
 </head>
 <body>
-  <!-- Core libraries -->
-  <script src="/scripts/lib/httpClient.js"></script>
+  <!-- Page template + components (no Shadow DOM, global CSS applies) -->
+  <script src="../templates/nat20-page.js"></script>
+  <script src="../components/sm-grid.js"></script>
+  <script src="../components/sm-members.js"></script>
+  <script src="../components/sm-filters.js"></script>
+  <script src="../components/sm-results.js"></script>
 
-  <!-- Page template + components -->
-  <script src="/templates/nat20-page.js"></script>
-  <script src="/components/sm-grid.js"></script>
-  <script src="/components/sm-members.js"></script>
-  <script src="/components/sm-filters.js"></script>
-  <script src="/components/sm-results.js"></script>
+  <!-- Auth / modal pages logic -->
+  <script src="../scripts/login.js"></script>
+  <script src="../scripts/register.js"></script>
 
-  <!-- Auth / modal pages -->
-  <script src="/scripts/login.js"></script>
-  <script src="/scripts/register.js"></script>
+  <!-- Topbar controller -->
+  <script src="../scripts/topbar.js"></script>
 
-  <!-- Topbar (reads #topbar-root created by nat20-page) -->
-  <script src="/scripts/topbar.js"></script>
-
-  <!-- Page controller (existing logic) -->
-  <script src="/scripts/schedule_matcher.js"></script>
+  <!-- Page controller -->
+  <script src="../scripts/schedule_matcher.js"></script>
 
   <!-- Compose the page with reusable template + components -->
   <nat20-page title="Group Scheduler">
@@ -47,7 +45,6 @@
   </nat20-page>
 
   <script>
-    // Optional: trigger page-level init after DOM is ready
     document.addEventListener('DOMContentLoaded', () => {
       if (window.scheduler && typeof window.scheduler.init === 'function') {
         window.scheduler.init();
