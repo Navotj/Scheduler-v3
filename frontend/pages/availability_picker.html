@@ -10,13 +10,22 @@
 </head>
 <body>
   <page-shell page-title="My Availability">
-    <!-- IMPORTANT: put the component here, no slot= needed -->
+    <!-- This is the piece that was missing -->
     <availability-grid></availability-grid>
   </page-shell>
 
+  <!-- libs used by the components -->
   <script defer src="../scripts/lib/http_client.js"></script>
+  <script defer src="../scripts/lib/time.js"></script>
+  <script defer src="../scripts/lib/settings_store.js"></script>
+  <script defer src="../scripts/lib/clipboard.js"></script>
+  <script defer src="../scripts/lib/colormap.js"></script>
+
+  <!-- auth modals (optional but harmless to include) -->
   <script defer src="../scripts/login.js"></script>
   <script defer src="../scripts/register.js"></script>
+
+  <!-- components (shell first, then grid) -->
   <script defer src="../components/page_shell.js"></script>
   <script defer src="../components/availability_grid.js"></script>
 </body>
