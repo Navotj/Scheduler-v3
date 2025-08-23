@@ -1,20 +1,21 @@
-/* NAT20 Topbar — self-contained styling inside Shadow DOM.
-   Forces consistent height, padding, font, and colors, independent of page CSS.
-   Uses internal custom properties (--_*) to avoid collisions with page-level vars. */
+/* NAT20 Topbar — consistent across all pages; also defines shared page gutters. */
+:root {
+  --container-max: 1200px;
+  --page-gutter: 12px;
+  --page-margin-top: 12px;
+  --page-margin-bottom: 32px;
+}
 
 :host {
   display: block;
   margin: 0;
   padding: 0;
   width: 100%;
-  /* Hard-set typography so page font-size/line-height variations don't affect the bar */
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Liberation Sans", sans-serif;
   font-size: 14px;
   line-height: 1.2;
   color-scheme: dark;
-  /* Internal sizing tokens */
   --_bar-h: 56px;
-  --_pad-x: 20px;
   --_bg: #171717;
   --_border: #333;
   --_text: #fff;
@@ -23,15 +24,12 @@
   --_btn-bg: #2d6cdf;
 }
 
-/* Main container */
+/* Top bar container */
 .top-bar,
 .nat20-top-bar {
   box-sizing: border-box;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+  display: block;
   height: var(--_bar-h);
-  padding: 0 var(--_pad-x);
   background: var(--_bg);
   border-bottom: 1px solid var(--_border);
   position: sticky;
@@ -40,6 +38,26 @@
   width: 100%;
 }
 
+/* Centers bar contents and applies same gutters as page */
+.topbar-inner {
+  box-sizing: border-box;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  height: var(--_bar-h);
+  width: min(var(--container-max), 96vw);
+  margin: 0 auto;
+  padding: 0 var(--page-gutter);
+}
+
+/* Shared outer page wrapper — use this class on every page <main> */
+.page-shell {
+  width: min(var(--container-max), 96vw);
+  margin: var(--page-margin-top) auto var(--page-margin-bottom);
+  padding: 0 var(--page-gutter);
+}
+
+/* Left side */
 .top-left {
   display: flex;
   align-items: center;
@@ -78,7 +96,7 @@
   color: var(--_muted);
 }
 
-/* Auth button — consistent look even if page lacks .btn styles */
+/* Auth button */
 #auth-button.btn,
 #auth-button,
 .auth-btn {
@@ -94,46 +112,4 @@
 #auth-button:hover,
 .auth-btn:hover {
   filter: brightness(1.1);
-}
-
-/* --- Page wrapper & gutters (LIGHT DOM) ---
-   Centralize page width/margins/padding here so every page has identical outer spacing. */
-:root {
-  --container-max: 1200px;
-  --page-gutter: 12px;
-  --page-margin-top: 12px;
-  --page-margin-bottom: 32px;
-}
-
-.page-shell {
-  width: min(var(--container-max), 96vw);
-  margin: var(--page-margin-top) auto var(--page-margin-bottom);
-  padding: 0 var(--page-gutter);
-}
-
-/* --- Unified page gutters & width (controls ALL pages) --- */
-:root {
-  --container-max: 1200px;
-  --page-gutter: 12px;
-  --page-margin-top: 12px;
-  --page-margin-bottom: 32px;
-}
-
-/* Centers topbar contents and applies same side padding as pages */
-.topbar-inner {
-  box-sizing: border-box;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  height: var(--_bar-h);
-  width: min(var(--container-max), 96vw);
-  margin: 0 auto;
-  padding: 0 var(--page-gutter);
-}
-
-/* Shared outer page wrapper — use this on every page */
-.page-shell {
-  width: min(var(--container-max), 96vw);
-  margin: var(--page-margin-top) auto var(--page-margin-bottom);
-  padding: 0 var(--page-gutter);
 }

@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <title>My Availability • NAT20 Scheduling</title>
   <link rel="icon" href="/assets/favicon.ico" type="image/x-icon">
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="stylesheet" href="/styles/common.css" />
   <link rel="stylesheet" href="/styles/topbar.css" />
   <link rel="stylesheet" href="/styles/availability_picker.css" />
@@ -14,6 +15,7 @@
     <div id="modal-container"></div>
   </div>
 
+  <!-- Topbar mount -->
   <div id="topbar-root" data-title="My Availability"></div>
 
   <main class="page-shell">
@@ -37,11 +39,14 @@
     <section id="grid" class="grid">
       <div id="grid-content" class="grid-content">
         <table id="schedule-table" class="table" aria-label="Weekly availability grid"></table>
-        <!-- NOW marker will be injected here by JS -->
+        <!-- NOW marker injected by JS -->
+        <div id="now-marker" class="now-marker" style="display:none;">
+          <span class="bubble">now</span>
+        </div>
       </div>
     </section>
 
-    <!-- Tooltip shown when not signed in -->
+    <!-- Tooltip when not signed in -->
     <div id="signin-tooltip" class="signin-tooltip">Sign in to edit your availability</div>
   </main>
 
