@@ -6,7 +6,6 @@
   --control-height: 32px;        /* compact but readable controls */
   --timecol-width: 76px;
   --grid-pad: 8px;               /* padding around the scrollable grid */
-  /* --topbar-height from common.css */         /* compact top bar */
 
   /* Viewport-aware height variable (resizes with browser UI changes) */
   --vh: 100vh;
@@ -190,19 +189,11 @@
   .grid { height: auto; min-height: 60vh; }
 }
 
-/* ──────────── Filters panel: extra-thin, dark scrollbar ─────────── */
+/* Filters panel scrollbar */
 #filters-panel { scrollbar-width: thin; scrollbar-color: #3a3a3a #121212; }
 #filters-panel::-webkit-scrollbar { width: 6px; }
 #filters-panel::-webkit-scrollbar-track { background: #121212; }
 #filters-panel::-webkit-scrollbar-thumb { background: #3a3a3a; border-radius: 8px; }
 #filters-panel::-webkit-scrollbar-thumb:hover { background: #4a4a4a; }
 
-/* Protect shared top bar host (Shadow DOM inside) from page-level overrides */
-#topbar-root {
-  margin: 0 !important;
-  padding: 0 !important;
-  border: 0 !important;
-  position: static !important;
-  z-index: auto !important;
-  line-height: normal !important;
-}
+/* Do not style the shared top bar from this page CSS */
