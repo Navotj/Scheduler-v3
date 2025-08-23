@@ -15,7 +15,7 @@
   <link rel="stylesheet" href="../styles/schedule_matcher.css" />
 </head>
 <body>
-  <!-- Page template + components (no Shadow DOM, global CSS applies) -->
+  <!-- Page template (no enforced layout) + components -->
   <script src="../templates/nat20-page.js"></script>
   <script src="../components/sm-grid.js"></script>
   <script src="../components/sm-members.js"></script>
@@ -32,16 +32,12 @@
   <!-- Page controller -->
   <script src="../scripts/schedule_matcher.js"></script>
 
-  <!-- Compose the page with reusable template + components -->
+  <!-- Compose the page with reusable template; content is modular and unstructured -->
   <nat20-page title="Group Scheduler">
-    <div slot="left">
-      <sm-grid></sm-grid>
-    </div>
-    <div slot="right">
-      <sm-members></sm-members>
-      <sm-filters></sm-filters>
-      <sm-results></sm-results>
-    </div>
+    <sm-grid></sm-grid>
+    <sm-members></sm-members>
+    <sm-filters></sm-filters>
+    <sm-results></sm-results>
   </nat20-page>
 
   <script>

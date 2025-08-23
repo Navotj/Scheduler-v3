@@ -1,7 +1,8 @@
 // templates/nat20-page.js
-// Reusable NAT20 page template custom element. Renders topbar, shared modal,
-// a two-column container, and ingests any light-DOM nodes tagged with slot="left"/"right"
-// into the proper columns. No Shadow DOM is used so global CSS applies.
+// Minimal page template: renders topbar + modal scaffolding only.
+// NO columns, NO layout. Content is modular and unstructured.
+// All light-DOM children are moved into a neutral #page-shell wrapper.
+// No Shadow DOM so global CSS keeps working.
 
 class Nat20Page extends HTMLElement {
   static get observedAttributes() { return ['title']; }
@@ -19,10 +20,7 @@ class Nat20Page extends HTMLElement {
 
       <div id="topbar-root" data-title="${this._title}"></div>
 
-      <div class="container two-col" id="nat20-columns">
-        <div class="left-col" id="nat20-left"></div>
-        <div class="right-col" id="nat20-right"></div>
-      </div>
+      <div class="container" id="page-shell"></div>
 
       <div id="cell-tooltip" class="cell-tooltip" style="display:none;"></div>
     `;
@@ -30,7 +28,14 @@ class Nat20Page extends HTMLElement {
     const overlay = this.querySelector('#modal-overlay');
     const container = this.querySelector('#modal-container');
 
-    // Modal helpers
+    // Move existing light-DOM children into the neutral page-shell wrapper
+    const shell = this.querySelector('#page-shell');
+    const toMove = Array.from(this.childNodes).filter(n =>
+      !(n.id === 'modal-overlay' || n.id === 'topbar-root' || n.id === 'page-shell' || n.id === 'cell-tooltip')
+    );
+    toMove.forEach(n => shell.appendChild(n));
+
+    // Modal helpers (global so login/register can use them)
     function runModalInit(path) {
       if (path.includes('register.html') && window.initRegisterForm) {
         window.initRegisterForm();
@@ -41,8 +46,8 @@ class Nat20Page extends HTMLElement {
 
     window.openModal = function openModal(path) {
       fetch(path, { cache: 'no-cache' })
-        .then((res) => res.text())
-        .then((html) => {
+        .then(res => res.text())
+        .then(html => {
           container.innerHTML = html;
           overlay.style.display = 'flex';
           document.body.classList.add('modal-active');
@@ -52,8 +57,8 @@ class Nat20Page extends HTMLElement {
 
     window.swapModal = function swapModal(path) {
       fetch(path, { cache: 'no-cache' })
-        .then((res) => res.text())
-        .then((html) => {
+        .then(res => res.text())
+        .then(html => {
           container.innerHTML = html;
           document.body.classList.add('modal-active');
           runModalInit(path);
@@ -73,9 +78,6 @@ class Nat20Page extends HTMLElement {
       }
     };
 
-    // Ingest any light-DOM slotted nodes into our columns (since we don't use Shadow DOM)
-    this._ingestSlots();
-
     // Kick topbar auth refresh if available
     if (window.topbar && typeof window.topbar.refreshAuth === 'function') {
       window.topbar.refreshAuth();
@@ -89,30 +91,6 @@ class Nat20Page extends HTMLElement {
       if (t) t.dataset.title = newVal;
       if (document.title) document.title = `${newVal} — NAT20`;
     }
-  }
-
-  _ingestSlots() {
-    const leftCol = this.querySelector('#nat20-left');
-    const rightCol = this.querySelector('#nat20-right');
-    if (!leftCol || !rightCol) return;
-
-    // Collect nodes with slot="left"/"right" that are currently outside columns.
-    // Use Array.from to avoid live NodeList issues as we reparent.
-    const leftNodes = Array.from(this.querySelectorAll('[slot="left"]'));
-    const rightNodes = Array.from(this.querySelectorAll('[slot="right"]'));
-
-    // Helper to move nodes
-    const moveNodes = (nodes, target) => {
-      for (const node of nodes) {
-        // If the node is a whitespace-only text node, skip
-        if (node.nodeType === Node.TEXT_NODE && !node.textContent.trim()) continue;
-        node.removeAttribute && node.removeAttribute('slot');
-        target.appendChild(node);
-      }
-    };
-
-    moveNodes(leftNodes, leftCol);
-    moveNodes(rightNodes, rightCol);
   }
 }
 
