@@ -1,20 +1,23 @@
-<!DOCTYPE html><html lang="en"><head>
-  <meta charset="UTF-8" />
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
   <title>My Availability • NAT20</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="icon" href="../assets/favicon.ico" />
   <link rel="stylesheet" href="../styles/common.css" />
   <link rel="stylesheet" href="../styles/availability_picker.css" />
-</head><body>
+</head>
+<body>
   <page-shell page-title="My Availability">
-    <div slot="content">
-      <availability-grid></availability-grid>
-    </div>
+    <!-- IMPORTANT: put the component here, no slot= needed -->
+    <availability-grid></availability-grid>
   </page-shell>
 
-  <script src="../scripts/lib/http_client.js"></script>
-  <script src="../scripts/login.js"></script>
-  <script src="../scripts/register.js"></script>
-  <script src="../components/page_shell.js"></script>
-  <script src="../components/availability_grid.js"></script>
-</body></html>
+  <script defer src="../scripts/lib/http_client.js"></script>
+  <script defer src="../scripts/login.js"></script>
+  <script defer src="../scripts/register.js"></script>
+  <script defer src="../components/page_shell.js"></script>
+  <script defer src="../components/availability_grid.js"></script>
+</body>
+</html>
