@@ -18,6 +18,7 @@
   <!-- Template (neutral) + components -->
   <script src="../templates/nat20-page.js"></script>
   <script src="../components/sm-grid.js"></script>
+  <script src="../components/sm-controls.js"></script>
   <script src="../components/sm-members.js"></script>
   <script src="../components/sm-filters.js"></script>
   <script src="../components/sm-results.js"></script>
@@ -32,21 +33,17 @@
   <!-- Page controller (existing scheduler logic) -->
   <script src="../scripts/schedule_matcher.js"></script>
 
-  <!-- Compose the page with requested layout (no template columns) -->
+  <!-- Compose the page layout (no template columns) -->
   <nat20-page title="Group Scheduler">
     <div id="sm-layout" class="sm-layout">
       <aside id="ads-panel" class="panel"><div class="muted">ADS</div></aside>
 
       <section id="table-panel">
-        <div class="controls" id="controls">
-          <button id="prev-week" class="btn btn-secondary" title="Previous week">← Previous week</button>
-          <button id="next-week" class="btn btn-secondary" title="Next week">Next week →</button>
-          <span class="muted helper">Shift+Scroll = Vertical Zoom, Scroll = Pan</span>
-        </div>
         <sm-grid></sm-grid>
       </section>
 
-      <aside id="members-filters">
+      <aside id="mf-panel">
+        <sm-controls></sm-controls>
         <sm-members></sm-members>
         <sm-filters></sm-filters>
       </aside>

@@ -1,5 +1,5 @@
 // components/sm-grid.js
-// Grid (controls + availability table + now marker). No Shadow DOM so global CSS applies.
+// Availability grid only (NO controls here). No Shadow DOM so global CSS applies.
 
 class SmGrid extends HTMLElement {
   connectedCallback() {

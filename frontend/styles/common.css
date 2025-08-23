@@ -22,14 +22,16 @@ html, body {
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
 
+/* Shared page padding/width wrapper */
 .container {
   width: min(var(--container-max, 1200px), 96vw);
-  margin: 12px auto 32px;
-  padding: 0 12px;
+  margin: 16px auto 32px;
+  padding: 0 16px;
 }
 
+/* Generic bordered panels (no fill as requested) */
 .panel {
-  background: var(--surface-2);
+  background: transparent;               /* ONLY border, no background */
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 12px;
@@ -87,4 +89,4 @@ input[type="number"]::-webkit-inner-spin-button {
   input[type="number"] { -moz-appearance: textfield; }
 }
 
-/* no enforced .two-col anywhere */
+/* absolutely NO .two-col anywhere */
