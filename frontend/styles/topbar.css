@@ -1,23 +1,43 @@
-/* Topbar styles self-contained for Shadow DOM usage.
-   Uses CSS variables from :root (common.css) if available, with safe fallbacks. */
+/* NAT20 Topbar — self-contained styling inside Shadow DOM.
+   Forces consistent height, padding, font, and colors, independent of page CSS.
+   Uses internal custom properties (--_*) to avoid collisions with page-level vars. */
 
 :host {
   display: block;
-  /* Create own stacking context to ensure z-index behaves predictably */
-  isolation: isolate;
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  /* Hard-set typography so page font-size/line-height variations don't affect the bar */
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Liberation Sans", sans-serif;
+  font-size: 14px;
+  line-height: 1.2;
+  color-scheme: dark;
+  /* Internal sizing tokens */
+  --_bar-h: 56px;
+  --_pad-x: 20px;
+  --_bg: #171717;
+  --_border: #333;
+  --_text: #fff;
+  --_muted: #eee;
+  --_link: #9ecbff;
+  --_btn-bg: #2d6cdf;
 }
 
-.top-bar {
+/* Main container */
+.top-bar,
+.nat20-top-bar {
+  box-sizing: border-box;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  height: var(--topbar-height, 56px);
-  padding: 0 calc(var(--gutter, 16px) + 4px);
-  background: var(--topbar-bg, #171717);
-  border-bottom: 1px solid var(--border, #333);
-  position: sticky; /* sticks to viewport top */
+  height: var(--_bar-h);
+  padding: 0 var(--_pad-x);
+  background: var(--_bg);
+  border-bottom: 1px solid var(--_border);
+  position: sticky;
   top: 0;
-  z-index: 100;     /* above tables/now-marker etc. */
+  z-index: 1000;
+  width: 100%;
 }
 
 .top-left {
@@ -26,42 +46,52 @@
   gap: 12px;
 }
 
-/* Links inside the bar */
-.top-bar a {
-  color: #9ecbff;
+/* Title */
+#topbar-title,
+.title {
+  display: inline;
+  font-weight: 700;
+  color: var(--_text);
+}
+
+/* Links */
+.top-bar a,
+.nat20-top-bar a,
+.breadcrumb {
+  color: var(--_link);
   text-decoration: none;
 }
-.top-bar a:hover { text-decoration: underline; }
+.top-bar a:hover,
+.nat20-top-bar a:hover,
+.breadcrumb:hover {
+  text-decoration: underline;
+}
 
-/* Right-side user section */
+/* Right side (user) */
 .user-info {
   display: flex;
   align-items: center;
   gap: 12px;
 }
-
 .user-label {
   opacity: 0.9;
-  color: var(--text, #eee);
+  color: var(--_muted);
 }
 
-/* Title */
-#topbar-title {
-  display: inline;
-  font-weight: 700;
-  color: var(--text, #fff);
-}
-
-/* Auth button baseline (works even without global .btn styles) */
+/* Auth button — consistent look even if page lacks .btn styles */
 #auth-button.btn,
-#auth-button {
+#auth-button,
+.auth-btn {
   height: 28px;
   padding: 6px 10px;
   border-radius: 8px;
-  border: 1px solid #333;
-  background: #2d6cdf;
+  border: 1px solid var(--_border);
+  background: var(--_btn-bg);
   color: #fff;
   cursor: pointer;
   line-height: 1;
 }
-#auth-button:hover { filter: brightness(1.1); }
+#auth-button:hover,
+.auth-btn:hover {
+  filter: brightness(1.1);
+}

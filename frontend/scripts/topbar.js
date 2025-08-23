@@ -1,7 +1,6 @@
-/* Topbar loader with Shadow DOM encapsulation.
-   - Prevents page-level CSS (e.g., header/topbar resets with !important) from overriding the top bar.
-   - Fetches /components/topbar.html and /styles/topbar.css, injects both into a shadowRoot.
-   - Exposes window.topbar.refreshAuth() and window.setAuthState() just like before.
+/* Topbar loader with Shadow DOM encapsulation + hard reset of typography and sizing.
+   Ensures consistent height, padding, and font across all pages regardless of page CSS.
+   Exposes window.topbar.refreshAuth() and window.setAuthState() hooks.
 */
 (() => {
   let shadowRoot = null;
@@ -16,7 +15,13 @@
     const host = document.getElementById('topbar-root');
     if (!host) return;
 
-    // Idempotent: if already mounted with a shadow root, just refresh auth state.
+    // Normalize host so page-level CSS can't alter layout differently per page
+    host.style.display = 'block';
+    host.style.margin = '0';
+    host.style.padding = '0';
+    host.style.width = '100%';
+
+    // If already mounted, just refresh auth
     if (host.shadowRoot) {
       shadowRoot = host.shadowRoot;
       setupAuthHandlers();
@@ -24,10 +29,10 @@
       return;
     }
 
-    // Attach shadow root so page CSS cannot override the bar
+    // Attach shadow root
     shadowRoot = host.attachShadow({ mode: 'open' });
 
-    // Load HTML + CSS for the top bar
+    // Load HTML and CSS
     let html = '';
     let css = '';
     try {
@@ -36,32 +41,38 @@
         fetchText('/styles/topbar.css'),
       ]);
     } catch (e) {
-      // Hard fallback: render minimal inline bar if assets fail
       html = `
-        <header class="top-bar">
+        <header class="nat20-top-bar">
           <div class="top-left">
             <a class="breadcrumb" href="/index.html">← Home</a>
-            <strong id="topbar-title" style="margin-left:8px;"></strong>
+            <strong id="topbar-title" class="title"></strong>
           </div>
           <div class="user-info">
             <span id="user-label" class="user-label" style="display:none;"></span>
-            <button id="auth-button" class="btn btn-secondary">Login</button>
+            <button id="auth-button" class="auth-btn">Login</button>
           </div>
         </header>`;
       css = `
-        .top-bar{display:flex;justify-content:space-between;align-items:center;height:56px;padding:0 20px;background:#171717;border-bottom:1px solid #333;position:sticky;top:0;z-index:100}
-        .top-left{display:flex;align-items:center;gap:12px}
-        .top-bar a{color:#9ecbff;text-decoration:none}
-        #auth-button{background:#2d6cdf;color:#fff;border:0;padding:8px 12px;border-radius:8px;cursor:pointer}
-        #auth-button:hover{filter:brightness(1.1)}
-        #topbar-title{display:inline;font-weight:700}
+        :host{display:block; margin:0; padding:0; width:100%;
+          font-family: system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,"Noto Sans","Liberation Sans",sans-serif;
+          font-size:14px; line-height:1.2; color-scheme: dark; }
+        .nat20-top-bar{box-sizing:border-box; display:flex; justify-content:space-between; align-items:center;
+          height:56px; padding:0 20px; background:#171717; border-bottom:1px solid #333; position:sticky; top:0; z-index:1000}
+        .top-left{display:flex; align-items:center; gap:12px}
+        .breadcrumb{color:#9ecbff; text-decoration:none}
+        .breadcrumb:hover{text-decoration:underline}
+        .title{font-weight:700; color:#fff}
+        .user-info{display:flex; align-items:center; gap:12px}
+        .user-label{opacity:.9; color:#eee}
+        .auth-btn{height:28px; padding:6px 10px; border-radius:8px; border:1px solid #333; background:#2d6cdf; color:#fff; cursor:pointer; line-height:1}
+        .auth-btn:hover{filter:brightness(1.1)}
       `;
     }
 
-    // Render into shadow root
+    // Inject into shadow
     shadowRoot.innerHTML = `<style>${css}</style>${html}`;
 
-    // Title (from host data-title)
+    // Apply fixed title from host dataset
     const title = host.dataset.title || '';
     const titleEl = shadowRoot.querySelector('#topbar-title');
     if (titleEl) {
@@ -106,7 +117,6 @@
   }
 
   async function refreshAuth() {
-    // Prefer the app's shared readiness if present
     if (typeof window.ensureAuthReady === 'function') {
       try { await window.ensureAuthReady(); } catch {}
     }
@@ -142,7 +152,6 @@
   }
 
   function setupAuthHandlers() {
-    // Provide a stable hook used by login.js after successful login
     window.setAuthState = function (authenticated, username) {
       const ok = !!authenticated;
       const uname = ok ? username : null;
@@ -151,8 +160,6 @@
         try { window.onAuthStateChange(ok, uname); } catch {}
       }
     };
-
-    // Expose manual refresh
     window.topbar = { refreshAuth };
   }
 
