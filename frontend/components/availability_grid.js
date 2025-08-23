@@ -1,407 +1,400 @@
-(function () {
+// components/availability_grid.js
+// Light-DOM <availability-grid> that builds a weekly availability picker.
+(() => {
   'use strict';
+
+  // ---- Constants ----
+  const SLOT_MIN = 30;
+  const SLOT_SEC = SLOT_MIN * 60;
+  const SLOTS_PER_HOUR = 60 / SLOT_MIN; // 2
+  const HOURS_START = 0, HOURS_END = 24;
+  const ROWS_PER_DAY = (HOURS_END - HOURS_START) * SLOTS_PER_HOUR;
+
+  const DEFAULT_SETTINGS = { timezone: 'auto', clock: '24', weekStart: 'sun' };
+
+  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  const shade = (on) => on ? 'rgba(0,180,120,0.75)' : 'transparent';
+
+  function loadSettings() {
+    try { return { ...DEFAULT_SETTINGS, ...(JSON.parse(localStorage.getItem('nat20_settings')||'null')||{}) }; }
+    catch { return { ...DEFAULT_SETTINGS }; }
+  }
+  function resolveTimezone(val) {
+    if (!val || val === 'auto') return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+    return val;
+  }
+  function tzParts(tz, opts, d) { return new Intl.DateTimeFormat('en-US', { timeZone: tz, ...opts }).formatToParts(d); }
+  function tzOffsetMinutes(tz, date) {
+    const p = tzParts(tz, { year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false }, date);
+    const m = {}; for (const x of p) m[x.type] = x.value;
+    const asUTC = Date.UTC(+m.year, +m.month-1, +m.day, +m.hour, +m.minute, +m.second);
+    return Math.round((asUTC - date.getTime())/60000);
+  }
+  function epochFromZoned(y,m,d,hh,mm,tz) {
+    const guess = Date.UTC(y, m-1, d, hh, mm, 0, 0);
+    let off = tzOffsetMinutes(tz, new Date(guess));
+    let ts = guess - off*60000;
+    off = tzOffsetMinutes(tz, new Date(ts));
+    ts = guess - off*60000;
+    return Math.floor(ts/1000);
+  }
+  function ymdInTZ(date, tz) {
+    const p = tzParts(tz, { year:'numeric', month:'2-digit', day:'2-digit' }, date);
+    const m = {}; p.forEach(q => m[q.type]=q.value);
+    return { y:+m.year, m:+m.month, d:+m.day };
+  }
+  const todayYMD = (tz) => ymdInTZ(new Date(), tz);
+  function ymdAddDays(ymd, add) {
+    const t = new Date(Date.UTC(ymd.y, ymd.m - 1, ymd.d));
+    t.setUTCDate(t.getUTCDate() + add);
+    return { y: t.getUTCFullYear(), m: t.getUTCMonth()+1, d: t.getUTCDate() };
+  }
+  function weekdayIndexInTZ(sec, tz) {
+    const wd = new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday:'short' }).format(new Date(sec*1000));
+    return ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].indexOf(wd);
+  }
+  function fmtTime(h, m, hour12) {
+    if (hour12) {
+      const ampm = h >= 12 ? 'pm' : 'am';
+      let hr = h % 12; if (hr === 0) hr = 12;
+      return `${hr}:${String(m).padStart(2,'0')} ${ampm}`;
+    }
+    return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+  }
 
   class AvailabilityGrid extends HTMLElement {
     constructor() {
       super();
-      this._authed = false;
-      this._selected = new Set();
-      this._paintMode = 'add';
-      this._weekOffset = 0;
-
-      // settings defaults (same as original)
-      this.DEFAULTS = { timezone: 'auto', clock: '24', weekStart: 'sun', defaultZoom: 1.0 };
-      this.settings = { ...this.DEFAULTS };
-      this.tz = this._resolveTz(this.settings.timezone);
+      this.settings = loadSettings();
+      this.tz = resolveTimezone(this.settings.timezone);
       this.hour12 = this.settings.clock === '12';
       this.weekStartIdx = this.settings.weekStart === 'mon' ? 1 : 0;
 
-      // zoom
-      this.zoomFactor = 1.0;
-      this.ZOOM_MAX = 2.0;
-      this.ZOOM_STEP = 0.1;
-      this.zoomMinFit = 0.6;
+      this.weekOffset = 0;
+      this.isAuthenticated = (window.__authState && window.__authState.authenticated) || false;
+      this.username = (window.__authState && window.__authState.username) || null;
 
-      // drag
-      this.isDragging = false;
-      this.dragStart = null;
-      this.dragEnd = null;
-      this.dragHintEl = null;
+      this.slotSet = new Set();
+      this.dragging = null;
+      this.zoom = 1.0;
+
+      this._authListener = (e) => {
+        this.isAuthenticated = !!(e.detail && e.detail.authenticated);
+        this.username = e.detail && e.detail.username;
+        this.updateGating();
+      };
     }
 
     connectedCallback() {
       this.innerHTML = `
-        <div class="header-row">
-          <div class="week-and-help">
-            <span id="week-label"></span>
-            <span>Shift+Scroll = Vertical Zoom, Scroll = Pan</span>
+        <div id="grid" class="grid-wrap">
+          <div id="grid-content">
+            <table id="grid-table" class="grid-table"></table>
+            <div id="now-marker" class="now-marker" style="display:none;"></div>
           </div>
-          <div class="controls">
-            <button id="prev-week">Previous week</button>
-            <button id="next-week">Next week</button>
-            <button id="mode-add" class="active">Add</button>
-            <button id="mode-subtract">Subtract</button>
-            <button id="save">Save</button>
+          <div id="sign-in-gate" class="sign-in-gate" style="display:none;">
+            <div class="bubble">
+              <div class="bubble-title">Please sign in</div>
+              <div class="bubble-body">You need to login to edit and save your availability.</div>
+              <button id="bubble-login">Login</button>
+            </div>
           </div>
         </div>
 
-        <section id="grid" class="grid">
-          <div id="grid-content" class="grid-content">
-            <table id="schedule-table" class="table" aria-label="Weekly availability grid"></table>
+        <aside id="side" class="side">
+          <div class="panel">
+            <div class="row">
+              <button id="prev-week">← Prev</button>
+              <div id="week-label" class="week-label"></div>
+              <button id="next-week">Next →</button>
+            </div>
+            <div class="row">
+              <label><input type="radio" name="mode" value="add" checked> Add</label>
+              <label><input type="radio" name="mode" value="remove"> Remove</label>
+              <button id="save" title="Save this week">Save</button>
+            </div>
+            <div class="row small">Shift+wheel to zoom; drag to select.</div>
           </div>
-        </section>
-
-        <div id="signin-tooltip" class="signin-tooltip">Sign in to edit your availability</div>
+        </aside>
       `;
 
-      // cache
-      this.$ = (sel) => this.querySelector(sel);
-      this.table = this.$('#schedule-table');
-      this.grid = this.$('#grid');
-      this.gridContent = this.$('#grid-content');
-      this.weekLabel = this.$('#week-label');
+      this.addEventListener('wheel', (e) => {
+        if (!e.shiftKey) return;
+        e.preventDefault();
+        const delta = Math.sign(e.deltaY);
+        this.zoom = clamp(this.zoom - delta * 0.1, 0.7, 2.0);
+        this.applyZoom();
+      }, { passive: false });
 
-      // events
-      this.$('#prev-week').addEventListener('click', async () => {
-        if (!this._authed) return;
-        this._weekOffset -= 1;
-        await this._loadWeekSelections();
-        this._buildGrid();
-      });
-      this.$('#next-week').addEventListener('click', async () => {
-        if (!this._authed) return;
-        this._weekOffset += 1;
-        await this._loadWeekSelections();
-        this._buildGrid();
-      });
-      this.$('#mode-add').addEventListener('click', () => this._setMode('add'));
-      this.$('#mode-subtract').addEventListener('click', () => this._setMode('subtract'));
-      this.$('#save').addEventListener('click', () => this._saveWeek());
+      this.querySelector('#prev-week')?.addEventListener('click', () => { this.weekOffset -= 1; this.build(); this.loadWeek(); });
+      this.querySelector('#next-week')?.addEventListener('click', () => { this.weekOffset += 1; this.build(); this.loadWeek(); });
+      this.querySelector('#save')?.addEventListener('click', () => this.saveWeek());
+      this.querySelector('#bubble-login')?.addEventListener('click', () => window.openModal && window.openModal('../pages/login.html'));
 
-      // react to settings changes from other tabs/pages
-      window.addEventListener('storage', (e) => {
-        if (e.key !== 'nat20_settings') return;
-        const s = this._loadLocal();
-        if (!s) return;
-        this.settings = { ...this.DEFAULTS, ...s };
-        this.tz = this._resolveTz(this.settings.timezone);
-        this.hour12 = this.settings.clock === '12';
-        this.weekStartIdx = s.weekStart === 'mon' ? 1 : 0;
-        this._applyZoom();
-        this._buildGrid();
-      });
-
-      // auth from <page-shell>
-      this.closest('page-shell')?.addEventListener('authchange', (ev) => {
-        this.setAuth(ev.detail.authed);
-      });
-
-      // init from stored settings + server settings (kept identical to original)
-      this._init();
+      this.addEventListener('auth-changed', this._authListener);
+      this.build();
+      this.loadWeek();
+      this.updateGating();
+      this.bindRecalc();
     }
 
-    // ===== settings + time helpers (lifted from your availability_picker.js) =====
-    _resolveTz(val) { return (!val || val === 'auto') ? (Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC') : val; }
-    _loadLocal() { try { const raw = localStorage.getItem('nat20_settings'); return raw ? JSON.parse(raw) : null; } catch { return null; } }
-    async _fetchRemoteSettings() {
-      try { const r = await fetch('/settings', { credentials: 'include', cache: 'no-cache' }); if (r.ok) return await r.json(); } catch {}
-      return null;
+    disconnectedCallback() {
+      this.removeEventListener('auth-changed', this._authListener);
+      if (this._timer) { clearInterval(this._timer); this._timer = null; }
     }
-    _saveLocal(obj) {
-      localStorage.setItem('nat20_settings', JSON.stringify(obj));
-      window.dispatchEvent(new StorageEvent('storage', { key: 'nat20_settings', newValue: JSON.stringify(obj) }));
-    }
-    _tzOffsetMin(tzName, date) {
-      const parts = new Intl.DateTimeFormat('en-US',{ timeZone: tzName, hour12: false, year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit' }).formatToParts(date);
-      const m = {}; for (const p of parts) m[p.type] = p.value;
-      const asUTC = Date.UTC(+m.year, +m.month-1, +m.day, +m.hour, +m.minute, +m.second);
-      return Math.round((asUTC - date.getTime())/60000);
-    }
-    _epochFromZoned(y,m,d,hh,mm,tzName) {
-      const guess = Date.UTC(y,m-1,d,hh,mm,0,0);
-      let off = this._tzOffsetMin(tzName, new Date(guess));
-      let ts = guess - off*60000;
-      off = this._tzOffsetMin(tzName, new Date(ts));
-      ts = guess - off*60000;
-      return Math.floor(ts/1000);
-    }
-    _todayYMD() {
-      const parts = new Intl.DateTimeFormat('en-US',{ timeZone:this.tz, year:'numeric',month:'2-digit',day:'2-digit' }).formatToParts(new Date());
-      const m = {}; for (const p of parts) m[p.type] = p.value; return { y:+m.year, m:+m.month, d:+m.day };
-    }
-    _ymdAddDays(ymd, add) { const tmp = new Date(Date.UTC(ymd.y, ymd.m-1, ymd.d)); tmp.setUTCDate(tmp.getUTCDate()+add); return { y:tmp.getUTCFullYear(), m:tmp.getUTCMonth()+1, d:tmp.getUTCDate() }; }
-    _weekdayIndex(epochSec) {
-      const wd = new Intl.DateTimeFormat('en-US',{ timeZone:this.tz, weekday:'short' }).format(new Date(epochSec*1000));
-      return ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].indexOf(wd);
-    }
-    _formatHourLabel(h) {
-      if (this.hour12) { const hr = (h%12)||12; return `${hr} ${h<12?'AM':'PM'}`; }
-      return `${String(h).padStart(2,'0')}:00`;
-    }
-    _weekStartEpoch() {
-      const todayYMD = this._todayYMD();
-      const todayMid = this._epochFromZoned(todayYMD.y,todayYMD.m,todayYMD.d,0,0,this.tz);
-      const todayIdx = this._weekdayIndex(todayMid);
+
+    // ---- Build / paint ----
+    getWeekStart() {
+      const today = todayYMD(this.tz);
+      const todayMid = epochFromZoned(today.y, today.m, today.d, 0, 0, this.tz);
+      const todayIdx = weekdayIndexInTZ(todayMid, this.tz);
       const diff = (todayIdx - this.weekStartIdx + 7) % 7;
-      const baseYMD = this._ymdAddDays(todayYMD, -diff + this._weekOffset*7);
-      const baseEpoch = this._epochFromZoned(baseYMD.y, baseYMD.m, baseYMD.d, 0, 0, this.tz);
+      const baseYMD = ymdAddDays(today, -diff + this.weekOffset * 7);
+      const baseEpoch = epochFromZoned(baseYMD.y, baseYMD.m, baseYMD.d, 0, 0, this.tz);
       return { baseEpoch, baseYMD };
     }
+    dayStart(i) { return this.getWeekStart().baseEpoch + i * 86400; }
 
-    // ===== grid build (trimmed from your file, behavior identical) =====
-    _buildGrid() {
-      const SLOTS_PER_HOUR = 2, HOURS_START = 0, HOURS_END = 24, SLOT_SEC = 30*60;
-      this.table.innerHTML = '';
-      const { baseEpoch, baseYMD } = this._weekStartEpoch();
+    labelWeek() {
+      const { baseYMD } = this.getWeekStart();
+      const endYMD = ymdAddDays(baseYMD, 6);
+      const fmt = (ymd) => new Intl.DateTimeFormat('en-GB', { timeZone: this.tz, month: 'short', day: '2-digit' })
+        .format(new Date(Date.UTC(ymd.y, ymd.m - 1, ymd.d)));
+      this.querySelector('#week-label').textContent = `${fmt(baseYMD)} – ${fmt(endYMD)} (${this.tz})`;
+    }
 
-      // header
+    build() {
+      const table = this.querySelector('#grid-table');
+      table.innerHTML = '';
+      this.labelWeek();
+
       const thead = document.createElement('thead');
-      const tr = document.createElement('tr');
-      const th0 = document.createElement('th'); th0.className='time-col'; th0.textContent='Time'; tr.appendChild(th0);
-      const dayEpochs = [];
-      for (let i=0;i<7;i++){
-        const ymd = this._ymdAddDays(baseYMD, i);
-        const dayEpoch = this._epochFromZoned(ymd.y, ymd.m, ymd.d, 0, 0, this.tz);
-        dayEpochs.push({ymd, epoch: dayEpoch});
+      const trh = document.createElement('tr');
+      const thTime = document.createElement('th');
+      thTime.className = 'time-col';
+      thTime.textContent = 'Time';
+      trh.appendChild(thTime);
+
+      const { baseEpoch } = this.getWeekStart();
+      for (let i = 0; i < 7; i++) {
+        const d = new Date((baseEpoch + i * 86400) * 1000);
+        const label = new Intl.DateTimeFormat('en-GB', { timeZone: this.tz, weekday: 'short', day: '2-digit', month: 'short' }).format(d);
         const th = document.createElement('th');
-        th.textContent = new Intl.DateTimeFormat(undefined,{ timeZone:this.tz, weekday:'short', month:'short', day:'numeric' }).format(new Date(dayEpoch*1000));
-        tr.appendChild(th);
+        th.textContent = label;
+        th.className = 'day';
+        trh.appendChild(th);
       }
-      thead.appendChild(tr); this.table.appendChild(thead);
+      thead.appendChild(trh);
+      table.appendChild(thead);
 
-      // label
-      const endDate = new Date((baseEpoch + 6*86400)*1000);
-      const fmt = (dt)=>new Intl.DateTimeFormat(undefined,{ timeZone:this.tz, month:'short', day:'numeric' }).format(dt);
-      const y1 = new Intl.DateTimeFormat('en-US',{ timeZone:this.tz, year:'numeric'}).format(new Date(baseEpoch*1000));
-      const y2 = new Intl.DateTimeFormat('en-US',{ timeZone:this.tz, year:'numeric'}).format(endDate);
-      this.weekLabel.textContent = `${fmt(new Date(baseEpoch*1000))} – ${fmt(endDate)}, ${y1===y2?y1:`${y1}–${y2}`}`;
-
-      // body
       const tbody = document.createElement('tbody');
-      const totalRows = (HOURS_END - HOURS_START) * SLOTS_PER_HOUR;
-      const nowEpoch = Math.floor(Date.now()/1000);
-
-      for (let r=0;r<totalRows;r++){
+      for (let r = 0; r < ROWS_PER_DAY; r++) {
         const tr = document.createElement('tr');
 
-        if (r%2===0){
-          const hour = Math.floor(r/2)+HOURS_START;
-          const th = document.createElement('th'); th.className='time-col hour'; th.rowSpan=2;
-          th.textContent = this._formatHourLabel(hour);
+        if (r % 2 === 0) {
+          const minutes = (HOURS_START * 60) + r * SLOT_MIN;
+          const hh = Math.floor(minutes / 60);
+          const th = document.createElement('th');
+          th.className = 'time-col hour';
+          th.rowSpan = 2;
+          th.textContent = fmtTime(hh, 0, this.hour12);
           tr.appendChild(th);
         }
 
-        for (let c=0;c<7;c++){
-          const hour = Math.floor(r/2)+HOURS_START;
-          const half = (r%2)===1;
-          const ymd = dayEpochs[c].ymd;
-          const epoch = this._epochFromZoned(ymd.y, ymd.m, ymd.d, hour, half?30:0, this.tz);
-
+        for (let day = 0; day < 7; day++) {
           const td = document.createElement('td');
           td.className = 'slot-cell';
+          const epoch = (this.dayStart(day) + r * SLOT_SEC);
           td.dataset.epoch = String(epoch);
-          td.dataset.row = r; td.dataset.col = c;
-
-          if (this._selected.has(epoch)) td.classList.add('selected');
-          if (epoch < nowEpoch) td.classList.add('past');
-
-          td.addEventListener('mousedown', (e)=> {
-            if (!this._authed) return this._showSigninTooltip(e);
-            if (td.classList.contains('past')) return;
-            e.preventDefault(); this.isDragging = true;
-            this.dragStart = {row:r,col:c}; this.dragEnd = {row:r,col:c};
-            this._updatePreview(); this._showDragHint(e);
-          });
-          td.addEventListener('mouseenter', (e)=> {
-            if (!this._authed || !this.isDragging || td.classList.contains('past')) return;
-            this.dragEnd = {row:r,col:c};
-            this._updatePreview(); this._updateDragHint(e);
-          });
-          td.addEventListener('mouseup', ()=>{
-            if (!this._authed || !this.isDragging || td.classList.contains('past')) return;
-            this.dragEnd = {row:r,col:c};
-            this._applyBoxSelection(); this._clearPreview(); this._hideDragHint();
-            this.isDragging=false; this.dragStart=this.dragEnd=null;
-          });
-
+          td.addEventListener('mousedown', (e) => this.onMouseDown(e, epoch));
+          td.addEventListener('mouseenter', (e) => this.onMouseEnter(e, epoch));
+          td.addEventListener('mouseleave', () => this.hideTooltip());
           tr.appendChild(td);
         }
         tbody.appendChild(tr);
       }
-      this.table.appendChild(tbody);
+      table.appendChild(tbody);
 
-      document.addEventListener('mouseup', () => {
-        if (!this._authed) return;
-        if (this.isDragging) { this._applyBoxSelection(); this._clearPreview(); this._hideDragHint(); }
-        this.isDragging=false; this.dragStart=this.dragEnd=null;
-      });
-
-      this._setupZoomHandlers();
-      requestAnimationFrame(()=>this._fitZoomTo24h());
-      requestAnimationFrame(()=>this._updateNowMarker());
+      this.applySelectionPaint();
+      this.positionNow();
     }
 
-    // ===== selection & preview =====
-    _forEachCellInBox(fn) {
-      if (!this.dragStart || !this.dragEnd) return;
-      const r1 = Math.min(this.dragStart.row, this.dragEnd.row);
-      const r2 = Math.max(this.dragStart.row, this.dragEnd.row);
-      const c1 = Math.min(this.dragStart.col, this.dragEnd.col);
-      const c2 = Math.max(this.dragStart.col, this.dragEnd.col);
-      for (let r=r1;r<=r2;r++){
-        for (let c=c1;c<=c2;c++){
-          const cell = this.table.querySelector(`td.slot-cell[data-row="${r}"][data-col="${c}"]`);
-          if (cell && !cell.classList.contains('past')) fn(cell);
-        }
+    applySelectionPaint() {
+      const table = this.querySelector('#grid-table');
+      for (const td of table.querySelectorAll('td.slot-cell')) {
+        const epoch = +td.dataset.epoch;
+        td.style.setProperty('background-color', shade(this.slotSet.has(epoch)), 'important');
       }
     }
-    _updatePreview(){ this._clearPreview(); this._forEachCellInBox(cell => cell.classList.add(this._paintMode==='add'?'preview-add':'preview-sub')); }
-    _clearPreview(){ this.table.querySelectorAll('.preview-add,.preview-sub').forEach(el=>el.classList.remove('preview-add','preview-sub')); }
-    _applyBoxSelection(){
-      this._forEachCellInBox(cell => {
-        const epoch = +cell.dataset.epoch;
-        if (this._paintMode==='add'){ this._selected.add(epoch); cell.classList.add('selected'); }
-        else { this._selected.delete(epoch); cell.classList.remove('selected'); }
-      });
-    }
-    _setMode(m){ this._paintMode=m; this.querySelector('#mode-add').classList.toggle('active', m==='add'); this.querySelector('#mode-subtract').classList.toggle('active', m==='subtract'); }
 
-    // ===== save/load =====
-    _compressToIntervals(sortedEpochs) {
-      const SLOT_SEC = 1800; const out=[];
-      if (!sortedEpochs.length) return out;
-      let curFrom = sortedEpochs[0], prev = sortedEpochs[0];
-      for (let i=1;i<sortedEpochs.length;i++){ const t=sortedEpochs[i]; if (t===prev+SLOT_SEC) prev=t; else { out.push({from:curFrom,to:prev+SLOT_SEC}); curFrom=t; prev=t; } }
-      out.push({from:curFrom,to:prev+SLOT_SEC}); return out;
+    applyZoom() {
+      const base = 18;
+      const px = clamp(Math.round(base * this.zoom), 10, 42);
+      document.documentElement.style.setProperty('--row-height', `${px}px`);
+      this.positionNow();
     }
-    async _saveWeek(){
-      if (!this._authed) return;
-      const { baseEpoch, baseYMD } = this._weekStartEpoch();
-      const endYMD = this._ymdAddDays(baseYMD, 7);
-      const endEpoch = this._epochFromZoned(endYMD.y,endYMD.m,endYMD.d,0,0,this.tz);
-      const inside = Array.from(this._selected).filter(t => t>=baseEpoch && t<endEpoch).sort((a,b)=>a-b);
-      const intervals = this._compressToIntervals(inside);
+
+    bindRecalc() {
+      const content = this.querySelector('#grid-content');
+      content?.addEventListener('scroll', () => this.positionNow());
+      window.addEventListener('resize', () => this.positionNow());
+      this._timer = setInterval(() => this.positionNow(), 30000);
+    }
+
+    positionNow() {
+      const marker = this.querySelector('#now-marker');
+      const nowSec = Math.floor(Date.now() / 1000);
+      const { baseEpoch } = this.getWeekStart();
+      const endSec = baseEpoch + 7*86400;
+
+      if (nowSec < baseEpoch || nowSec >= endSec) {
+        marker.style.display = 'none';
+        return;
+      }
+      marker.style.display = 'block';
+
+      const secondsIntoWeek = nowSec - baseEpoch;
+      const dayIdx = Math.floor(secondsIntoWeek / 86400);
+      const secondsIntoDay = secondsIntoWeek - dayIdx * 86400;
+      const rowsIntoDay = secondsIntoDay / SLOT_SEC;
+
+      const thead = this.querySelector('thead');
+      const headerH = thead ? thead.offsetHeight : 0;
+      const rowH = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--row-height')) || 18;
+      marker.style.top = `${headerH + rowsIntoDay * rowH}px`;
+
+      const firstCell = this.querySelector(`tbody tr:first-child td.slot-cell:nth-child(${dayIdx + 2})`);
+      if (firstCell) {
+        marker.style.left = `${firstCell.offsetLeft}px`;
+        marker.style.width = `${firstCell.offsetWidth}px`;
+      }
+    }
+
+    // ---- Interaction ----
+    get mode() {
+      const v = this.querySelector('input[name="mode"]:checked')?.value;
+      return (v === 'remove') ? 'remove' : 'add';
+    }
+
+    onMouseDown(e, epoch) {
+      if (!this.isAuthenticated) return this.showGate();
+      this.dragging = (this.mode === 'remove') ? 'remove' : 'add';
+      this.toggleSlot(epoch, this.dragging === 'add');
+      this.applySelectionPaint();
+      const up = () => { this.dragging = null; window.removeEventListener('mouseup', up); };
+      window.addEventListener('mouseup', up);
+    }
+
+    onMouseEnter(e, epoch) {
+      if (this.dragging) {
+        this.toggleSlot(epoch, this.dragging === 'add');
+        this.applySelectionPaint();
+      }
+      const tip = this.ensureTip();
+      const end = epoch + SLOT_SEC;
+      const s = new Intl.DateTimeFormat('en-GB', { timeZone: this.tz, hour: '2-digit', minute: '2-digit', hour12: this.hour12 }).format(new Date(epoch*1000));
+      const e2 = new Intl.DateTimeFormat('en-GB', { timeZone: this.tz, hour: '2-digit', minute: '2-digit', hour12: this.hour12 }).format(new Date(end*1000));
+      tip.textContent = `${s} – ${e2}`;
+      tip.style.display = 'block';
+      tip.style.left = (e.clientX + 12) + 'px';
+      tip.style.top = (e.clientY + 14) + 'px';
+    }
+    hideTooltip() { const t = document.getElementById('cell-tooltip'); if (t) t.style.display = 'none'; }
+    ensureTip() {
+      let t = document.getElementById('cell-tooltip');
+      if (!t) {
+        t = document.createElement('div');
+        t.id = 'cell-tooltip';
+        t.className = 'tooltip';
+        document.body.appendChild(t);
+      }
+      return t;
+    }
+
+    toggleSlot(epoch, on) { if (on) this.slotSet.add(epoch); else this.slotSet.delete(epoch); }
+
+    // ---- Save / load ----
+    getRange() {
+      const { baseEpoch, baseYMD } = this.getWeekStart();
+      const endYMD = ymdAddDays(baseYMD, 7);
+      const endEpoch = epochFromZoned(endYMD.y, endYMD.m, endYMD.d, 0, 0, this.tz);
+      return { from: baseEpoch, to: endEpoch };
+    }
+
+    async saveWeek() {
+      if (!this.isAuthenticated) return this.showGate();
+      const { from, to } = this.getRange();
+      const intervals = [];
+      const arr = Array.from(this.slotSet).sort((a,b)=>a-b);
+      let i = 0;
+      while (i < arr.length) {
+        let s = arr[i], j = i + 1;
+        while (j < arr.length && arr[j] === arr[j-1] + SLOT_SEC) j++;
+        const e = arr[j-1] + SLOT_SEC;
+        intervals.push({ from: Math.max(s, from), to: Math.min(e, to) });
+        i = j;
+      }
       try {
         const res = await fetch('/availability/save', {
-          method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include',
-          body: JSON.stringify({ from:baseEpoch, to:endEpoch, intervals, sourceTimezone:this.tz })
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ from, to, intervals })
         });
-        if (!res.ok) { const txt = await res.text(); alert(`Save failed: ${res.status} ${txt}`); return; }
-        alert('Saved!');
-      } catch { alert('Connection error while saving'); }
+        if (!res.ok) throw new Error();
+        this.flash('Saved ✓');
+      } catch {
+        this.flash('Failed to save', true);
+      }
     }
-    async _loadWeekSelections(){
-      const { baseEpoch, baseYMD } = this._weekStartEpoch();
-      const endYMD = this._ymdAddDays(baseYMD, 7);
-      const endEpoch = this._epochFromZoned(endYMD.y,endYMD.m,endYMD.d,0,0,this.tz);
+
+    async loadWeek() {
+      const { from, to } = this.getRange();
       try {
-        const res = await fetch(`/availability/get?from=${baseEpoch}&to=${endEpoch}`, { credentials:'include', cache:'no-cache' });
-        if (!res.ok) return;
+        const res = await fetch('/availability/get', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ from, to })
+        });
+        if (!res.ok) throw new Error();
         const data = await res.json();
-        if (Array.isArray(data.intervals)) {
-          for (const t of Array.from(this._selected)) if (t>=baseEpoch && t<endEpoch) this._selected.delete(t);
-          for (const iv of data.intervals) {
-            for (let t=+iv.from; t<+iv.to; t+=1800) this._selected.add(t);
-          }
+        this.slotSet.clear();
+        for (const iv of (data.intervals || [])) {
+          let t = Math.ceil(iv.from / SLOT_SEC) * SLOT_SEC;
+          for (; t < iv.to; t += SLOT_SEC) this.slotSet.add(t);
         }
-      } catch {}
+      } catch {
+        this.slotSet.clear(); // not authed or nothing saved
+      }
+      this.applySelectionPaint();
     }
 
-    // ===== zoom & now-marker (vertical only) =====
-    _applyZoom(){
-      const baseRow = 18;
-      document.documentElement.style.setProperty('--row-height', `${(baseRow * this.zoomFactor).toFixed(2)}px`);
-      requestAnimationFrame(()=>this._updateNowMarker());
+    // ---- Gating / UI ----
+    showGate() {
+      const gate = this.querySelector('#sign-in-gate');
+      gate.style.display = 'block';
+      gate.classList.add('visible');
+      setTimeout(() => gate.classList.remove('visible'), 1600);
     }
-    _fitZoomTo24h(){
-      const baseRow=18; const thead=this.table.querySelector('thead'); const content=this.gridContent;
-      if (!thead || !content) return;
-      const available = Math.max(0, content.clientHeight - thead.offsetHeight - 2);
-      const needed = 48 * baseRow;
-      const zFit = Math.max(available/needed, 0.1);
-      this.zoomMinFit = Math.min(zFit, this.ZOOM_MAX);
-      this.zoomFactor = Math.max(this.zoomFactor, this.zoomMinFit);
-      this._applyZoom();
+    updateGating() {
+      const gate = this.querySelector('#sign-in-gate');
+      gate.style.display = this.isAuthenticated ? 'none' : 'block';
     }
-    _setupZoomHandlers(){
-      this.grid.addEventListener('wheel', (e)=>{
-        if (!e.shiftKey) return;
-        e.preventDefault();
-        const delta = Math.sign(e.deltaY);
-        this.zoomFactor = Math.max(this.zoomMinFit, Math.min(this.ZOOM_MAX, this.zoomFactor - delta*this.ZOOM_STEP));
-        this._applyZoom();
-      }, { passive:false });
-      window.addEventListener('resize', ()=>{ this._fitZoomTo24h(); this._updateNowMarker(); });
-    }
-    _ensureNowMarker(){
-      if (this.nowMarker && this.nowMarker.parentElement === this.gridContent) return;
-      if (this.nowMarker && this.nowMarker.parentElement) this.nowMarker.parentElement.removeChild(this.nowMarker);
-      this.nowMarker = document.createElement('div');
-      this.nowMarker.id='now-marker'; this.nowMarker.className='now-marker';
-      const bubble=document.createElement('span'); bubble.className='bubble'; bubble.textContent='now';
-      this.nowMarker.appendChild(bubble);
-      this.gridContent.appendChild(this.nowMarker);
-    }
-    _updateNowMarker(){
-      this._ensureNowMarker();
-      const { baseYMD } = this._weekStartEpoch();
-      const today = this._todayYMD();
-      const dayOffset = Math.round((Date.UTC(today.y,today.m-1,today.d)-Date.UTC(baseYMD.y,baseYMD.m-1,baseYMD.d))/86400000);
-      if (dayOffset < 0 || dayOffset > 6) { this.nowMarker.style.display='none'; return; }
-
-      const parts = new Intl.DateTimeFormat('en-US',{ timeZone:this.tz, hour12:false, hour:'2-digit', minute:'2-digit' }).formatToParts(new Date());
-      const hh = +parts.find(p=>p.type==='hour').value;
-      const mm = +parts.find(p=>p.type==='minute').value;
-
-      const rowIndex = hh*2 + (mm>=30?1:0);
-      const frac = (mm%30)/30;
-
-      const targetCell = this.table.querySelector(`td.slot-cell[data-col="${dayOffset}"][data-row="${rowIndex}"]`);
-      const colStartCell = this.table.querySelector(`td.slot-cell[data-col="${dayOffset}"][data-row="0"]`);
-      if (!targetCell || !colStartCell) { this.nowMarker.style.display='none'; return; }
-
-      const top = (this.table.offsetTop||0) + targetCell.offsetTop + (targetCell.offsetHeight*frac);
-      const left = (this.table.offsetLeft||0) + colStartCell.offsetLeft;
-      const width = colStartCell.offsetWidth;
-      Object.assign(this.nowMarker.style,{ display:'block', top:`${top}px`, left:`${left}px`, width:`${width}px` });
-    }
-
-    // ===== auth + hints =====
-    setAuth(ok){ this._authed = !!ok; }
-    _showSigninTooltip(e){ const tt=this.$('#signin-tooltip'); tt.style.display='block'; tt.style.left=(e.clientX+12)+'px'; tt.style.top=(e.clientY+14)+'px'; }
-    _updateDragHint(e){ if (!this.dragHintEl || this.dragHintEl.style.display!=='block') return; this.dragHintEl.textContent=this._currentDragRangeLabel(); this.dragHintEl.style.left=e.clientX+'px'; this.dragHintEl.style.top=e.clientY+'px'; }
-    _currentDragRangeLabel(){
-      if (!this.dragStart||!this.dragEnd) return '';
-      const SLOTS_PER_HOUR=2;
-      const rowToHM = (r)=>({ h:Math.floor(r/SLOTS_PER_HOUR), m:(r%SLOTS_PER_HOUR)*30 });
-      const fmt = (h,m)=> this.hour12 ? `${(h%12)||12}:${String(m).padStart(2,'0')} ${h<12?'AM':'PM'}` : `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
-      const r1=Math.min(this.dragStart.row,this.dragEnd.row), r2=Math.max(this.dragStart.row,this.dragEnd.row);
-      const a=rowToHM(r1), b=rowToHM(r2+1); return `${fmt(a.h,a.m)} – ${fmt(b.h,b.m)}`;
-    }
-    _ensureDragHint(){ if (this.dragHintEl) return; this.dragHintEl=document.createElement('div'); this.dragHintEl.className='drag-hint'; document.body.appendChild(this.dragHintEl); }
-    _showDragHint(e){ this._ensureDragHint(); this.dragHintEl.style.display='block'; this.dragHintEl.textContent=this._currentDragRangeLabel(); this.dragHintEl.style.left=e.clientX+'px'; this.dragHintEl.style.top=e.clientY+'px'; }
-    _hideDragHint(){ if (this.dragHintEl) this.dragHintEl.style.display='none'; }
-
-    // ===== init =====
-    async _init(){
-      const remote = await this._fetchRemoteSettings();
-      const local = this._loadLocal();
-      const s = remote || local || this.DEFAULTS;
-      this.settings = { ...this.DEFAULTS, ...s };
-      this.tz = this._resolveTz(this.settings.timezone);
-      this.hour12 = this.settings.clock === '12';
-      this.weekStartIdx = this.settings.weekStart === 'mon' ? 1 : 0;
-
-      const dz = (typeof this.settings.defaultZoom === 'number') ? this.settings.defaultZoom : 1.0;
-      this.zoomFactor = dz;
-      this._saveLocal(this.settings);
-
-      this._applyZoom();
-      await this._loadWeekSelections();
-      this._buildGrid();
-      setInterval(()=>this._updateNowMarker(), 60000);
+    flash(msg, isErr) {
+      let n = document.getElementById('toast');
+      if (!n) {
+        n = document.createElement('div');
+        n.id = 'toast';
+        n.className = 'toast';
+        document.body.appendChild(n);
+      }
+      n.textContent = msg;
+      n.classList.toggle('error', !!isErr);
+      n.style.display = 'block';
+      setTimeout(() => { n.style.display = 'none'; }, 1300);
     }
   }
 
-  if (!customElements.get('availability-grid')) customElements.define('availability-grid', AvailabilityGrid);
+  customElements.define('availability-grid', AvailabilityGrid);
 })();
