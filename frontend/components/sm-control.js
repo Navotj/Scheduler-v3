@@ -1,7 +1,7 @@
-// components/sm-controls.js
+// components/sm-control.js
 // Previous/Next buttons + helper, modular and movable.
 
-class SmControls extends HTMLElement {
+class SmControl extends HTMLElement {
   connectedCallback() {
     this.innerHTML = `
       <div class="panel controls-panel">
@@ -17,4 +17,4 @@ class SmControls extends HTMLElement {
     }
   }
 }
-customElements.define('sm-controls', SmControls);
+customElements.define('sm-control', SmControl);

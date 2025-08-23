@@ -190,7 +190,7 @@ tr.row-hour > td, tr.row-hour > th { border-top-width: 2px; border-top-color: va
 .results { max-height: calc(100vh - 220px); overflow: auto; padding-right: 6px; }
 .results .result {
   position: relative;
-  background: transparent;           /* NO fill */
+  background: transparent;
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 8px 10px 26px 10px;

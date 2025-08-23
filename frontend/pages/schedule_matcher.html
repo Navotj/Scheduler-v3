@@ -18,7 +18,7 @@
   <!-- Template (neutral) + components -->
   <script src="../templates/nat20-page.js"></script>
   <script src="../components/sm-grid.js"></script>
-  <script src="../components/sm-controls.js"></script>
+  <script src="../components/sm-control.js"></script>
   <script src="../components/sm-members.js"></script>
   <script src="../components/sm-filters.js"></script>
   <script src="../components/sm-results.js"></script>
@@ -33,7 +33,7 @@
   <!-- Page controller (existing scheduler logic) -->
   <script src="../scripts/schedule_matcher.js"></script>
 
-  <!-- Compose the page layout (no template columns) -->
+  <!-- Page layout -->
   <nat20-page title="Group Scheduler">
     <div id="sm-layout" class="sm-layout">
       <aside id="ads-panel" class="panel"><div class="muted">ADS</div></aside>
@@ -43,7 +43,7 @@
       </section>
 
       <aside id="mf-panel">
-        <sm-controls></sm-controls>
+        <sm-control></sm-control>
         <sm-members></sm-members>
         <sm-filters></sm-filters>
       </aside>

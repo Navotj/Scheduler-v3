@@ -22,16 +22,16 @@ html, body {
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
 
-/* Shared page padding/width wrapper */
+/* Shared page padding/width wrapper (force with !important to beat older rules) */
 .container {
-  width: min(var(--container-max, 1200px), 96vw);
-  margin: 16px auto 32px;
-  padding: 0 16px;
+  width: min(var(--container-max, 1200px), 96vw) !important;
+  margin: 16px auto 32px !important;
+  padding: 0 16px !important;
 }
 
-/* Generic bordered panels (no fill as requested) */
+/* Generic bordered panels (NO fill as requested) */
 .panel {
-  background: transparent;               /* ONLY border, no background */
+  background: transparent;
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 12px;
@@ -89,4 +89,4 @@ input[type="number"]::-webkit-inner-spin-button {
   input[type="number"] { -moz-appearance: textfield; }
 }
 
-/* absolutely NO .two-col anywhere */
+/* Absolutely NO .two-col anywhere */
