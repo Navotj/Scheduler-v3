@@ -1,264 +1,181 @@
 (function () {
-  'use strict';
+  // STRUCTURE: 48 ROWS (HALF-HOUR), 7 COLUMNS (DAYS) — matches original table behavior.
 
   const COLS = 7;
   const SLOTS_PER_HOUR = 2;
-  const HOURS_START = 0;
-  const HOURS_END = 24;
+  const HOURS = 24;
   const SLOT_SEC = 1800;
-
-  const ZOOM_STEP = 0.05;
-  const ZOOM_MIN = 0.7;
-  const ZOOM_MAX = 1.6;
-
-  let zoomFactor = 1.0;
-  let heatmapName = 'viridis';
-  let isAuthenticated = false;
-  let currentUsername = null;
-  let weekOffset = 0;
 
   const DEFAULT_SETTINGS = { timezone: 'auto', clock: '24', weekStart: 'sun', defaultZoom: 1.0, heatmap: 'viridis' };
   let settings = { ...DEFAULT_SETTINGS };
-  let tz = resolveTimezone(settings.timezone);
-  let hour12 = settings.clock === '12';
-  let weekStartIdx = settings.weekStart === 'mon' ? 1 : 0;
 
-  let table, grid, gridContent, resultsEl, resultsPanelEl, nowMarkerEl, controlsEl;
+  let tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  let hour12 = false;
+  let weekStartIdx = 0;
+  let zoomFactor = 1.0;
+  let weekOffset = 0;
 
-  const COLORMAPS = {
-    viridis:    [[0,'#440154'],[0.25,'#3b528b'],[0.5,'#21918c'],[0.75,'#5ec962'],[1,'#fde725']],
-    plasma:     [[0,'#0d0887'],[0.25,'#6a00a8'],[0.5,'#b12a90'],[0.75,'#e16462'],[1,'#fca636']],
-    cividis:    [[0,'#00204c'],[0.25,'#2c3e70'],[0.5,'#606c7c'],[0.75,'#9da472'],[1,'#f9e721']],
-    twilight:   [[0,'#1e1745'],[0.25,'#373a97'],[0.5,'#73518c'],[0.75,'#b06b6d'],[1,'#d3c6b9']]
-  };
+  let table, grid, gridContent, nowMarker;
 
-  function resolveTimezone(val) {
-    if (!val || val === 'auto') return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
-    return val;
-  }
+  // --- utils ---
   function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
-  function hexToRgb(h){ const x=parseInt(h.slice(1),16); return [x>>16&255,x>>8&255,x&255]; }
-  function rgbToCss([r,g,b]){ return `rgb(${r}, ${g}, ${b})`; }
-  function interpStops(stops, t) {
-    let a = stops[0][0], ca = hexToRgb(stops[0][1]);
-    for (let i = 1; i < stops.length; i++) {
-      const b = stops[i][0], cb = hexToRgb(stops[i][1]);
-      if (t <= b) {
-        const u = (t - a) / (b - a);
-        return [Math.round(ca[0] + (cb[0]-ca[0])*u), Math.round(ca[1] + (cb[1]-ca[1])*u), Math.round(ca[2] + (cb[2]-ca[2])*u)];
-      }
-      a = b; ca = cb;
-    }
-    return hexToRgb(stops[stops.length - 1][1]);
-  }
-  function colormapColor(t) {
-    const stops = COLORMAPS[heatmapName] || COLORMAPS.viridis;
-    const rgb = interpStops(stops, t);
-    return rgbToCss(rgb);
-  }
+  function fmtHour(h) { if (!hour12) return `${String(h).padStart(2,'0')}:00`; const t=(h%12)||12; return `${t} ${h<12?'AM':'PM'}`; }
 
-  function tzParts(dt) {
-    return new Intl.DateTimeFormat('en-GB', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }).formatToParts(dt).reduce((a,p)=> (a[p.type]=p.value, a), {});
+  function tzParts(dt, zone) {
+    return new Intl.DateTimeFormat('en-GB', { timeZone: zone, year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false })
+      .formatToParts(dt).reduce((a,p)=> (a[p.type]=p.value, a), {});
   }
-  function tzOffsetMinutes(date) {
-    const p = tzParts(date);
-    const asUTC = Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second);
+  function tzOffsetMinutes(zone, date) {
+    const p = tzParts(date, zone);
+    const asUTC = Date.UTC(+p.year, +p.month-1, +p.day, +p.hour, +p.minute, +p.second);
     return Math.round((asUTC - date.getTime())/60000);
   }
-  function epochFromZoned(y,m,d,hh,mm) {
+  function epochFromZoned(y,m,d,hh,mm,zone) {
     const guess = Date.UTC(y, m-1, d, hh, mm, 0, 0);
-    let off = tzOffsetMinutes(new Date(guess));
+    let off = tzOffsetMinutes(zone, new Date(guess));
     let ts = guess - off*60000;
-    off = tzOffsetMinutes(new Date(ts));
+    off = tzOffsetMinutes(zone, new Date(ts));
     ts = guess - off*60000;
     return Math.floor(ts/1000);
   }
-  function startOfThisWeek(epoch) {
+  function startOfWeek(epoch, zone, startIdx) {
     const d = new Date(epoch*1000);
-    const wd = new Intl.DateTimeFormat('en-GB', { timeZone: tz, weekday: 'short' }).format(d);
+    const wd = new Intl.DateTimeFormat('en-GB', { timeZone: zone, weekday:'short' }).format(d);
     const idx = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].indexOf(wd);
-    const delta = (weekStartIdx === 1) ? (idx + 6) % 7 : (idx + 7) % 7;
-    const p = tzParts(d);
-    return epochFromZoned(+p.year, +p.month, +p.day - delta, 0, 0);
+    const delta = (startIdx === 1) ? (idx + 6) % 7 : (idx + 7) % 7;
+    const p = tzParts(d, zone);
+    return epochFromZoned(+p.year, +p.month, +p.day - delta, 0, 0, zone);
   }
-  function getWeekStartEpoch() {
+  function getWeekStart() {
     const now = Math.floor(Date.now()/1000);
-    return startOfThisWeek(now) + weekOffset*7*86400;
+    return startOfWeek(now, tz, weekStartIdx) + weekOffset*7*86400;
   }
-  function formatHourLabel(h) {
-    if (hour12) { const hh = (h%12)||12; return `${hh} ${h<12?'AM':'PM'}`; }
-    return `${String(h).padStart(2,'0')}:00`;
-  }
+  function formatHour(h){ return fmtHour(h); }
 
+  // --- table ---
   function buildTable() {
     table.innerHTML = '';
 
     const thead = document.createElement('thead');
     const trh = document.createElement('tr');
+    const th0 = document.createElement('th'); th0.textContent = 'Time'; trh.appendChild(th0);
 
-    const thTime = document.createElement('th');
-    thTime.textContent = 'Time';
-    trh.appendChild(thTime);
-
-    const days = (weekStartIdx === 1)
-      ? ['Mon','Tue','Wed','Thu','Fri','Sat','Sun']
-      : ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-
-    for (const d of days) {
-      const th = document.createElement('th');
-      th.textContent = d;
-      trh.appendChild(th);
-    }
-    thead.appendChild(trh);
-    table.appendChild(thead);
+    const days = weekStartIdx === 1 ? ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'] : ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    for (const d of days) { const th = document.createElement('th'); th.textContent = d; trh.appendChild(th); }
+    thead.appendChild(trh); table.appendChild(thead);
 
     const tbody = document.createElement('tbody');
 
-    for (let h = HOURS_START; h < HOURS_END; h++) {
-      const tr = document.createElement('tr');
-      const th = document.createElement('th');
-      th.textContent = formatHourLabel(h);
-      tr.appendChild(th);
+    for (let h = 0; h < HOURS; h++) {
+      for (let s = 0; s < SLOTS_PER_HOUR; s++) {
+        const tr = document.createElement('tr');
 
-      for (let day = 0; day < COLS; day++) {
-        for (let s = 0; s < SLOTS_PER_HOUR; s++) {
+        const th = document.createElement('th');
+        th.textContent = (s === 0) ? formatHour(h) : '';
+        tr.appendChild(th);
+
+        for (let day = 0; day < COLS; day++) {
           const td = document.createElement('td');
           td.dataset.day = String(day);
           td.dataset.slot = String(h * SLOTS_PER_HOUR + s);
           tr.appendChild(td);
         }
+        tbody.appendChild(tr);
       }
-      tbody.appendChild(tr);
     }
     table.appendChild(tbody);
   }
 
-  function applyZoomStyles() {
-    const base = 18;
-    const px = clamp(Math.round(base * zoomFactor), 10, 42);
-    document.documentElement.style.setProperty('--row-height', px + 'px');
-    positionNowMarker();
+  // --- now marker ---
+  function updateNowMarker() {
+    if (!nowMarker) return;
+    const start = getWeekStart();
+    const now = Math.floor(Date.now()/1000);
+    if (now < start || now >= start + 7*86400) { nowMarker.style.display = 'none'; return; }
+    const rel = now - start;
+    const minuteOfDay = Math.floor(rel % 86400 / 60);
+    const rowH = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--row-height')) || 18;
+    const rowIndex = Math.floor(minuteOfDay / 30) + (minuteOfDay % 30) / 30;
+    nowMarker.style.setProperty('--rowpx', `${rowIndex * rowH}px`);
+    nowMarker.style.display = 'block';
   }
 
-  function setupZoomHandlers() {
-    if (!grid) grid = document.getElementById('grid');
+  // --- zoom ---
+  function applyZoom() {
+    const base = 18;
+    const px = clamp(base * zoomFactor, 12, 42);
+    document.documentElement.style.setProperty('--row-height', `${px}px`);
+    updateNowMarker();
+  }
+  function installZoom() {
     if (!grid) return;
     grid.addEventListener('wheel', (e) => {
       if (!e.shiftKey) return;
       e.preventDefault();
-      const delta = Math.sign(e.deltaY);
-      zoomFactor = clamp(zoomFactor - delta * ZOOM_STEP, ZOOM_MIN, ZOOM_MAX);
-      applyZoomStyles();
+      zoomFactor = clamp(zoomFactor + (e.deltaY < 0 ? 0.05 : -0.05), 0.7, 1.6);
+      applyZoom();
     }, { passive: false });
   }
 
-  function positionNowMarker() {
-    if (!nowMarkerEl) return;
-    const nowSec = Math.floor(Date.now() / 1000);
-    const baseEpoch = getWeekStartEpoch();
-    const endSec = baseEpoch + 7 * 86400;
-
-    if (nowSec < baseEpoch || nowSec > endSec) { nowMarkerEl.style.display = 'none'; return; }
-
-    const rel = nowSec - baseEpoch;
-    const day = Math.floor(rel / 86400);
-    const secOfDay = rel % 86400;
-    const hourFrac = secOfDay / 3600;
-
-    const rowHeight = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--row-height')) || 18;
-    const rowPx = hourFrac * rowHeight;
-
-    nowMarkerEl.style.setProperty('--rowpx', `${rowPx}px`);
-    nowMarkerEl.style.setProperty('--col', String(day));
-    nowMarkerEl.style.display = 'block';
-  }
-
-  function installNowTick() {
-    positionNowMarker();
-    setInterval(positionNowMarker, 30000);
-  }
-
+  // --- heatmap (placeholder, paints if server provides) ---
   function paintHeatmap(values) {
     if (!Array.isArray(values) || values.length !== 7) return;
     const max = Math.max(1, ...values.flat());
     table.querySelectorAll('td').forEach(td => {
-      const day = Number(td.dataset.day);
-      const slot = Number(td.dataset.slot);
+      const day = +td.dataset.day, slot = +td.dataset.slot;
       const v = values[day]?.[slot] ?? 0;
-      const norm = v / max;
-      td.style.background = v > 0 ? colormapColor(norm) : '';
+      td.style.background = v > 0 ? `rgba(92, 186, 125, ${Math.min(1, 0.15 + 0.85 * (v / max))})` : '';
     });
   }
-
-  async function fetchMembers() {
+  async function fetchHeatmap(start, end) {
     try {
-      const r = await fetch('/groups/members', { credentials: 'include', cache: 'no-store' });
-      if (!r.ok) return [];
-      const j = await r.json().catch(()=>[]);
-      return Array.isArray(j) ? j : [];
-    } catch { return []; }
-  }
-  async function fetchHeatmap(startEpoch, endEpoch) {
-    try {
-      const r = await fetch('/groups/heatmap', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        credentials: 'include', cache: 'no-store',
-        body: JSON.stringify({ start: startEpoch, end: endEpoch })
-      });
+      const r = await fetch('/groups/heatmap', { method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include', body: JSON.stringify({ start, end }) });
       if (!r.ok) return null;
       const j = await r.json().catch(()=>null);
       return j && (j.values || j);
     } catch { return null; }
   }
 
-  async function renderWeek() {
-    const startEpoch = getWeekStartEpoch();
-    const heat = await fetchHeatmap(startEpoch, startEpoch + 7*86400);
-    if (heat) paintHeatmap(heat);
-    positionNowMarker();
+  async function render() {
+    buildTable();
+    const start = getWeekStart();
+    const end = start + 7*86400;
+    try {
+      const values = await fetchHeatmap(start, end);
+      if (values) paintHeatmap(values);
+    } catch {}
+    updateNowMarker();
   }
 
-  function setAuth(authenticated, username) {
-    isAuthenticated = !!authenticated;
-    currentUsername = authenticated ? username : null;
-  }
-  window.scheduler = { setAuth };
-
+  // --- boot ---
   async function init() {
     table = document.getElementById('scheduler-table');
     grid = document.getElementById('grid');
     gridContent = document.getElementById('grid-content');
-    nowMarkerEl = document.getElementById('now-marker');
-    resultsEl = document.getElementById('results');
-    resultsPanelEl = document.getElementById('results-panel');
-    controlsEl = document.getElementById('controls');
+    nowMarker = document.getElementById('now-marker');
 
+    // settings
     try {
-      const localRaw = localStorage.getItem('nat20_settings');
-      if (localRaw) settings = { ...settings, ...JSON.parse(localRaw) };
-      const r = await fetch('/settings', { credentials: 'include', cache: 'no-store' });
-      if (r.ok) settings = { ...settings, ...(await r.json().catch(()=>({}))) };
+      const local = JSON.parse(localStorage.getItem('nat20_settings') || '{}');
+      settings = { ...settings, ...local };
+      const r = await fetch('/settings', { credentials:'include', cache:'no-store' });
+      if (r.ok) Object.assign(settings, await r.json().catch(()=>({})));
     } catch {}
-    tz = resolveTimezone(settings.timezone);
+    tz = (settings.timezone && settings.timezone !== 'auto') ? settings.timezone : (Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC');
     hour12 = settings.clock === '12';
     weekStartIdx = settings.weekStart === 'mon' ? 1 : 0;
-    heatmapName = settings.heatmap || 'viridis';
     zoomFactor = Number(settings.defaultZoom || 1.0);
-    applyZoomStyles();
 
-    document.getElementById('prev-week').addEventListener('click', async () => { weekOffset--; buildTable(); await renderWeek(); });
-    document.getElementById('next-week').addEventListener('click', async () => { weekOffset++; buildTable(); await renderWeek(); });
+    applyZoom();
+    installZoom();
 
-    setupZoomHandlers();
+    document.getElementById('prev-week')?.addEventListener('click', () => { weekOffset--; render(); });
+    document.getElementById('next-week')?.addEventListener('click', () => { weekOffset++; render(); });
 
-    buildTable();
-    await renderWeek();
-    installNowTick();
+    render();
+    setInterval(updateNowMarker, 30000);
   }
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
-  } else {
-    init();
-  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
 })();

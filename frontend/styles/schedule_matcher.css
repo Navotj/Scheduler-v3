@@ -1,19 +1,20 @@
 :root {
-  --row-height: 18px;
+  --row-height: 18px;              /* height of each HALF-HOUR row */
   --font-size: 12px;
   --line: #2b2b2b;
   --line-strong: #3a3a3a;
   --control-height: 32px;
   --timecol-width: 76px;
   --grid-pad: 8px;
-  --topbar-height: 56px;
+  --topbar-height: 40px;
   --vh: 100vh;
 }
 @supports (height: 100dvh) { :root { --vh: 100dvh; } }
 @supports (height: 100svh) { :root { --vh: 100svh; } }
 
-.page-shell { width: min(var(--container-max, 1600px), 96vw); margin: 16px auto 40px; padding: 0 16px; }
+.page-shell { width: min(var(--container-max, 1600px), 96vw); margin: 16px auto 40px; padding: 0 var(--gutter, 16px); }
 
+/* controls */
 .controls { display:flex; gap:8px; align-items:center; height:var(--control-height); margin: 6px 0 8px; }
 
 /* grid */
@@ -27,51 +28,47 @@
 }
 .grid-content { position: relative; height: calc(var(--vh) - var(--topbar-height) - 180px); overflow: auto; padding: var(--grid-pad); }
 
-/* table */
-.table { width: 100%; border-collapse: collapse; font-size: var(--font-size); }
+/* table (identical structure to availability picker) */
+.table { width: 100%; border-collapse: collapse; font-size: var(--font-size); table-layout: fixed; }
 .table thead th, .table tbody th { position: sticky; z-index: 10; background: #151618; }
 .table thead th { top: 0; border-bottom: 1px solid var(--line-strong); }
 .table tbody th { left: 0; text-align: right; padding-right: 8px; border-right: 1px solid var(--line-strong); background: #151618; width: var(--timecol-width); }
 .table th, .table td { padding: 0; }
-.table td { width: calc((100% - var(--timecol-width)) / 7); height: var(--row-height); border: 1px solid var(--line); border-top: none; border-left: none; }
-.table tr:first-child td { border-top: 1px solid var(--line); }
-.table td:nth-child(odd) { background: #16181b; }
-.table td:nth-child(even) { background: #15171a; }
+.table td { width: calc((100% - var(--timecol-width)) / 7); height: var(--row-height); border-left: 1px solid var(--line); border-bottom: 1px solid var(--line); background: #141619; }
+.table tr td:first-child { border-left: none; }
+.table tbody tr:nth-child(2n+1) td, .table tbody tr:nth-child(2n+1) th { border-bottom-color: var(--line-strong); }
 
-/* now marker */
+/* now marker (blue) */
 .now-marker {
-  position: absolute; top: calc(var(--grid-pad) + 20px);
-  left: calc(var(--grid-pad) + var(--timecol-width));
+  position: absolute;
+  top: var(--grid-pad);
+  left: var(--grid-pad);
   right: var(--grid-pad);
-  height: calc(100% - 40px);
+  bottom: var(--grid-pad);
   pointer-events: none;
 }
 .now-marker::before {
   content: '';
   position: absolute;
-  top: var(--rowpx);
-  left: calc((var(--col)) * (100% / 7));
-  width: calc(100% / 7);
+  top: calc(20px + var(--rowpx));
+  left: calc(var(--timecol-width) + 0px);
+  right: 0;
   height: 0;
-  border-top: 2px solid rgba(138,180,255,.8);
+  border-top: 2px solid rgba(138,180,255,.85);
   box-shadow: 0 0 8px rgba(138,180,255,.45);
 }
 .now-marker .bubble {
   position: absolute;
-  top: calc(var(--rowpx) - 10px);
-  right: 4px;
+  top: calc(12px + var(--rowpx));
+  right: 8px;
   padding: 0 6px; height: 16px; line-height: 16px; font-size: 10px;
   background: #1a1c1f; border: 1px solid #2a2d33; border-radius: 6px;
   color: #cfd3d8;
 }
 
-/* panels below grid */
+/* panels (kept minimal for your upcoming redesign) */
 .panel { margin-top: 12px; border: 1px solid #2a2d33; border-radius: 10px; padding: 12px; }
-.member-list { list-style: none; padding: 0; margin: 0; }
+.member-list { list-style:none; padding:0; margin:0; }
 .member-list li { margin: 6px 0; }
 .error-text { color: #f66; min-height: 1.2em; }
 .results .result { padding: 6px 8px; border-bottom: 1px solid #2a2d33; }
-
-/* tooltip */
-.cell-tooltip { position: fixed; z-index: 2000; display: none; padding: 6px 8px; font-size: 12px;
-  background: #1a1c1f; border: 1px solid #2a2d33; border-radius: 8px; color: #e7e7ea; box-shadow: 0 10px 24px rgba(0,0,0,0.35); }

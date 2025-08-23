@@ -1,5 +1,5 @@
 :root {
-  --row-height: 18px;
+  --row-height: 18px;              /* height of each HALF-HOUR row */
   --font-size: 12px;
   --line: #2b2b2b;
   --line-strong: #3a3a3a;
@@ -31,7 +31,7 @@
 }
 .legend-labels { display:grid; grid-template-columns: repeat(12, 1fr); color: #a0a6ad; font-size: 12px; }
 
-/* grid */
+/* grid container */
 .grid {
   position: relative;
   border: 1px solid #2a2d33;
@@ -41,55 +41,52 @@
   width: 100%;
 }
 
-/* grid scroll area */
+/* scroll area */
 .grid-content { position: relative; height: calc(var(--vh) - var(--topbar-height) - 160px); overflow: auto; padding: var(--grid-pad); }
 
 /* table */
-.table { width: 100%; border-collapse: collapse; font-size: var(--font-size); }
+.table { width: 100%; border-collapse: collapse; font-size: var(--font-size); table-layout: fixed; }
 .table thead th, .table tbody th { position: sticky; z-index: 10; background: #151618; }
 .table thead th { top: 0; border-bottom: 1px solid var(--line-strong); }
 .table tbody th { left: 0; text-align: right; padding-right: 8px; border-right: 1px solid var(--line-strong); background: #151618; width: var(--timecol-width); }
 .table th, .table td { padding: 0; }
 
-/* hour rows / half-hour cells */
-.table td { width: calc((100% - var(--timecol-width)) / 7); height: var(--row-height); border: 1px solid var(--line); border-top: none; border-left: none; }
-.table tr:first-child td { border-top: 1px solid var(--line); }
-.table td:nth-child(odd) { background: #16181b; }
-.table td:nth-child(even) { background: #15171a; }
+/* exactly 7 day columns; each row is a HALF-HOUR */
+.table td { width: calc((100% - var(--timecol-width)) / 7); height: var(--row-height); border-left: 1px solid var(--line); border-bottom: 1px solid var(--line); background: #141619; }
+.table tr td:first-child { border-left: none; }
+.table tbody tr:nth-child(2n+1) td, .table tbody tr:nth-child(2n+1) th { border-bottom-color: var(--line-strong); } /* stronger hour line */
 
-/* selection & marks */
+/* selection */
 .table td.marked { background-image: linear-gradient(180deg, rgba(80,200,120,.25), rgba(80,200,120,.15)); box-shadow: inset 0 0 0 1px rgba(80,200,120,.35); }
 .table td.selecting { outline: 2px dashed rgba(138,180,255,.5); outline-offset: -2px; }
 
-/* now marker */
+/* now marker (blue) */
 .now-marker {
-  position: absolute; top: calc(var(--grid-pad) + 20px);
-  left: calc(var(--grid-pad) + var(--timecol-width));
+  position: absolute;
+  top: var(--grid-pad);
+  left: var(--grid-pad);
   right: var(--grid-pad);
-  height: calc(100% - 40px);
+  bottom: var(--grid-pad);
   pointer-events: none;
 }
 .now-marker::before {
   content: '';
   position: absolute;
-  top: var(--rowpx);
-  left: calc((var(--col) + 1) * (100% / 8));
-  width: calc(100% / 8);
+  top: calc(20px + var(--rowpx)); /* 20px ≈ thead height inside scrollable grid */
+  left: calc(var(--timecol-width) + 0px);
+  right: 0;
   height: 0;
-  border-top: 2px solid rgba(138,180,255,.8);
+  border-top: 2px solid rgba(138,180,255,.85);
   box-shadow: 0 0 8px rgba(138,180,255,.45);
 }
 .now-marker .bubble {
   position: absolute;
-  top: calc(var(--rowpx) - 10px);
-  right: 4px;
+  top: calc(12px + var(--rowpx));
+  right: 8px;
   padding: 0 6px; height: 16px; line-height: 16px; font-size: 10px;
   background: #1a1c1f; border: 1px solid #2a2d33; border-radius: 6px;
   color: #cfd3d8;
 }
 
 /* signin tooltip */
-.signin-tooltip {
-  margin-top: 8px;
-  color: #9aa0a6;
-}
+.signin-tooltip { margin-top: 8px; color: #9aa0a6; }
