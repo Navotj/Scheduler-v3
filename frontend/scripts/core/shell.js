@@ -1,4 +1,4 @@
-/* NAT20 — page skeleton, topbar + hamburger nav + modal + auth */
+/* NAT20 — shared page skeleton: topbar + hamburger nav + modal + auth state */
 (function () {
   'use strict';
 
@@ -11,10 +11,10 @@
       else if (k.startsWith('on') && typeof v === 'function') n.addEventListener(k.slice(2), v);
       else n.setAttribute(k, v);
     }
-    for (const c of children) n.append(c.nodeType ? c : document.createTextNode(String(c)));
+    for (const c of children) n.append(c && c.nodeType ? c : document.createTextNode(String(c ?? '')));
     return n;
   }
-  function svg(pathD) {
+  function svgPath(d) {
     const s = document.createElementNS('http://www.w3.org/2000/svg','svg');
     s.setAttribute('viewBox','0 0 24 24');
     s.setAttribute('fill','none');
@@ -23,95 +23,93 @@
     s.setAttribute('stroke-linecap','round');
     s.setAttribute('stroke-linejoin','round');
     const p = document.createElementNS('http://www.w3.org/2000/svg','path');
-    p.setAttribute('d', pathD);
+    p.setAttribute('d', d);
     s.appendChild(p);
     return s;
   }
+  const ICON = {
+    home: () => svgPath('M3 9l9-7 9 7v11a2 2 0 0 1-2 2h-5V12H10v10H5a2 2 0 0 1-2-2z'),
+    calendar: () => svgPath('M7 2v4M17 2v4M3 8h18M5 8V6a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v2M5 8v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8M8 12h3M13 12h3M8 16h8'),
+    search: () => svgPath('M21 21l-4.3-4.3M10 18a8 8 0 1 1 0-16 8 8 0 0 1 0 16'),
+    settings: () => svgPath('M12 3l1.2 2.4 2.6.4-1.9 1.9.5 2.6-2.4-1.2-2.4 1.2.5-2.6L8.2 5.8l2.6-.4L12 3zM4 14a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm16-2a2 2 0 1 0 .001 4.001A2 2 0 0 0 20 12z'),
+    user: () => svgPath('M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0'),
+    login: () => svgPath('M15 3h6v18h-6M10 17l5-5-5-5M15 12H3'),
+    logout: () => svgPath('M21 12H9M13 7l-5 5 5 5M15 3h6v18h-6')
+  };
 
-  // ---------- Insert modal host (once) ----------
+  // ---------- Modal host ----------
   function ensureModalHost() {
     if (document.getElementById('modal-overlay')) return;
     document.body.append(
-      el('div', { id: 'modal-overlay', role: 'dialog', 'aria-modal': 'true' },
+      el('div', { id: 'modal-overlay', role: 'dialog', 'aria-modal': 'true', style: 'display:none' },
         el('div', { id: 'modal-container' })
       )
     );
   }
 
-  // ---------- Modal API (fetch + extract content) ----------
-  function attachModalApi() {
-    function pickContent(doc) {
-      return doc.querySelector('[data-modal-root]') ||
-             doc.getElementById('settings-panel') ||
-             doc.querySelector('main') ||
-             doc.body;
-    }
-    async function fetchHtml(path) {
-      const res = await fetch(path, { cache: 'no-store', credentials: 'include' });
-      const text = await res.text();
-      const parser = new DOMParser();
-      const doc = parser.parseFromString(text, 'text/html');
-      return pickContent(doc).innerHTML;
-    }
-    async function openModal(path) {
-      ensureModalHost();
-      const overlay = document.getElementById('modal-overlay');
-      const box = document.getElementById('modal-container');
-      box.innerHTML = await fetchHtml(path);
-
-      // lazily attach settings CSS when opening settings
-      if (/settings\.html$/.test(path) && !document.getElementById('settings-css')) {
-        const link = el('link', { id: 'settings-css', rel: 'stylesheet', href: '/styles/settings.css' });
-        document.head.append(link);
-      }
-
-      document.body.classList.add('modal-active');
-      overlay.style.display = 'flex';
-      runModalInit(path);
-    }
-    async function swapModal(path) {
-      const box = document.getElementById('modal-container');
-      box.innerHTML = await fetchHtml(path);
-      runModalInit(path);
-    }
-    function closeModal() {
-      const overlay = document.getElementById('modal-overlay');
-      if (!overlay) return;
-      overlay.style.display = 'none';
-      document.body.classList.remove('modal-active');
-      document.getElementById('modal-container').innerHTML = '';
-    }
-
-    // expose
-    window.openModal = openModal;
-    window.swapModal = swapModal;
-    window.closeModal = closeModal;
+  // ---------- Modal API ----------
+  function pickModalContent(doc) {
+    return doc.querySelector('[data-modal-root]') ||
+           doc.getElementById('settings-panel') ||
+           doc.querySelector('main') ||
+           doc.body;
   }
+  async function fetchHtml(path) {
+    const res = await fetch(path, { cache: 'no-store', credentials: 'include' });
+    const text = await res.text();
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(text, 'text/html');
+    return pickModalContent(doc).innerHTML;
+  }
+  async function openModal(path) {
+    ensureModalHost();
+    const overlay = document.getElementById('modal-overlay');
+    const box = document.getElementById('modal-container');
+    box.innerHTML = await fetchHtml(path);
+
+    if (/settings\.html$/.test(path) && !document.getElementById('settings-css')) {
+      const link = el('link', { id: 'settings-css', rel: 'stylesheet', href: '/styles/settings.css' });
+      document.head.append(link);
+    }
+
+    document.body.classList.add('modal-active');
+    overlay.style.display = 'flex';
+    runModalInit(path);
+  }
+  async function swapModal(path) {
+    const box = document.getElementById('modal-container');
+    box.innerHTML = await fetchHtml(path);
+    runModalInit(path);
+  }
+  function closeModal() {
+    const overlay = document.getElementById('modal-overlay');
+    if (!overlay) return;
+    overlay.style.display = 'none';
+    document.body.classList.remove('modal-active');
+    document.getElementById('modal-container').innerHTML = '';
+  }
+  window.openModal = openModal;
+  window.swapModal = swapModal;
+  window.closeModal = closeModal;
 
   // ---------- Topbar + hamburger ----------
+  let menu, burger, whoamiEl;
   function mountTopbar() {
     if (document.querySelector('.topbar')) return;
 
     const brand = el('div', { class: 'brand', onclick: () => (window.location.href = '/index.html') },
       el('span', { class: 'logo' }), 'NAT20 Scheduling'
     );
-    const whoami = el('span', { class: 'whoami', id: 'whoami' }, '');
+    whoamiEl = el('span', { class: 'whoami', id: 'whoami' }, '');
 
-    const burger = el('button', { class: 'hamburger', 'aria-label': 'Menu', 'aria-expanded': 'false' },
-      svg('M3 6h18M3 12h18M3 18h18')
+    burger = el('button', { class: 'hamburger', 'aria-label': 'Menu', 'aria-expanded': 'false' },
+      svgPath('M3 6h18M3 12h18M3 18h18')
     );
 
-    const bar = el('header', { class: 'topbar' }, brand, el('div', {}, whoami, burger));
+    const bar = el('header', { class: 'topbar' }, brand, el('div', {}, whoamiEl, burger));
     document.body.prepend(bar);
 
-    const menu = el('div', { class: 'nav-panel', id: 'nav-panel' },
-      navItem('Home', svg('M3 9l9-7 9 7v11a2 2 0 0 1-2 2h-5V12H10v10H5a2 2 0 0 1-2-2z'), () => go('/index.html')),
-      navItem('Availability', svg('M3 4h18M8 2v4M16 2v4M3 8h18M7 11h5M7 16h10'), () => go('/pages/availability_picker.html')),
-      navItem('Group Scheduler', svg('M3 12h18M3 18h18M6 6h12'), () => go('/pages/schedule_matcher.html')),
-      navItem('Settings', svg('M12 1l2 3 3 .5-2 2 .5 3-3-.5-2 2-2-2-3 .5.5-3-2-2 3-.5z'), () => openModal('/pages/settings.html')),
-      navItem('Login', svg('M15 3h6v18h-6M10 17l5-5-5-5M15 12H3'), () => openModal('/pages/login.html')),
-      navItem('Register', svg('M12 2a5 5 0 1 1 0 10 5 5 0 0 1 0-10zM3 22a9 9 0 0 1 18 0'), () => openModal('/pages/register.html'))
-    );
+    menu = el('div', { class: 'nav-panel', id: 'nav-panel' });
     document.body.append(menu);
 
     burger.addEventListener('click', () => {
@@ -127,17 +125,51 @@
       }
     });
 
-    function navItem(label, icon, onClick) {
-      const item = el('div', { class: 'nav-item' }, icon, el('span', {}, label));
-      item.addEventListener('click', onClick);
-      return item;
-    }
-    function go(path) { window.location.href = path; }
+    populateMenu(); // initial
   }
+
+  function navItem(label, iconFn, onClick) {
+    const item = el('div', { class: 'nav-item' }, iconFn(), el('span', {}, label));
+    item.addEventListener('click', onClick);
+    return item;
+  }
+
+  function populateMenu() {
+    if (!menu) return;
+    menu.innerHTML = '';
+    menu.append(
+      navItem('Home', ICON.home, () => go('/index.html')),
+      navItem('Availability', ICON.calendar, () => go('/pages/availability_picker.html')),
+      navItem('Group Scheduler', ICON.search, () => go('/pages/schedule_matcher.html')),
+      navItem('Settings', ICON.settings, () => openModal('/pages/settings.html')),
+      ...(isAuthenticated
+        ? [navItem('Logout', ICON.logout, doLogout)]
+        : [
+            navItem('Login', ICON.login, () => openModal('/pages/login.html')),
+            navItem('Register', ICON.user, () => openModal('/pages/register.html'))
+          ])
+    );
+  }
+
+  function go(path) { window.location.href = path; }
 
   // ---------- Auth state ----------
   let isAuthenticated = false;
   let currentUsername = null;
+
+  function extractUsername(data) {
+    if (!data) return null;
+    if (typeof data === 'string') return data;
+    if (typeof data.username === 'string') return data.username;
+    if (typeof data.name === 'string') return data.name;
+    if (data.user) {
+      if (typeof data.user === 'string') return data.user;
+      if (typeof data.user.username === 'string') return data.user.username;
+      if (typeof data.user.name === 'string') return data.user.name;
+    }
+    if (Array.isArray(data) && data.length && typeof data[0] === 'string') return data[0];
+    return null;
+  }
 
   async function checkAuth() {
     try {
@@ -147,14 +179,15 @@
       clearTimeout(t);
       if (!res.ok) throw new Error('bad');
       const data = await res.json().catch(() => ({}));
-      const uname = data && (data.username || data.user || data.name);
-      isAuthenticated = !!uname;
+      const uname = extractUsername(data);
+      isAuthenticated = !!uname || data.authenticated === true;
       currentUsername = uname || null;
     } catch {
       isAuthenticated = false;
       currentUsername = null;
     }
     updateAuthUI();
+    populateMenu();
     if (window.scheduler && typeof window.scheduler.setAuth === 'function') {
       window.scheduler.setAuth(isAuthenticated, currentUsername || '');
     }
@@ -164,16 +197,38 @@
   }
 
   function updateAuthUI() {
-    const who = document.getElementById('whoami');
-    if (!who) return;
+    if (!whoamiEl) return;
     if (isAuthenticated && currentUsername) {
-      who.textContent = `Signed in as ${currentUsername}`;
-      who.style.display = 'inline';
+      whoamiEl.textContent = `Signed in as ${currentUsername}`;
+      whoamiEl.style.display = 'inline';
     } else {
-      who.textContent = '';
-      who.style.display = 'none';
+      whoamiEl.textContent = '';
+      whoamiEl.style.display = 'none';
     }
   }
+
+  async function doLogout() {
+    try {
+      await fetch('/auth/logout', { method: 'POST', credentials: 'include' });
+    } catch {}
+    isAuthenticated = false;
+    currentUsername = null;
+    updateAuthUI();
+    populateMenu();
+    document.dispatchEvent(new CustomEvent('auth:changed', {
+      detail: { isAuthenticated: false, username: null }
+    }));
+    // Optionally return to home
+    try { if (location.pathname !== '/index.html') go('/index.html'); } catch {}
+  }
+
+  // allow login.js to notify auth changes explicitly
+  window.setAuthState = function (auth, username) {
+    isAuthenticated = !!auth;
+    currentUsername = username || null;
+    updateAuthUI();
+    populateMenu();
+  };
 
   // ---------- Modal init routing ----------
   function runModalInit(path) {
@@ -191,7 +246,6 @@
   document.addEventListener('DOMContentLoaded', () => {
     mountTopbar();
     ensureModalHost();
-    attachModalApi();
     checkAuth();
   });
 })();
