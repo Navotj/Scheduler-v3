@@ -6,7 +6,6 @@
   --control-height: 32px;        /* compact but readable controls */
   --timecol-width: 76px;
   --grid-pad: 8px;               /* padding around the scrollable grid */
-  --topbar-height: 40px;         /* compact top bar */
 
   /* Viewport-aware height variable (resizes with browser UI changes) */
   --vh: 100vh;

@@ -6,7 +6,6 @@
   --control-height: 32px;
   --timecol-width: 76px;
   --grid-pad: 8px;
-  --topbar-height: 40px;
   --vh: 100vh;
 }
 @supports (height: 100dvh) { :root { --vh: 100dvh; } }
