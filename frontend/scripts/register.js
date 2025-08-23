@@ -24,8 +24,8 @@ window.initRegisterForm = function () {
 
   function checkPasswordLength() {
     if (!passwordStarted) return true;
-    if (passwordInput.value.length < 8) {
-      lengthWarning.textContent = 'Password must be at least 8 characters';
+    if (passwordInput.value.length < 6) {
+      lengthWarning.textContent = 'Password must be at least 6 characters';
       return false;
     } else {
       lengthWarning.textContent = '';
@@ -34,11 +34,11 @@ window.initRegisterForm = function () {
   }
 
   function checkPasswordComplexity() {
+    const hasLetters = /[a-zA-Z]/.test(passwordInput.value);
+    const hasNumbers = /[0-9]/.test(passwordInput.value);
     if (!passwordStarted) return true;
-    const hasLetter = /[A-Za-z]/.test(passwordInput.value);
-    const hasNumber = /[0-9]/.test(passwordInput.value);
-    if (!hasLetter || !hasNumber) {
-      complexityWarning.textContent = 'Password should contain letters and numbers';
+    if (!hasLetters || !hasNumbers) {
+      complexityWarning.textContent = 'Password must contain letters and numbers';
       return false;
     } else {
       complexityWarning.textContent = '';
@@ -64,50 +64,49 @@ window.initRegisterForm = function () {
     checkPasswordComplexity();
   });
 
-  confirmInput.addEventListener('input', () => {
-    passwordStarted = true;
-    checkPasswordsMatch();
-  });
+  confirmInput.addEventListener('input', checkPasswordsMatch);
 
   usernameInput.addEventListener('input', () => {
     usernameStarted = true;
     checkUsernameLength();
   });
 
-  const form = document.getElementById('register-form');
-  form.addEventListener('submit', async (e) => {
+  document.getElementById('register-form').addEventListener('submit', async (e) => {
     e.preventDefault();
-    usernameStarted = true;
-    passwordStarted = true;
-
-    const uOk = checkUsernameLength();
-    const lenOk = checkPasswordLength();
-    const compOk = checkPasswordComplexity();
-    const matchOk = checkPasswordsMatch();
-    if (!(uOk && lenOk && compOk && matchOk)) return;
-
+    const email = document.getElementById('email').value;
     const username = usernameInput.value.trim();
     const password = passwordInput.value;
 
+    const valid =
+      checkPasswordsMatch() &
+      checkPasswordLength() &
+      checkPasswordComplexity() &
+      checkUsernameLength();
+
+    if (!valid) {
+      errorDisplay.textContent = 'Fix validation issues';
+      return;
+    }
+
     try {
+      // Use /auth/register so it hits the same router
       const res = await fetch('/auth/register', {
         method: 'POST',
-        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password })
+        credentials: 'include',
+        body: JSON.stringify({ email, username, password })
       });
+
       if (!res.ok) {
-        const msg = await res.text().catch(()=>'');
-        throw new Error(msg || 'Registration failed');
+        const data = await res.json().catch(() => ({}));
+        errorDisplay.textContent = data.error || 'Registration failed';
+        return;
       }
-      errorDisplay.style.color = '#7bd88f';
-      errorDisplay.textContent = 'Registration successful';
-      setTimeout(() => {
-        if (window.swapModal) window.swapModal('/pages/login.html');
-      }, 300);
+
+      // After register, either auto-open login or auto-login. Here we open login.
+      window.swapModal('/pages/login.html');
     } catch (err) {
-      errorDisplay.style.color = '#f55';
-      errorDisplay.textContent = err && err.message ? err.message : 'Connection error';
+      errorDisplay.textContent = 'Connection error';
     }
   });
 };
