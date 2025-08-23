@@ -1,0 +1,67 @@
+/* Topbar styles self-contained for Shadow DOM usage.
+   Uses CSS variables from :root (common.css) if available, with safe fallbacks. */
+
+:host {
+  display: block;
+  /* Create own stacking context to ensure z-index behaves predictably */
+  isolation: isolate;
+}
+
+.top-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  height: var(--topbar-height, 56px);
+  padding: 0 calc(var(--gutter, 16px) + 4px);
+  background: var(--topbar-bg, #171717);
+  border-bottom: 1px solid var(--border, #333);
+  position: sticky; /* sticks to viewport top */
+  top: 0;
+  z-index: 100;     /* above tables/now-marker etc. */
+}
+
+.top-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* Links inside the bar */
+.top-bar a {
+  color: #9ecbff;
+  text-decoration: none;
+}
+.top-bar a:hover { text-decoration: underline; }
+
+/* Right-side user section */
+.user-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.user-label {
+  opacity: 0.9;
+  color: var(--text, #eee);
+}
+
+/* Title */
+#topbar-title {
+  display: inline;
+  font-weight: 700;
+  color: var(--text, #fff);
+}
+
+/* Auth button baseline (works even without global .btn styles) */
+#auth-button.btn,
+#auth-button {
+  height: 28px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid #333;
+  background: #2d6cdf;
+  color: #fff;
+  cursor: pointer;
+  line-height: 1;
+}
+#auth-button:hover { filter: brightness(1.1); }
