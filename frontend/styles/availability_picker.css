@@ -8,17 +8,18 @@
   --grid-pad: 8px;
   --vh: 100vh;
 }
-
 @supports (height: 100dvh) { :root { --vh: 100dvh; } }
 @supports (height: 100svh) { :root { --vh: 100svh; } }
 
-/* Page grid height independent of any top bar */
+/* Page grid height independent of any top bar (page header & controls ≈ 96px) */
 :root { --grid-height: calc(var(--vh) - 96px); }
 
+/* Header row */
 .header-row { display:flex; justify-content:space-between; align-items:center; margin: 6px 0 8px; }
-.week-and-help { display:flex; align-items:center; gap:14px; color:#9aa0a6; }
+.week-and-help { display:flex; align-items:center; gap:14px; color: var(--muted); }
 .week-and-help #week-label { color:#fff; font-weight:600; }
 
+/* Controls */
 .controls {
   display: flex;
   gap: 8px;
@@ -36,9 +37,9 @@
   border-radius: 8px;
   cursor: pointer;
 }
-.controls button.active { outline: 2px solid #2d6cdf; }
-.controls button:disabled { opacity: 0.5; cursor: not-allowed; }
+.controls button.active { outline: 2px solid var(--accent); }
 
+/* Grid shell */
 .grid {
   position: relative;
   background: #101010;
@@ -67,6 +68,7 @@
 .grid-content::-webkit-scrollbar-thumb:hover { background: #4a4a4a; }
 .grid-content::-webkit-scrollbar-corner { background: #101010; }
 
+/* Table */
 .table {
   width: 100%;
   min-width: 0;
@@ -89,7 +91,7 @@
 .table thead th {
   position: sticky;
   top: 0;
-  z-index: 6;
+  z-index: 6; /* headers above now bar */
   background: #151515;
   font-weight: 600;
   padding: 6px 6px;
@@ -131,15 +133,15 @@
   border-right: 1px solid var(--line);
   background: #151515;
 }
-.time-col.hour {
-  font-size: calc(var(--font-size) * 1.15);
-  line-height: normal;
-}
+.time-col.hour { font-size: calc(var(--font-size) * 1.15); line-height: normal; }
+
 .table thead th.day,
 .table tbody td.slot-cell {
   width: calc((100% - var(--timecol-width)) / 7);
   min-width: 0;
 }
+
+/* Slots */
 .slot-cell {
   position: relative;
   box-sizing: border-box;
@@ -152,8 +154,6 @@
   box-shadow: inset 0 1px 0 var(--line), inset 0 -1px 0 var(--line);
 }
 
-/* Removed thicker full-hour lines — identical to schedule matcher */
-
 .slot-cell.col-weekend:not(.selected) {
   background-image: repeating-linear-gradient(
     135deg,
@@ -163,9 +163,8 @@
     rgba(255,255,255,0.02) 16px
   );
 }
-.slot-cell.col-weekend.selected {
-  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06);
-}
+.slot-cell.col-weekend.selected { box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06); }
+
 .slot-cell.selected { background-color: #234b1f; }
 .slot-cell.preview-add { background-color: #1f3e7a; }
 .slot-cell.preview-sub { background-color: #6b1e1e; }
@@ -179,11 +178,12 @@
 }
 .slot-cell.dim { filter: grayscale(40%) brightness(0.85); opacity: 0.45; }
 
+/* Now marker — below sticky headers */
 .now-marker {
   position: absolute;
   height: 0;
   border-top: 2px solid #e53935;
-  z-index: 8;
+  z-index: 5;
   display: none;
   pointer-events: none;
 }
@@ -204,9 +204,8 @@
   white-space: nowrap;
   box-shadow: 0 2px 10px rgba(0,0,0,0.35);
 }
-.now-marker .bubble::before,
-.now-marker .bubble::after { display: none; content: none; }
 
+/* Tooltip for unauthenticated selection */
 .signin-tooltip {
   position: fixed;
   top: 0;
@@ -223,14 +222,7 @@
   box-shadow: 0 4px 14px rgba(0,0,0,0.4);
 }
 
-@media (max-width: 720px) {
-  :root { --timecol-width: 64px; --font-size: 11px; }
-  .controls { gap: 6px; }
-  .controls button { padding: 5px 8px; }
-  .week-and-help { gap: 10px; font-size: 12px; }
-}
-
-/* --- Drag selection hint (follows cursor) --- */
+/* Drag selection hint */
 .drag-hint {
   position: fixed;
   top: 0;
@@ -248,4 +240,11 @@
   line-height: 1;
   box-shadow: 0 4px 14px rgba(0,0,0,0.45);
   white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  :root { --timecol-width: 64px; --font-size: 11px; }
+  .controls { gap: 6px; }
+  .controls button { padding: 5px 8px; }
+  .week-and-help { gap: 10px; font-size: 12px; }
 }

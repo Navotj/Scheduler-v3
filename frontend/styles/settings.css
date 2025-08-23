@@ -1,20 +1,19 @@
-/* Card container for Settings */
+/* Settings card */
 .settings-form {
   max-width: 720px;
   margin: 24px auto;
-
-  /* Bring the box back without changing the site's theme:
-     use CSS vars if the theme defines them; fallbacks keep it subtle. */
-  border: 1px solid var(--card-border, #2b2f36);
+  border: 1px solid var(--border);
   border-radius: 12px;
   padding: 18px 20px;
-  box-shadow: var(--card-shadow, 0 1px 0 rgba(255,255,255,0.04) inset, 0 8px 24px rgba(0,0,0,0.28));
+  box-shadow: 0 1px 0 rgba(255,255,255,0.04) inset, 0 8px 24px rgba(0,0,0,0.28);
+  background: var(--surface-2);
 }
 
 /* Fields & layout */
 .settings-form .field { margin-bottom: 18px; }
 .settings-form .row { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
-.settings-form .hint { display: block; color: #9aa0a6; margin-top: 6px; }
+.settings-form label { display: inline-block; margin-bottom: 6px; color: #fff; }
+.settings-form .hint { display: block; color: var(--muted); margin-top: 6px; }
 .range-readout { min-width: 36px; text-align: right; color: #cfd3d8; }
 .actions { display: flex; align-items: center; gap: 12px; }
 
@@ -23,5 +22,6 @@
   margin-top: 8px;
   height: 18px;
   border-radius: 6px;
-  border: 1px solid var(--chip-border, #2b2f36);
+  border: 1px solid var(--border);
+  background: linear-gradient(90deg, #440154, #31688e, #35b779, #fde725); /* viridis baseline */
 }
