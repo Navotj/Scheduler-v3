@@ -3,29 +3,29 @@
 <head>
   <meta charset="UTF-8" />
   <title>Login</title>
-  <link rel="stylesheet" href="../styles/styles.css" />
+  <link rel="stylesheet" href="/styles/common.css" />
 </head>
 <body>
-  <h1>Login</h1>
+  <div data-modal-root>
+    <h2>Login</h2>
+    <form id="login-form">
+      <label for="username">Username</label><br />
+      <input type="text" id="username" autocomplete="username" required /><br />
 
-  <form id="login-form">
-    <label for="username">Username:</label><br />
-    <input type="text" id="username" autocomplete="username" required /><br />
+      <label for="password">Password</label><br />
+      <input type="password" id="password" autocomplete="current-password" required /><br />
 
-    <label for="password">Password:</label><br />
-    <input type="password" id="password" autocomplete="current-password" required /><br />
+      <button type="submit">Login</button>
+    </form>
 
-    <button type="submit">Login</button>
-  </form>
+    <p id="error" style="color:#f55; min-height: 1.2em;"></p>
 
-  <p id="error" style="color:red; min-height: 1.2em;"></p>
+    <p>Don't have an account?
+      <a href="#" onclick="window.swapModal && window.swapModal('/pages/register.html'); return false;">Register here</a>
+    </p>
+    <p><a href="#" onclick="window.closeModal && window.closeModal(); return false;">Cancel</a></p>
+  </div>
 
-  <p>Don't have an account?
-    <a href="#" onclick="window.swapModal && window.swapModal('/pages/register.html'); return false;">Register here</a>
-  </p>
-  <p><a href="#" onclick="window.closeModal && window.closeModal(); return false;">Cancel</a></p>
-
-  <script src="/scripts/lib/httpClient.js"></script>
   <script src="/scripts/login.js"></script>
 </body>
 </html>

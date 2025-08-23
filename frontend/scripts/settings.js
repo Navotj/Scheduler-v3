@@ -1,137 +1,103 @@
-// --- global fetch de-dup for auth/settings (idempotent installer) ---
+// Settings panel logic (modal-friendly) + light fetch de-dup.
 (function () {
-  if (window.__dedupeFetchInstalled) return;
-  const origFetch = window.fetch.bind(window);
-  const inflight = new Map();
-
-  function shouldDedupe(url) {
-    const p = new URL(url, window.location.origin).pathname;
-    return p === '/auth/check' || p === '/check' || p === '/settings';
+  // ---- fetch de-dup (idempotent installer) ----
+  if (!window.__dedupeFetchInstalled) {
+    const orig = window.fetch.bind(window);
+    const inflight = new Map();
+    const special = new Set(['/auth/check', '/check', '/settings']);
+    function keyFor(u) {
+      const url = new URL(u, window.location.origin);
+      if (url.pathname === '/auth/check' || url.pathname === '/check') return `${url.origin}/__authcheck__`;
+      if (url.pathname === '/settings') return `${url.origin}/__settings__`;
+      return url.toString();
+    }
+    window.fetch = function(input, init) {
+      let url;
+      try { url = typeof input === 'string' ? new URL(input, window.location.origin).toString() : input.url; } catch { return orig(input, init); }
+      if (!special.has(new URL(url).pathname)) return orig(input, init);
+      const key = keyFor(url);
+      if (inflight.has(key)) return inflight.get(key).then(r => r.clone());
+      const merged = { ...(init || {}), credentials: 'include', cache: 'no-store' };
+      if ('signal' in merged) delete merged.signal;
+      const req = orig(url, merged).finally(() => setTimeout(() => inflight.delete(key), 0));
+      inflight.set(key, req);
+      return req.then(r => r.clone());
+    };
+    window.__dedupeFetchInstalled = true;
   }
-  function canonicalKey(url) {
-    const u = new URL(url, window.location.origin);
-    const p = u.pathname;
-    if (p === '/auth/check' || p === '/check') return `${u.origin}/__authcheck__`;
-    if (p === '/settings') return `${u.origin}/__settings__`; // ignore search to collapse dupes
-    return u.toString();
-  }
-  window.__dedupeFetchInstalled = true;
-  window.fetch = function dedupedFetch(input, init) {
-    const urlStr = typeof input === 'string' ? input : (input && input.url) || '';
-    let absolute;
-    try { absolute = new URL(urlStr, window.location.origin).toString(); } catch { return origFetch(input, init); }
-    if (!shouldDedupe(absolute)) return origFetch(input, init);
 
-    const key = canonicalKey(absolute);
-    if (inflight.has(key)) return inflight.get(key).then(r => r.clone());
-
-    const merged = { ...(init || {}) };
-    if (!('credentials' in merged)) merged.credentials = 'include';
-    if (!('cache' in merged)) merged.cache = 'no-store';
-    if ('signal' in merged) delete merged.signal;
-
-    const req = origFetch(absolute, merged).finally(() => setTimeout(() => inflight.delete(key), 0));
-    inflight.set(key, req);
-    return req.then(r => r.clone());
-  };
-})();
-
-(function () {
+  // ---- utilities ----
   function getSystemTZ() {
-    return (Intl.DateTimeFormat().resolvedOptions().timeZone) || 'UTC';
+    try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; }
+    catch { return 'UTC'; }
   }
-
-  function loadLocal() {
-    try {
-      const raw = localStorage.getItem('nat20_settings');
-      return raw ? JSON.parse(raw) : null;
-    } catch { return null; }
+  async function saveRemote(obj) {
+    const res = await fetch('/settings', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(obj)
+    });
+    if (!res.ok) throw new Error(await res.text().catch(()=>'') || ('HTTP '+res.status));
+    return res.json().catch(()=>obj);
   }
-
   function saveLocal(obj) {
     localStorage.setItem('nat20_settings', JSON.stringify(obj));
-    // broadcast to other tabs/windows (for schedule matcher live updates)
     try {
       window.dispatchEvent(new StorageEvent('storage', { key: 'nat20_settings', newValue: JSON.stringify(obj) }));
     } catch {}
   }
-
-  function populateTimezones(select) {
-    const existing = new Set();
-    function addOption(val, label) {
-      if (existing.has(val)) return;
-      const opt = document.createElement('option');
-      opt.value = val;
-      opt.textContent = label || val;
-      select.appendChild(opt);
-      existing.add(val);
-    }
-
-    addOption('auto', 'Automatic (system)');
-    try {
-      if (typeof Intl.supportedValuesOf === 'function') {
-        const list = Intl.supportedValuesOf('timeZone');
-        for (const tz of list) addOption(tz);
-      } else {
-        ['UTC','Europe/London','Europe/Paris','Europe/Berlin','Europe/Moscow','Asia/Jerusalem','Asia/Tokyo','Asia/Shanghai','Asia/Kolkata','America/New_York','America/Chicago','America/Denver','America/Los_Angeles','Australia/Sydney'].forEach(tz => addOption(tz));
-      }
-    } catch {
-      ['UTC', getSystemTZ()].forEach(tz => addOption(tz));
-    }
-  }
-
-  async function fetchRemote() {
-    try {
-      const res = await fetch('/settings', { credentials: 'include', cache: 'no-cache' });
-      if (res.ok) return await res.json();
-    } catch {}
-    return null;
-  }
-
-  async function saveRemote(obj) {
-    const res = await fetch('/settings', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify(obj)
-    });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(text || `HTTP ${res.status}`);
-    }
-    return res.json();
-  }
-
-  // Map name -> CSS gradient preview
   function gradientCssFor(name) {
     const maps = {
       viridis:    [[0,'#440154'],[0.25,'#3b528b'],[0.5,'#21918c'],[0.75,'#5ec962'],[1,'#fde725']],
       plasma:     [[0,'#0d0887'],[0.25,'#6a00a8'],[0.5,'#b12a90'],[0.75,'#e16462'],[1,'#fca636']],
-      cividis:    [[0,'#00204c'],[0.25,'#2c3e70'],[0.5,'#606c7c'],[0.75,'#9da472'],[1,'#f9e721']],
-      twilight:   [[0,'#1e1745'],[0.25,'#373a97'],[0.5,'#73518c'],[0.75,'#b06b6d'],[1,'#d3c6b9']],
-      lava:       [[0,'#000004'],[0.2,'#320a5a'],[0.4,'#781c6d'],[0.6,'#bb3654'],[0.8,'#ed6925'],[1,'#fcffa4']]
+      cividis:    [[0,'#00204c'],[0.25,'#2b496e'],[0.5,'#7e7f81'],[0.75,'#c6c58e'],[1,'#ffea46']],
+      twilight:   [[0,'#4B0055'],[0.25,'#3B3B98'],[0.5,'#2B7A78'],[0.75,'#86CB92'],[1,'#F3DFBF']],
+      lava:       [[0,'#18001a'],[0.25,'#6b0029'],[0.5,'#b71c1c'],[0.75,'#ef6c00'],[1,'#ffd54f']]
     };
     const stops = maps[name] || maps.viridis;
-    const parts = stops.map(([t, c]) => `${c} ${(t*100).toFixed(0)}%`);
+    const parts = stops.map(([t,c]) => `${c} ${(t*100).toFixed(0)}%`);
     return `linear-gradient(90deg, ${parts.join(', ')})`;
   }
+  function populateTimezones(select) {
+    const set = new Set();
+    function add(v, label) {
+      if (set.has(v)) return;
+      const o = document.createElement('option');
+      o.value = v; o.textContent = label || v; select.appendChild(o);
+      set.add(v);
+    }
+    add('auto', 'Automatic (system)');
+    try {
+      if (typeof Intl.supportedValuesOf === 'function') {
+        for (const tz of Intl.supportedValuesOf('timeZone')) add(tz);
+      } else {
+        ['UTC','Europe/London','Europe/Paris','Europe/Berlin','Europe/Vienna','Europe/Madrid','America/New_York','America/Los_Angeles','Australia/Sydney'].forEach(add);
+      }
+    } catch {
+      ['UTC', getSystemTZ()].forEach(add);
+    }
+  }
 
-  document.addEventListener('DOMContentLoaded', async () => {
-    const $tzModeAuto = document.getElementById('tz-auto');
-    const $tzModeManual = document.getElementById('tz-manual');
-    const $tz = document.getElementById('timezone');
-    const $clock24 = document.querySelector('input[name="clock"][value="24"]');
-    const $clock12 = document.querySelector('input[name="clock"][value="12"]');
-    const $weekSun = document.querySelector('input[name="weekStart"][value="sun"]');
-    const $weekMon = document.querySelector('input[name="weekStart"][value="mon"]');
-    const $defaultZoom = document.getElementById('defaultZoom');
-    const $zoomValue = document.getElementById('zoomValue');
-    const $form = document.getElementById('settings-form');
-    const $status = document.getElementById('saveStatus');
+  // ---- modal-friendly initializer ----
+  window.initSettingsPanel = async function initSettingsPanel(root) {
+    const scope = root || document;
 
-    // heatmap controls
-    const $heatmap = document.getElementById('heatmap');
-    const $heatmapPreview = document.getElementById('heatmapPreview');
+    const $tzModeAuto  = scope.querySelector('#tz-auto');
+    const $tzModeManual= scope.querySelector('#tz-manual');
+    const $tz          = scope.querySelector('#timezone');
+    const $clock24     = scope.querySelector('input[name="clock"][value="24"]');
+    const $clock12     = scope.querySelector('input[name="clock"][value="12"]');
+    const $weekSun     = scope.querySelector('input[name="weekStart"][value="sun"]');
+    const $weekMon     = scope.querySelector('input[name="weekStart"][value="mon"]');
+    const $defaultZoom = scope.querySelector('#defaultZoom');
+    const $zoomValue   = scope.querySelector('#zoomValue');
+    const $heatmap     = scope.querySelector('#heatmap');
+    const $heatPrev    = scope.querySelector('#heatmapPreview');
+    const $form        = scope.querySelector('#settings-form');
+    const $status      = scope.querySelector('#saveStatus');
+
+    if (!$form) return; // nothing to init (defensive)
 
     populateTimezones($tz);
 
@@ -143,81 +109,60 @@
       heatmap: 'viridis'
     };
 
-    const remote = await fetchRemote();
-    const local = loadLocal();
-    const s = remote || local || defaults;
+    let local = {};
+    try { local = JSON.parse(localStorage.getItem('nat20_settings') || '{}'); } catch { local = {}; }
+    const base = Object.assign({}, defaults, local);
 
-    // tz mode + select
-    const isAuto = !s.timezone || s.timezone === 'auto';
-    $tzModeAuto.checked = isAuto;
-    $tzModeManual.checked = !isAuto;
-    $tz.disabled = isAuto;
-    $tz.value = isAuto ? getSystemTZ() : (s.timezone || getSystemTZ());
-    if ($tz.value === 'auto') $tz.value = getSystemTZ();
+    // load from server if possible (race with local, server wins)
+    try {
+      const res = await fetch('/settings', { credentials: 'include', cache: 'no-store' });
+      if (res.ok) {
+        const remote = await res.json().catch(()=>({}));
+        Object.assign(base, remote || {});
+      }
+    } catch {}
 
-    // clock / week start
-    (s.clock === '12' ? $clock12 : $clock24).checked = true;
-    (s.weekStart === 'mon' ? $weekMon : $weekSun).checked = true;
+    // hydrate UI
+    ($tzModeAuto || {}).checked = (base.timezone === 'auto');
+    ($tzModeManual || {}).checked = (base.timezone !== 'auto');
+    if ($tz) { $tz.disabled = base.timezone === 'auto'; $tz.value = base.timezone === 'auto' ? 'auto' : base.timezone; }
+    if ($clock24) $clock24.checked = base.clock !== '12';
+    if ($clock12) $clock12.checked = base.clock === '12';
+    if ($weekSun) $weekSun.checked = base.weekStart !== 'mon';
+    if ($weekMon) $weekMon.checked = base.weekStart === 'mon';
+    if ($defaultZoom) { $defaultZoom.value = String(base.defaultZoom); }
+    if ($zoomValue) { $zoomValue.textContent = `${Number(base.defaultZoom || 1).toFixed(2).replace(/\.00$/,'')}×`; }
+    if ($heatmap) $heatmap.value = base.heatmap || 'viridis';
+    if ($heatPrev) $heatPrev.style.background = gradientCssFor(base.heatmap || 'viridis');
 
-    // zoom
-    const zoom = (typeof s.defaultZoom === 'number') ? s.defaultZoom : 1.0;
-    $defaultZoom.value = String(zoom);
-    $zoomValue.textContent = zoom.toFixed(1);
-
-    // heatmap initial + live preview
-    const heat = s.heatmap || 'viridis';
-    if ($heatmap) {
-      $heatmap.value = heat;
-      if ($heatmapPreview) $heatmapPreview.style.background = gradientCssFor(heat);
-      $heatmap.addEventListener('change', () => {
-        if ($heatmapPreview) $heatmapPreview.style.background = gradientCssFor($heatmap.value);
-      });
-    }
-
-    $defaultZoom.addEventListener('input', () => {
-      const z = Number($defaultZoom.value);
-      $zoomValue.textContent = z.toFixed(1);
+    // interactions
+    if ($tzModeAuto && $tz) $tzModeAuto.addEventListener('change', () => { if ($tzModeAuto.checked) { $tz.disabled = true; $tz.value = 'auto'; } });
+    if ($tzModeManual && $tz) $tzModeManual.addEventListener('change', () => { if ($tzModeManual.checked) { $tz.disabled = false; if ($tz.value === 'auto') $tz.value = getSystemTZ(); } });
+    if ($defaultZoom && $zoomValue) $defaultZoom.addEventListener('input', () => {
+      const v = Number($defaultZoom.value || 1);
+      $zoomValue.textContent = `${v.toFixed(2).replace(/\.00$/,'')}×`;
+    });
+    if ($heatmap && $heatPrev) $heatmap.addEventListener('change', () => {
+      $heatPrev.style.background = gradientCssFor($heatmap.value);
     });
 
-    function updateTzMode() {
-      const manual = $tzModeManual.checked;
-      $tz.disabled = !manual;
-      if (!manual) {
-        const sys = getSystemTZ();
-        if (!$tz.querySelector(`option[value="${sys}"]`)) {
-          const opt = document.createElement('option');
-          opt.value = sys;
-          opt.textContent = sys;
-          $tz.appendChild(opt);
-        }
-        $tz.value = sys;
-      }
-    }
-    $tzModeAuto.addEventListener('change', updateTzMode);
-    $tzModeManual.addEventListener('change', updateTzMode);
-
+    // submit
     $form.addEventListener('submit', async (e) => {
       e.preventDefault();
-      const useAuto = $tzModeAuto.checked;
-      const tzVal = useAuto ? 'auto' : $tz.value;
-
       const obj = {
-        timezone: tzVal,
-        clock: ($clock12.checked ? '12' : '24'),
-        weekStart: ($weekMon.checked ? 'mon' : 'sun'),
-        defaultZoom: Number($defaultZoom.value),
-        heatmap: ($heatmap ? $heatmap.value : 'viridis')
+        timezone: ($tzModeAuto && $tzModeAuto.checked) ? 'auto' : ($tz ? $tz.value : 'auto'),
+        clock: ($clock12 && $clock12.checked) ? '12' : '24',
+        weekStart: ($weekMon && $weekMon.checked) ? 'mon' : 'sun',
+        defaultZoom: Number(($defaultZoom && $defaultZoom.value) || 1.0),
+        heatmap: ($heatmap && $heatmap.value) || 'viridis'
       };
-
       try {
         const saved = await saveRemote(obj);
         saveLocal(saved);
-        $status.textContent = 'Saved ✓';
-        setTimeout(() => { $status.textContent = ''; }, 1500);
-      } catch (err) {
-        $status.textContent = 'Save failed';
-        setTimeout(() => { $status.textContent = ''; }, 2000);
+        if ($status) { $status.textContent = 'Saved ✓'; setTimeout(() => { $status.textContent = ''; }, 1500); }
+      } catch {
+        if ($status) { $status.textContent = 'Save failed'; setTimeout(() => { $status.textContent = ''; }, 2000); }
       }
     });
-  });
+  };
 })();

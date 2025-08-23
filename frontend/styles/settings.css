@@ -2,9 +2,6 @@
 .settings-form {
   max-width: 720px;
   margin: 24px auto;
-
-  /* Bring the box back without changing the site's theme:
-     use CSS vars if the theme defines them; fallbacks keep it subtle. */
   border: 1px solid var(--card-border, #2b2f36);
   border-radius: 12px;
   padding: 18px 20px;
@@ -25,3 +22,4 @@
   border-radius: 6px;
   border: 1px solid var(--chip-border, #2b2f36);
 }
+.save-status { color: #9aa0a6; }

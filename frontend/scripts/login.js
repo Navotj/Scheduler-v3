@@ -14,205 +14,79 @@
 
   // Promise timeout that does NOT abort the request (prevents "(canceled)")
   function withTimeoutPromise(promise, ms) {
-    return new Promise((resolve, reject) => {
-      const t = setTimeout(() => reject(new Error('timeout')), ms);
-      promise.then(
-        (v) => { clearTimeout(t); resolve(v); },
-        (e) => { clearTimeout(t); reject(e); }
-      );
+    let timeoutId;
+    const timeoutPromise = new Promise((_, reject) => {
+      timeoutId = setTimeout(() => reject(new Error('Request timed out')), ms);
     });
+    return Promise.race([
+      promise.finally(() => clearTimeout(timeoutId)),
+      timeoutPromise
+    ]);
   }
 
-  function setAuthStateSafe(isAuthed, username) {
-    if (typeof window.setAuthState === 'function') {
-      window.setAuthState(!!isAuthed, username || null);
-    }
-  }
-
-  // =========================
-  // Global fetch de-duplication (auth/settings)
-  // - Prevents races & "(canceled)" from concurrent checks.
-  // - No AbortSignals are honored for these endpoints.
-  // =========================
-  if (!window.__dedupeFetchInstalled) {
-    const origFetch = window.fetch.bind(window);
-    const inflight = (window.__dedupeInflight = new Map());
-
-    function canonicalKey(url) {
-      const u = new URL(url, window.location.origin);
-      const p = u.pathname;
-      if (p === '/auth/check' || p === '/check') return `${u.origin}/__authcheck__`;
-      if (p === '/settings') return `${u.origin}/__settings__${u.search}`;
-      return u.toString();
-    }
-
-    function shouldDedupe(url) {
-      const p = new URL(url, window.location.origin).pathname;
-      return p === '/auth/check' || p === '/check' || p === '/settings';
-    }
-
-    window.__dedupeFetchInstalled = true;
-    window.fetch = function dedupedFetch(input, init) {
-      const urlStr = typeof input === 'string' ? input : (input && input.url) || '';
-      let absolute;
-      try {
-        absolute = new URL(urlStr, window.location.origin).toString();
-      } catch {
-        return origFetch(input, init);
+  function setAuthStateSafe(authenticated, username) {
+    try {
+      if (typeof window.setAuthState === 'function') {
+        window.setAuthState(authenticated, username);
+      } else if (typeof document !== 'undefined') {
+        document.dispatchEvent(new CustomEvent('auth:changed', {
+          detail: { isAuthenticated: authenticated, username }
+        }));
       }
-
-      if (!shouldDedupe(absolute)) {
-        return origFetch(input, init);
-      }
-
-      const key = canonicalKey(absolute);
-      if (inflight.has(key)) return inflight.get(key).then((resp) => resp.clone());
-
-      const merged = { ...(init || {}) };
-      if (!('credentials' in merged)) merged.credentials = 'include';
-      if (!('cache' in merged)) merged.cache = 'no-store';
-      if ('signal' in merged) delete merged.signal; // avoid cross-cancellation
-
-      const req = origFetch(absolute, merged).finally(() => {
-        setTimeout(() => inflight.delete(key), 0);
-      });
-
-      inflight.set(key, req);
-      return req.then((resp) => resp.clone());
-    };
-
-    // Helper to force next /auth/check to hit origin (used after login)
-    window.__bustAuthCheckOnce = function () {
-      inflight.delete(`${window.location.origin}/__authcheck__`);
-    };
+    } catch (_) {}
   }
 
   // =========================
-  // Initial page-load auth check (single-flight, deterministic)
-  // Always use /auth/check to remove ambiguity.
-  // =========================
-
-  const CHECK_ENDPOINT = '/auth/check';
-
-  async function doAuthCheckOnce() {
-    const res = await withTimeoutPromise(
-      fetch(CHECK_ENDPOINT, { credentials: 'include', cache: 'no-store' }),
-      12000
-    );
-    if (!res.ok) throw new Error(`check ${res.status}`);
-    let data = {};
-    try { data = await res.json(); } catch {}
-    return data || {};
-  }
-
-  if (!window.auth) window.auth = { state: 'unknown', user: null, ready: null };
-
-  if (!window.__authCheckPromise) {
-    window.__authCheckPromise = (async () => {
-      try {
-        const data = await doAuthCheckOnce();
-        const name =
-          (data && data.user && data.user.username) ||
-          (data && data.username) || '';
-        if (name) {
-          window.auth.state = 'authenticated';
-          window.auth.user = name;
-          setAuthStateSafe(true, name);
-        } else {
-          window.auth.state = 'anonymous';
-          window.auth.user = null;
-          setAuthStateSafe(false, null);
-        }
-      } catch {
-        // Deterministic fallback: treat as anonymous without canceling requests
-        window.auth.state = 'anonymous';
-        window.auth.user = null;
-        setAuthStateSafe(false, null);
-      }
-    })();
-    window.auth.ready = window.__authCheckPromise;
-  }
-
-  window.ensureAuthReady = function ensureAuthReady() {
-    return window.auth && window.auth.ready ? window.auth.ready : Promise.resolve();
-  };
-
-  // Kick off initial session check on load
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => void window.ensureAuthReady(), { once: true });
-  } else {
-    void window.ensureAuthReady();
-  }
-
-  // =========================
-  // Login form handler
+  // Public initializer
   // =========================
   window.initLoginForm = function () {
     const form = document.getElementById('login-form');
+    const usernameInput = document.getElementById('username');
+    const passwordInput = document.getElementById('password');
     const errorDisplay = document.getElementById('error');
-    if (!form) return;
+    const submitBtn = form && form.querySelector('button[type="submit"]');
+
+    if (!form || !usernameInput || !passwordInput) return;
 
     let pending = false;
-
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       if (pending) return;
-
-      const username = (document.getElementById('username').value || '').trim();
-      const password = document.getElementById('password').value || '';
-
-      const submitBtn = form.querySelector('button[type="submit"]');
       pending = true;
       if (submitBtn) submitBtn.disabled = true;
-      errorDisplay.style.color = '#f55';
       errorDisplay.textContent = '';
 
+      const username = usernameInput.value.trim();
+      const password = passwordInput.value;
+
       try {
-        // 1) Login (20s hard cap with abort)
-        {
-          const { controller, timer } = withAbort(20000);
-          const res = await fetch('/auth/login', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            cache: 'no-store',
-            signal: controller.signal,
-            body: JSON.stringify({ username, password })
-          });
-          clearTimeout(timer);
+        const { controller, timer } = withAbort(8000);
+        const res = await withTimeoutPromise(fetch('/auth/login', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password }),
+          signal: controller.signal
+        }), 9000);
+        clearTimeout(timer);
 
-          if (!res.ok) {
-            let message = 'Login failed';
-            try {
-              const data = await res.json();
-              if (data && data.error) message = data.error;
-            } catch {}
-            throw new Error(message);
+        if (!res.ok) {
+          const msg = await res.text().catch(()=>'');
+          throw new Error(msg || 'Login failed');
+        }
+
+        // Verify with /auth/check (avoids false-positives if cookie set but session invalid)
+        let verifiedUsername = username;
+        try {
+          const ver = await fetch('/auth/check', { credentials: 'include', cache: 'no-store' });
+          if (ver.ok) {
+            const j = await ver.json().catch(()=>({}));
+            verifiedUsername = (j && (j.username || j.user || j.name)) || username;
           }
-        }
+        } catch {}
 
-        // 2) Verify session deterministically via /auth/check (no abort)
-        let verifiedUsername = '';
-        {
-          // Ensure next check isn't served from a shared in-flight promise
-          if (typeof window.__bustAuthCheckOnce === 'function') window.__bustAuthCheckOnce();
-
-          const res = await withTimeoutPromise(
-            fetch(`${CHECK_ENDPOINT}?t=${Date.now()}`, { credentials: 'include', cache: 'no-store' }),
-            10000
-          );
-
-          if (!res.ok) throw new Error('Login failed (no session)');
-          const data = await res.json().catch(() => ({}));
-          verifiedUsername =
-            (data && data.user && data.user.username) ||
-            data.username || '';
-          if (!verifiedUsername) throw new Error('Login failed (invalid session)');
-        }
-
-        // 3) Success UI
-        errorDisplay.style.color = '#0f0';
-        errorDisplay.textContent = '✅ Sign-in successful';
+        errorDisplay.style.color = '#7bd88f';
+        errorDisplay.textContent = 'Login successful';
         setTimeout(() => {
           if (window.closeModal) window.closeModal();
           setAuthStateSafe(true, verifiedUsername);

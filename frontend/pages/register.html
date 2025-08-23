@@ -3,40 +3,36 @@
 <head>
   <meta charset="UTF-8" />
   <title>Register</title>
-  <link rel="stylesheet" href="../styles/styles.css" />
-  <style>
-    .warning {
-      color: #f55;
-      font-size: 14px;
-    }
-  </style>
+  <link rel="stylesheet" href="/styles/common.css" />
 </head>
 <body>
-  <h1>Register</h1>
-  <form id="register-form">
-    <label for="email">Email:</label><br />
-    <input type="email" id="email" required /><br />
+  <div data-modal-root>
+    <h2>Create account</h2>
+    <form id="register-form">
+      <label for="username">Username</label><br />
+      <input type="text" id="username" autocomplete="username" required />
+      <div id="username-warning" style="color:#f5a623; min-height:1.2em;"></div>
 
-    <label for="username">Username:</label><br />
-    <input type="text" id="username" required /><br />
-    <span id="username-warning" class="warning"></span><br />
+      <label for="password">Password</label><br />
+      <input type="password" id="password" autocomplete="new-password" required />
+      <div id="length-warning" style="color:#f5a623; min-height:1.2em;"></div>
+      <div id="complexity-warning" style="color:#f5a623; min-height:1.2em;"></div>
 
-    <label for="password">Password:</label><br />
-    <input type="password" id="password" required /><br />
-    <span id="length-warning" class="warning"></span><br />
-    <span id="complexity-warning" class="warning"></span><br />
+      <label for="confirm-password">Confirm password</label><br />
+      <input type="password" id="confirm-password" autocomplete="new-password" required />
+      <div id="match-warning" style="color:#f5a623; min-height:1.2em;"></div>
 
-    <label for="confirm-password">Confirm Password:</label><br />
-    <input type="password" id="confirm-password" required /><br />
-    <span id="match-warning" class="warning"></span><br />
+      <button type="submit">Register</button>
+    </form>
 
-    <button type="submit">Register</button>
-  </form>
+    <p id="error" style="color:#f55; min-height: 1.2em;"></p>
 
-  <p id="error" style="color:red;"></p>
-  <p>Already have an account? <a href="#" onclick="window.swapModal('/pages/login.html'); return false;">Login</a></p>
-  <p><a href="#" onclick="window.closeModal(); return false;">Cancel</a></p>
-  <script src="/scripts/lib/httpClient.js"></script>
+    <p>Already have an account?
+      <a href="#" onclick="window.swapModal && window.swapModal('/pages/login.html'); return false;">Login</a>
+    </p>
+    <p><a href="#" onclick="window.closeModal && window.closeModal(); return false;">Cancel</a></p>
+  </div>
+
   <script src="/scripts/register.js"></script>
 </body>
 </html>
