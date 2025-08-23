@@ -1,92 +1,172 @@
+/* ===== Availability Picker — TABLE + GRID styling (preserve original look) ===== */
+
+/* Sizing variables */
 :root {
-  --row-height: 18px;              /* height of each HALF-HOUR row */
+  --row-height: 18px;           /* each HALF-HOUR row height */
+  --timecol-width: 76px;        /* sticky time column width */
+  --grid-pad: 8px;              /* padding around scroll area */
+  --topbar-height: 56px;        /* height of the app topbar */
   --font-size: 12px;
-  --line: #2b2b2b;
-  --line-strong: #3a3a3a;
-  --control-height: 32px;
-  --timecol-width: 76px;
-  --grid-pad: 8px;
-  --topbar-height: 40px;
+
+  /* Colors (keep palette; containers stay dark, borders only) */
+  --bg: #0f1113;
+  --panel: #121416;
+  --text: #e6e7ea;
+  --muted: #a7adb5;
+
+  --line: #24282d;              /* normal grid line */
+  --line-strong: #2f353b;       /* hour line / outlines */
+  --outline: #2a2d33;           /* container border */
+
+  --now: rgba(138,180,255,.85); /* “now” marker color (blue, not red) */
+  --now-glow: rgba(138,180,255,.45);
+
   --vh: 100vh;
 }
 @supports (height: 100dvh) { :root { --vh: 100dvh; } }
 @supports (height: 100svh) { :root { --vh: 100svh; } }
 
-/* container */
-.page-shell { width: min(var(--container-max, 1600px), 96vw); margin: 16px auto 40px; padding: 0 var(--gutter, 16px); }
-
-/* header & controls */
-.header-row { display:flex; justify-content:space-between; align-items:center; margin: 8px 0 12px; }
-.week-and-help { display:flex; align-items:center; gap:16px; color:#aaa; }
-.controls { display:flex; gap:8px; align-items:center; height:var(--control-height); margin: 6px 0 8px; }
-.controls button.active { outline: 2px solid #74c69d; }
-
-/* legend */
-.legend { display:grid; grid-template-columns: 1fr; gap: 6px; margin: 8px 0 10px; }
-.legend-steps { display:grid; grid-template-columns: repeat(11, 1fr); gap: 6px; }
-.legend-step {
-  height: 10px; border-radius: 6px;
-  background: linear-gradient(90deg, #440154 0%, #3b528b 25%, #21918c 50%, #5ec962 75%, #fde725 100%);
-  filter: saturate(calc(0.7 + var(--p) * 0.5));
+/* Page container (content width only; do not touch colors/palette) */
+.page-shell {
+  width: min(1600px, 96vw);
+  margin: 16px auto 40px;
+  padding: 0 16px;
 }
-.legend-labels { display:grid; grid-template-columns: repeat(12, 1fr); color: #a0a6ad; font-size: 12px; }
 
-/* grid container */
+/* Controls row kept minimal; buttons come from global styles */
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  margin: 6px 0 8px;
+}
+.controls .helper {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* ===== Grid container ===== */
 .grid {
   position: relative;
-  border: 1px solid #2a2d33;
+  border: 1px solid var(--outline);
   border-radius: 10px;
   overflow: hidden;
+  background: var(--panel);
   box-shadow: 0 1px 0 rgba(255,255,255,0.03) inset, 0 10px 24px rgba(0,0,0,0.28);
-  width: 100%;
 }
 
-/* scroll area */
-.grid-content { position: relative; height: calc(var(--vh) - var(--topbar-height) - 160px); overflow: auto; padding: var(--grid-pad); }
+.grid-content {
+  position: relative;
+  height: calc(var(--vh) - var(--topbar-height) - 160px); /* leaves space for header and controls */
+  overflow: auto;
+  padding: var(--grid-pad);
+  background: var(--bg);
+}
 
-/* table */
-.table { width: 100%; border-collapse: collapse; font-size: var(--font-size); table-layout: fixed; }
-.table thead th, .table tbody th { position: sticky; z-index: 10; background: #151618; }
-.table thead th { top: 0; border-bottom: 1px solid var(--line-strong); }
-.table tbody th { left: 0; text-align: right; padding-right: 8px; border-right: 1px solid var(--line-strong); background: #151618; width: var(--timecol-width); }
-.table th, .table td { padding: 0; }
+/* ===== Table (EXACT structure: 7 day columns; rows are half-hours) ===== */
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: var(--font-size);
+  color: var(--text);
+}
 
-/* exactly 7 day columns; each row is a HALF-HOUR */
-.table td { width: calc((100% - var(--timecol-width)) / 7); height: var(--row-height); border-left: 1px solid var(--line); border-bottom: 1px solid var(--line); background: #141619; }
+/* Sticky header row + sticky first column */
+.table thead th,
+.table tbody th {
+  position: sticky;
+  background: var(--bg);
+  z-index: 10;            /* stay above cells */
+}
+.table thead th {
+  top: 0;
+  text-align: left;
+  height: 20px;
+  border-bottom: 1px solid var(--line-strong);
+}
+.table tbody th {
+  left: 0;
+  width: var(--timecol-width);
+  text-align: right;
+  padding-right: 8px;
+  border-right: 1px solid var(--line-strong);
+}
+
+.table th,
+.table td {
+  padding: 0;
+}
+
+/* Exactly 7 day columns (plus time column). Half-hour rows. */
+.table td {
+  width: calc((100% - var(--timecol-width)) / 7);
+  height: var(--row-height);
+  background: #14171a;
+  border-left: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
 .table tr td:first-child { border-left: none; }
-.table tbody tr:nth-child(2n+1) td, .table tbody tr:nth-child(2n+1) th { border-bottom-color: var(--line-strong); } /* stronger hour line */
 
-/* selection */
-.table td.marked { background-image: linear-gradient(180deg, rgba(80,200,120,.25), rgba(80,200,120,.15)); box-shadow: inset 0 0 0 1px rgba(80,200,120,.35); }
-.table td.selecting { outline: 2px dashed rgba(138,180,255,.5); outline-offset: -2px; }
+/* Stronger line at each full hour (every 2 rows) */
+.table tbody tr:nth-child(2n+1) th,
+.table tbody tr:nth-child(2n+1) td {
+  border-bottom-color: var(--line-strong);
+}
 
-/* now marker (blue) */
+/* Selection + marked cells (visuals only; logic lives in JS) */
+.table td.selecting {
+  outline: 2px dashed rgba(138,180,255,.5);
+  outline-offset: -2px;
+}
+.table td.marked {
+  background-image: linear-gradient(180deg, rgba(92,186,125,.25), rgba(92,186,125,.15));
+  box-shadow: inset 0 0 0 1px rgba(92,186,125,.35);
+}
+
+/* ===== “Now” marker (single horizontal line + bubble) ===== */
 .now-marker {
   position: absolute;
-  top: var(--grid-pad);
-  left: var(--grid-pad);
-  right: var(--grid-pad);
-  bottom: var(--grid-pad);
+  inset: var(--grid-pad);
   pointer-events: none;
 }
 .now-marker::before {
-  content: '';
+  content: "";
   position: absolute;
-  top: calc(20px + var(--rowpx)); /* 20px ≈ thead height inside scrollable grid */
-  left: calc(var(--timecol-width) + 0px);
+  top: calc(20px + var(--rowpx)); /* ~thead height inside scroll area */
+  left: calc(var(--timecol-width));
   right: 0;
   height: 0;
-  border-top: 2px solid rgba(138,180,255,.85);
-  box-shadow: 0 0 8px rgba(138,180,255,.45);
+  border-top: 2px solid var(--now);
+  box-shadow: 0 0 8px var(--now-glow);
 }
 .now-marker .bubble {
   position: absolute;
   top: calc(12px + var(--rowpx));
   right: 8px;
-  padding: 0 6px; height: 16px; line-height: 16px; font-size: 10px;
-  background: #1a1c1f; border: 1px solid #2a2d33; border-radius: 6px;
+  padding: 0 6px;
+  height: 16px;
+  line-height: 16px;
+  font-size: 10px;
+  background: #1a1c1f;
+  border: 1px solid var(--outline);
+  border-radius: 6px;
   color: #cfd3d8;
 }
 
-/* signin tooltip */
-.signin-tooltip { margin-top: 8px; color: #9aa0a6; }
+/* Drag hint tooltip used during painting */
+.drag-hint {
+  position: fixed;
+  z-index: 3000;
+  display: none;
+  background: #1b1b1b;
+  color: #e2e2e2;
+  border: 1px solid #2f2f2f;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.45);
+  white-space: nowrap;
+}

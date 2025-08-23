@@ -1,74 +1,157 @@
+/* ===== Schedule Matcher — TABLE + GRID styling (preserve original look) ===== */
+
 :root {
-  --row-height: 18px;              /* height of each HALF-HOUR row */
-  --font-size: 12px;
-  --line: #2b2b2b;
-  --line-strong: #3a3a3a;
-  --control-height: 32px;
-  --timecol-width: 76px;
+  --row-height: 18px;           /* each HALF-HOUR row */
+  --timecol-width: 76px;        /* sticky time column width */
   --grid-pad: 8px;
-  --topbar-height: 40px;
+  --topbar-height: 56px;
+  --font-size: 12px;
+
+  --bg: #0f1113;
+  --panel: #121416;
+  --text: #e6e7ea;
+  --muted: #a7adb5;
+
+  --line: #24282d;
+  --line-strong: #2f353b;
+  --outline: #2a2d33;
+
+  --now: rgba(138,180,255,.85);
+  --now-glow: rgba(138,180,255,.45);
+
   --vh: 100vh;
 }
 @supports (height: 100dvh) { :root { --vh: 100dvh; } }
 @supports (height: 100svh) { :root { --vh: 100svh; } }
 
-.page-shell { width: min(var(--container-max, 1600px), 96vw); margin: 16px auto 40px; padding: 0 var(--gutter, 16px); }
+.page-shell {
+  width: min(1600px, 96vw);
+  margin: 16px auto 40px;
+  padding: 0 16px;
+}
 
-/* controls */
-.controls { display:flex; gap:8px; align-items:center; height:var(--control-height); margin: 6px 0 8px; }
+/* Controls row */
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  margin: 6px 0 8px;
+}
+.controls .helper { color: var(--muted); font-size: 12px; }
 
-/* grid */
+/* Grid container */
 .grid {
   position: relative;
-  border: 1px solid #2a2d33;
+  border: 1px solid var(--outline);
   border-radius: 10px;
   overflow: hidden;
+  background: var(--panel);
   box-shadow: 0 1px 0 rgba(255,255,255,0.03) inset, 0 10px 24px rgba(0,0,0,0.28);
-  width: 100%;
 }
-.grid-content { position: relative; height: calc(var(--vh) - var(--topbar-height) - 180px); overflow: auto; padding: var(--grid-pad); }
+.grid-content {
+  position: relative;
+  height: calc(var(--vh) - var(--topbar-height) - 180px);
+  overflow: auto;
+  padding: var(--grid-pad);
+  background: var(--bg);
+}
 
-/* table (identical structure to availability picker) */
-.table { width: 100%; border-collapse: collapse; font-size: var(--font-size); table-layout: fixed; }
-.table thead th, .table tbody th { position: sticky; z-index: 10; background: #151618; }
-.table thead th { top: 0; border-bottom: 1px solid var(--line-strong); }
-.table tbody th { left: 0; text-align: right; padding-right: 8px; border-right: 1px solid var(--line-strong); background: #151618; width: var(--timecol-width); }
-.table th, .table td { padding: 0; }
-.table td { width: calc((100% - var(--timecol-width)) / 7); height: var(--row-height); border-left: 1px solid var(--line); border-bottom: 1px solid var(--line); background: #141619; }
+/* Table (identical to availability picker) */
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: var(--font-size);
+  color: var(--text);
+}
+.table thead th,
+.table tbody th {
+  position: sticky;
+  background: var(--bg);
+  z-index: 10;
+}
+.table thead th {
+  top: 0;
+  text-align: left;
+  height: 20px;
+  border-bottom: 1px solid var(--line-strong);
+}
+.table tbody th {
+  left: 0;
+  width: var(--timecol-width);
+  text-align: right;
+  padding-right: 8px;
+  border-right: 1px solid var(--line-strong);
+}
+.table th,
+.table td { padding: 0; }
+
+.table td {
+  width: calc((100% - var(--timecol-width)) / 7);
+  height: var(--row-height);
+  background: #14171a;
+  border-left: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
 .table tr td:first-child { border-left: none; }
-.table tbody tr:nth-child(2n+1) td, .table tbody tr:nth-child(2n+1) th { border-bottom-color: var(--line-strong); }
 
-/* now marker (blue) */
+/* Stronger line each full hour (every two rows) */
+.table tbody tr:nth-child(2n+1) th,
+.table tbody tr:nth-child(2n+1) td {
+  border-bottom-color: var(--line-strong);
+}
+
+/* Results/filters panels kept minimal (border only; no new container colors) */
+.panel {
+  margin-top: 12px;
+  border: 1px solid var(--outline);
+  border-radius: 10px;
+  padding: 12px;
+  background: transparent;
+  color: var(--text);
+}
+
+/* ===== “Now” marker ===== */
 .now-marker {
   position: absolute;
-  top: var(--grid-pad);
-  left: var(--grid-pad);
-  right: var(--grid-pad);
-  bottom: var(--grid-pad);
+  inset: var(--grid-pad);
   pointer-events: none;
 }
 .now-marker::before {
-  content: '';
+  content: "";
   position: absolute;
-  top: calc(20px + var(--rowpx));
-  left: calc(var(--timecol-width) + 0px);
+  top: calc(20px + var(--rowpx)); /* 20px ~= header height inside scroll area */
+  left: calc(var(--timecol-width));
   right: 0;
   height: 0;
-  border-top: 2px solid rgba(138,180,255,.85);
-  box-shadow: 0 0 8px rgba(138,180,255,.45);
+  border-top: 2px solid var(--now);
+  box-shadow: 0 0 8px var(--now-glow);
 }
 .now-marker .bubble {
   position: absolute;
   top: calc(12px + var(--rowpx));
   right: 8px;
-  padding: 0 6px; height: 16px; line-height: 16px; font-size: 10px;
-  background: #1a1c1f; border: 1px solid #2a2d33; border-radius: 6px;
+  padding: 0 6px;
+  height: 16px;
+  line-height: 16px;
+  font-size: 10px;
+  background: #1a1c1f;
+  border: 1px solid var(--outline);
+  border-radius: 6px;
   color: #cfd3d8;
 }
 
-/* panels (kept minimal for your upcoming redesign) */
-.panel { margin-top: 12px; border: 1px solid #2a2d33; border-radius: 10px; padding: 12px; }
-.member-list { list-style:none; padding:0; margin:0; }
-.member-list li { margin: 6px 0; }
-.error-text { color: #f66; min-height: 1.2em; }
-.results .result { padding: 6px 8px; border-bottom: 1px solid #2a2d33; }
+/* Tooltip used by matcher (if/when enabled) */
+.cell-tooltip {
+  position: fixed;
+  z-index: 2000;
+  display: none;
+  padding: 6px 8px;
+  font-size: 12px;
+  background: #1a1c1f;
+  border: 1px solid var(--outline);
+  border-radius: 8px;
+  color: #e7e7ea;
+  box-shadow: 0 10px 24px rgba(0,0,0,0.35);
+}
