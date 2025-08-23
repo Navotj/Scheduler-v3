@@ -1,8 +1,5 @@
 // templates/nat20-page.js
-// Minimal page template: renders topbar + modal scaffolding only.
-// NO columns, NO layout. Content is modular and unstructured.
-// All light-DOM children are moved into a neutral #page-shell wrapper.
-// No Shadow DOM so global CSS keeps working.
+// Minimal page template: topbar + modal only. NO forced layout/columns.
 
 class Nat20Page extends HTMLElement {
   static get observedAttributes() { return ['title']; }
@@ -20,22 +17,22 @@ class Nat20Page extends HTMLElement {
 
       <div id="topbar-root" data-title="${this._title}"></div>
 
-      <div class="container" id="page-shell"></div>
+      <div id="page-shell"></div>
 
       <div id="cell-tooltip" class="cell-tooltip" style="display:none;"></div>
     `;
 
     const overlay = this.querySelector('#modal-overlay');
     const container = this.querySelector('#modal-container');
-
-    // Move existing light-DOM children into the neutral page-shell wrapper
     const shell = this.querySelector('#page-shell');
+
+    // Move existing children (light DOM) into #page-shell
     const toMove = Array.from(this.childNodes).filter(n =>
       !(n.id === 'modal-overlay' || n.id === 'topbar-root' || n.id === 'page-shell' || n.id === 'cell-tooltip')
     );
     toMove.forEach(n => shell.appendChild(n));
 
-    // Modal helpers (global so login/register can use them)
+    // Modal helpers
     function runModalInit(path) {
       if (path.includes('register.html') && window.initRegisterForm) {
         window.initRegisterForm();
@@ -44,7 +41,7 @@ class Nat20Page extends HTMLElement {
       }
     }
 
-    window.openModal = function openModal(path) {
+    window.openModal = (path) => {
       fetch(path, { cache: 'no-cache' })
         .then(res => res.text())
         .then(html => {
@@ -55,7 +52,7 @@ class Nat20Page extends HTMLElement {
         });
     };
 
-    window.swapModal = function swapModal(path) {
+    window.swapModal = (path) => {
       fetch(path, { cache: 'no-cache' })
         .then(res => res.text())
         .then(html => {
@@ -65,20 +62,20 @@ class Nat20Page extends HTMLElement {
         });
     };
 
-    window.closeModal = function closeModal() {
+    window.closeModal = () => {
       overlay.style.display = 'none';
       document.body.classList.remove('modal-active');
       container.innerHTML = '';
     };
 
-    // Auth propagation hook for pages that care (called by topbar.js)
+    // Auth propagation hook
     window.onAuthStateChange = (isAuthed, username) => {
       if (window.scheduler && typeof window.scheduler.setAuth === 'function') {
         window.scheduler.setAuth(!!isAuthed, isAuthed ? username : null);
       }
     };
 
-    // Kick topbar auth refresh if available
+    // Kick topbar auth refresh
     if (window.topbar && typeof window.topbar.refreshAuth === 'function') {
       window.topbar.refreshAuth();
     }
@@ -89,9 +86,10 @@ class Nat20Page extends HTMLElement {
       this._title = newVal;
       const t = this.querySelector('#topbar-root');
       if (t) t.dataset.title = newVal;
-      if (document.title) document.title = `${newVal} — NAT20`;
+      document.title = `${newVal} — NAT20`;
     }
   }
 }
 
 customElements.define('nat20-page', Nat20Page);
+z
