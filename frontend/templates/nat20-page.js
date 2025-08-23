@@ -1,5 +1,5 @@
 // templates/nat20-page.js
-// Minimal page template: topbar + modal + neutral container padding. NO layout columns.
+// Minimal page template: topbar + modal + neutral container padding. NO enforced layout.
 
 class Nat20Page extends HTMLElement {
   static get observedAttributes() { return ['title']; }

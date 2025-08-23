@@ -1,6 +1,4 @@
 // components/sm-filters.js
-// Filters panel component (max missing, min hours, sort, legend).
-
 class SmFilters extends HTMLElement {
   connectedCallback() {
     this.innerHTML = `
@@ -41,11 +39,9 @@ class SmFilters extends HTMLElement {
         </div>
       </div>
     `;
-
     if (window.scheduler && typeof window.scheduler.initFilters === 'function') {
       window.scheduler.initFilters();
     }
   }
 }
-
 customElements.define('sm-filters', SmFilters);

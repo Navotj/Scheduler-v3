@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Group Scheduler — NAT20 (Layout)</title>
+  <title>Group Scheduler — NAT20</title>
   <link rel="icon" href="../assets/favicon.ico" type="image/x-icon" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 
@@ -12,7 +12,6 @@
   <link rel="stylesheet" href="../styles/topbar.css" />
 
   <!-- Page/table-specific styles -->
-  <link rel="stylesheet" href="../styles/schedule_matcher.css" />
   <link rel="stylesheet" href="../styles/schedule_matcher.css" />
 </head>
 <body>
@@ -33,19 +32,21 @@
   <!-- Page controller (existing scheduler logic) -->
   <script src="../scripts/schedule_matcher.js"></script>
 
-  <!-- Compose the page with the requested layout -->
+  <!-- Compose the page with requested layout (no template columns) -->
   <nat20-page title="Group Scheduler">
-    <div class="sm-layout" id="layout-root">
-      <aside id="ads-panel" class="panel">
-        <!-- placeholder for future ad unit -->
-        <div class="muted">ADS</div>
-      </aside>
+    <div id="sm-layout" class="sm-layout">
+      <aside id="ads-panel" class="panel"><div class="muted">ADS</div></aside>
 
       <section id="table-panel">
+        <div class="controls" id="controls">
+          <button id="prev-week" class="btn btn-secondary" title="Previous week">← Previous week</button>
+          <button id="next-week" class="btn btn-secondary" title="Next week">Next week →</button>
+          <span class="muted helper">Shift+Scroll = Vertical Zoom, Scroll = Pan</span>
+        </div>
         <sm-grid></sm-grid>
       </section>
 
-      <aside id="mf-panel">
+      <aside id="members-filters">
         <sm-members></sm-members>
         <sm-filters></sm-filters>
       </aside>
