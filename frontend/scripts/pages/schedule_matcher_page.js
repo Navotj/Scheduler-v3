@@ -1,11 +1,11 @@
 // schedule_matcher_page.js (ES module)
-import { create_page_shell } from '/scripts/page_shell.js';
-import { create_sm_buttons } from '/scripts/components/sm_buttons.js';
-import { create_sm_table } from '/scripts/components/sm_table.js';
-import { create_sm_members_panel } from '/scripts/components/sm_members.js';
-import { create_sm_filters_panel } from '/scripts/components/sm_filters.js';
-import { create_sm_results_panel } from '/scripts/components/sm_results.js';
-import { initScheduler } from '/scripts/sm_scheduler.js';
+import { create_page_shell } from '../page_shell.js';
+import { create_sm_buttons } from '../components/sm_buttons.js';
+import { create_sm_table } from '../components/sm_table.js';
+import { create_sm_members_panel } from '../components/sm_members.js';
+import { create_sm_filters_panel } from '../components/sm_filters.js';
+import { create_sm_results_panel } from '../components/sm_results.js';
+import { initScheduler } from '../sm_scheduler.js';
 
 // Build page shell (top bar + padded container)
 const { main } = create_page_shell({
