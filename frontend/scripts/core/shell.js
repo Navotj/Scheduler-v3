@@ -6,10 +6,16 @@
   function el(tag, attrs, ...children) {
     const n = document.createElement(tag);
     if (attrs) for (const [k, v] of Object.entries(attrs)) {
-      if (k === 'class') n.className = v;
-      else if (k === 'style') Object.assign(n.style, v);
-      else if (k.startsWith('on') && typeof v === 'function') n.addEventListener(k.slice(2), v);
-      else n.setAttribute(k, v);
+      if (k === 'class') {
+        n.className = v;
+      } else if (k === 'style') {
+        if (typeof v === 'string') n.style.cssText = v;
+        else if (v && typeof v === 'object') Object.assign(n.style, v);
+      } else if (k.startsWith('on') && typeof v === 'function') {
+        n.addEventListener(k.slice(2), v);
+      } else {
+        n.setAttribute(k, v);
+      }
     }
     for (const c of children) n.append(c && c.nodeType ? c : document.createTextNode(String(c ?? '')));
     return n;
@@ -29,7 +35,7 @@
   }
   const ICON = {
     home: () => svgPath('M3 9l9-7 9 7v11a2 2 0 0 1-2 2h-5V12H10v10H5a2 2 0 0 1-2-2z'),
-    calendar: () => svgPath('M7 2v4M17 2v4M3 8h18M5 8V6a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v2M5 8v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8M8 12h3M13 12h3M8 16h8'),
+    calendar: () => svgPath('M8 2v4M16 2v4M3 8h18M5 8V6a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v2M5 8v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8M8 12h4M14 12h4M8 16h10'),
     search: () => svgPath('M21 21l-4.3-4.3M10 18a8 8 0 1 1 0-16 8 8 0 0 1 0 16'),
     settings: () => svgPath('M12 3l1.2 2.4 2.6.4-1.9 1.9.5 2.6-2.4-1.2-2.4 1.2.5-2.6L8.2 5.8l2.6-.4L12 3zM4 14a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm16-2a2 2 0 1 0 .001 4.001A2 2 0 0 0 20 12z'),
     user: () => svgPath('M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0'),
@@ -218,7 +224,6 @@
     document.dispatchEvent(new CustomEvent('auth:changed', {
       detail: { isAuthenticated: false, username: null }
     }));
-    // Optionally return to home
     try { if (location.pathname !== '/index.html') go('/index.html'); } catch {}
   }
 

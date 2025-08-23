@@ -178,7 +178,7 @@
     if (!pos) { nowMarker.style.display = 'none'; return; }
     nowMarker.style.display = 'block';
     nowMarker.style.setProperty('--col', String(pos.day));
-    nowMarker.style.setProperty('--row', String(pos.fracHour));
+    nowMarker.style.setProperty('--rowpx', `${pos.fracHour * parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--row-height'))}px`);
   }
 
   function fetchWithAuth(url, options = {}) {
@@ -264,7 +264,9 @@
     tbl.className = 'table';
     const thead = document.createElement('thead');
     const trh = document.createElement('tr');
-    trh.appendChild(document.createElement('th')); // corner
+    const th0 = document.createElement('th');
+    th0.textContent = 'Time';
+    trh.appendChild(th0);
 
     const days = weekStartIdx === 1
       ? ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
@@ -302,8 +304,11 @@
     return tbl;
   }
 
-  function applyZoom() {
-    document.documentElement.style.setProperty('--zoom', String(zoomFactor));
+  function applyZoomStyles() {
+    const root = document.documentElement;
+    const baseRow = 18;
+    root.style.setProperty('--row-height', `${(baseRow * zoomFactor).toFixed(2)}px`);
+    requestAnimationFrame(() => updateNowMarker(getWeekStartEpoch()));
   }
 
   function installControls() {
@@ -444,7 +449,7 @@
         e.preventDefault();
         const delta = e.deltaY < 0 ? 0.05 : -0.05;
         zoomFactor = clamp(zoomFactor + delta, 0.7, 1.6);
-        applyZoom();
+        applyZoomStyles();
       }
     }, { passive: false });
   }
@@ -474,6 +479,8 @@
 
   function setAuth(auth) {
     isAuthenticated = !!auth;
+    const tip = document.getElementById('signin-tooltip');
+    if (tip) tip.style.display = isAuthenticated ? 'none' : 'block';
   }
 
   document.addEventListener('auth:changed', (e) => {
@@ -486,17 +493,18 @@
     hour12 = settings.clock === '12';
     weekStartIdx = settings.weekStart === 'mon' ? 1 : 0;
     zoomFactor = Number(settings.defaultZoom || 1.0);
-    applyZoom();
+    applyZoomStyles();
   }
 
   async function init() {
-    table = document.getElementById('scheduler-table');
+    table = document.getElementById('schedule-table');
     grid = document.getElementById('grid');
     gridContent = document.getElementById('grid-content');
     nowMarker = document.getElementById('now-marker');
 
-    if (!table || !grid || !gridContent) return;
+    if (!grid || !gridContent || !table) return;
 
+    // build the table with correct headers and half-hour rows
     buildTable(gridContent);
     installControls();
     installPainting();
@@ -519,5 +527,5 @@
     render();
   }
 
-  document.addEventListener('DOMContentLoaded', init);
+  window.schedule = { init, setAuth };
 })();

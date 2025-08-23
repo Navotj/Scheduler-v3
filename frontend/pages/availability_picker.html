@@ -32,18 +32,23 @@
 
     <div class="grid" id="grid">
       <div class="grid-content" id="grid-content">
-        <table class="table" id="scheduler-table" aria-label="My availability grid"></table>
+        <table class="table" id="schedule-table" aria-label="My availability grid"></table>
         <div id="now-marker" class="now-marker" style="display:none;">
           <span class="bubble">now</span>
         </div>
       </div>
     </div>
 
-    <div id="cell-tooltip" class="cell-tooltip" style="display:none;"></div>
+    <div id="signin-tooltip" class="signin-tooltip" style="display:none;">Sign in to edit your availability</div>
   </main>
 
   <script src="/scripts/core/shell.js"></script>
   <script src="/scripts/availability_picker.js"></script>
   <script src="/scripts/settings.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      if (window.schedule && typeof window.schedule.init === 'function') window.schedule.init();
+    });
+  </script>
 </body>
 </html>
