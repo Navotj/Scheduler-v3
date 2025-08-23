@@ -21,7 +21,6 @@
   let dragStart = null;
   let dragEnd = null;
 
-  // drag hint (floating box that follows cursor)
   let dragHintEl = null;
 
   let table;
@@ -41,17 +40,6 @@
       const raw = localStorage.getItem('nat20_settings');
       return raw ? JSON.parse(raw) : null;
     } catch { return null; }
-  }
-
-  async function fetchRemoteSettings() {
-    try {
-      const res = await fetch('/settings', { credentials: 'include', cache: 'no-cache' });
-      if (res.ok) {
-        const data = await res.json();
-        if (data && typeof data === 'object') return data;
-      }
-    } catch {}
-    return null;
   }
 
   function saveLocal(obj) {
@@ -118,10 +106,6 @@
     return sundayOfWeek(epoch, tzName);
   }
 
-  function weekdayIndex(name) {
-    return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(name);
-  }
-
   function formatHourLabel(hour) {
     if (!hour12) return `${String(hour).padStart(2, '0')}:00`;
     const h = (hour % 12) || 12;
@@ -140,28 +124,6 @@
     if (el) el.textContent = label;
   }
 
-  function renderLegend() {
-    const labels = document.getElementById('legend-labels');
-    const steps = document.getElementById('legend-steps');
-    if (!labels || !steps) return;
-
-    labels.innerHTML = '';
-    steps.innerHTML = '';
-
-    for (let i = 0; i <= 10; i++) {
-      const slot = document.createElement('div');
-      slot.className = 'legend-step';
-      slot.style.setProperty('--p', String(i / 10));
-      steps.appendChild(slot);
-    }
-
-    for (let i = 0; i < 24; i += 2) {
-      const span = document.createElement('span');
-      span.textContent = formatHourLabel(i);
-      labels.appendChild(span);
-    }
-  }
-
   function getNowMarkerPosition(epochStart) {
     const now = Date.now() / 1000;
     const secIntoWeek = now - epochStart;
@@ -178,7 +140,8 @@
     if (!pos) { nowMarker.style.display = 'none'; return; }
     nowMarker.style.display = 'block';
     nowMarker.style.setProperty('--col', String(pos.day));
-    nowMarker.style.setProperty('--rowpx', `${pos.fracHour * parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--row-height'))}px`);
+    const rowH = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--row-height')) || 18;
+    nowMarker.style.setProperty('--rowpx', `${pos.fracHour * rowH}px`);
   }
 
   function fetchWithAuth(url, options = {}) {
@@ -201,20 +164,6 @@
     const res = await fetchWithAuth(url);
     if (!res.ok) throw new Error(await res.text().catch(()=> 'Fetch failed'));
     return res.json();
-  }
-
-  function tsToLocalParts(ts, tzName) {
-    const d = new Date(ts * 1000);
-    const parts = new Intl.DateTimeFormat('en-US', {
-      timeZone: tzName, year: 'numeric', month: '2-digit', day: '2-digit',
-      hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
-    }).formatToParts(d);
-    const map = {}; for (const p of parts) map[p.type] = p.value;
-    return { y: Number(map.year), m: Number(map.month), d: Number(map.day), hh: Number(map.hour), mm: Number(map.minute) };
-  }
-
-  function localPartsToTs({ y, m, d, hh, mm }, tzName) {
-    return epochFromZoned(y, m, d, hh, mm, tzName);
   }
 
   function rangeToCells(range, startEpoch) {
@@ -305,9 +254,8 @@
   }
 
   function applyZoomStyles() {
-    const root = document.documentElement;
     const baseRow = 18;
-    root.style.setProperty('--row-height', `${(baseRow * zoomFactor).toFixed(2)}px`);
+    document.documentElement.style.setProperty('--row-height', `${(baseRow * zoomFactor).toFixed(2)}px`);
     requestAnimationFrame(() => updateNowMarker(getWeekStartEpoch()));
   }
 
@@ -497,14 +445,13 @@
   }
 
   async function init() {
-    table = document.getElementById('schedule-table');
+    table = document.getElementById('schedule-table'); // id matches HTML
     grid = document.getElementById('grid');
     gridContent = document.getElementById('grid-content');
     nowMarker = document.getElementById('now-marker');
 
-    if (!grid || !gridContent || !table) return;
+    if (!grid || !gridContent) return;
 
-    // build the table with correct headers and half-hour rows
     buildTable(gridContent);
     installControls();
     installPainting();
@@ -523,6 +470,26 @@
         }
       }
     } catch {}
+
+    // legend labels
+    (function renderLegend() {
+      const labels = document.getElementById('legend-labels');
+      const steps = document.getElementById('legend-steps');
+      if (!labels || !steps) return;
+      labels.innerHTML = '';
+      steps.innerHTML = '';
+      for (let i = 0; i <= 10; i++) {
+        const slot = document.createElement('div');
+        slot.className = 'legend-step';
+        slot.style.setProperty('--p', String(i / 10));
+        steps.appendChild(slot);
+      }
+      for (let i = 0; i < 24; i += 2) {
+        const span = document.createElement('span');
+        span.textContent = formatHourLabel(i);
+        labels.appendChild(span);
+      }
+    })();
 
     render();
   }
