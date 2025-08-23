@@ -187,18 +187,6 @@ input[type="number"]::-webkit-inner-spin-button {
   }
 }
 
-/* Two-column container owned by the template */
-.container.two-col {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) clamp(320px, 24vw, 520px);
-  gap: clamp(12px, 1.2vw, 24px);
-  align-items: start;
-  min-height: auto !important;
-  height: auto !important;
-  margin-top: 0;
-}
-
-/* Only the grid area should consume vertical calc */
 #grid, .grid {
   height: var(--grid-height);
   min-height: 320px;

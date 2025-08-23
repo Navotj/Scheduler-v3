@@ -15,7 +15,7 @@ class Nat20Page extends HTMLElement {
         <div id="modal-container"></div>
       </div>
 
-      <div id="topbar-root" data-title="${this._title}"></div>
+      <div id="topbar-root" data-title="\${this._title}"></div>
 
       <div id="page-shell"></div>
 
@@ -92,4 +92,3 @@ class Nat20Page extends HTMLElement {
 }
 
 customElements.define('nat20-page', Nat20Page);
-z
