@@ -2,43 +2,58 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Group Scheduler — NAT20</title>
-  <link rel="icon" href="/assets/favicon.ico" type="image/x-icon">
+  <title>Group Scheduler — NAT20 (Layout)</title>
+  <link rel="icon" href="../assets/favicon.ico" type="image/x-icon" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 
   <!-- Shared/global styles -->
-  <link rel="stylesheet" href="/styles/styles.css" />
-  <link rel="stylesheet" href="/styles/common.css" />
-  <link rel="stylesheet" href="/styles/topbar.css" />
+  <link rel="stylesheet" href="../styles/styles.css" />
+  <link rel="stylesheet" href="../styles/common.css" />
+  <link rel="stylesheet" href="../styles/topbar.css" />
 
   <!-- Page/table-specific styles -->
-  <link rel="stylesheet" href="/styles/schedule_matcher.css" />
+  <link rel="stylesheet" href="../styles/schedule_matcher.css" />
+  <link rel="stylesheet" href="../styles/schedule_matcher.css" />
 </head>
 <body>
-  <!-- Page template (no enforced layout) + components -->
-  <script src="/templates/nat20-page.js"></script>
-  <script src="/components/sm-grid.js"></script>
-  <script src="/components/sm-members.js"></script>
-  <script src="/components/sm-filters.js"></script>
-  <script src="/components/sm-results.js"></script>
+  <!-- Template (neutral) + components -->
+  <script src="../templates/nat20-page.js"></script>
+  <script src="../components/sm-grid.js"></script>
+  <script src="../components/sm-members.js"></script>
+  <script src="../components/sm-filters.js"></script>
+  <script src="../components/sm-results.js"></script>
 
   <!-- Auth / modal pages logic -->
-  <script src="/scripts/login.js"></script>
-  <script src="/scripts/register.js"></script>
+  <script src="../scripts/login.js"></script>
+  <script src="../scripts/register.js"></script>
 
   <!-- Topbar controller -->
-  <script src="/scripts/topbar.js"></script>
+  <script src="../scripts/topbar.js"></script>
 
-  <!-- Page controller -->
-  <script src="/scripts/schedule_matcher.js"></script>
+  <!-- Page controller (existing scheduler logic) -->
+  <script src="../scripts/schedule_matcher.js"></script>
 
-  <!-- Compose the page with reusable template; content is modular and unstructured -->
+  <!-- Compose the page with the requested layout -->
   <nat20-page title="Group Scheduler">
-    <!-- FLAT LAYOUT: no two-col / no left-col / no right-col -->
-    <sm-grid></sm-grid>
-    <sm-members></sm-members>
-    <sm-filters></sm-filters>
-    <sm-results></sm-results>
+    <div class="sm-layout" id="layout-root">
+      <aside id="ads-panel" class="panel">
+        <!-- placeholder for future ad unit -->
+        <div class="muted">ADS</div>
+      </aside>
+
+      <section id="table-panel">
+        <sm-grid></sm-grid>
+      </section>
+
+      <aside id="mf-panel">
+        <sm-members></sm-members>
+        <sm-filters></sm-filters>
+      </aside>
+
+      <aside id="results-wrap">
+        <sm-results></sm-results>
+      </aside>
+    </div>
   </nat20-page>
 
   <script>

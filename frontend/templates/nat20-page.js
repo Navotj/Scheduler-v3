@@ -1,5 +1,5 @@
 // templates/nat20-page.js
-// Minimal page template: topbar + modal only. NO forced layout/columns.
+// Minimal page template: topbar + modal + neutral container padding. NO layout columns.
 
 class Nat20Page extends HTMLElement {
   static get observedAttributes() { return ['title']; }
@@ -17,7 +17,8 @@ class Nat20Page extends HTMLElement {
 
       <div id="topbar-root" data-title="${this._title}"></div>
 
-      <div id="page-shell"></div>
+      <!-- neutral page wrapper providing shared width/padding via .container -->
+      <div id="page-shell" class="container"></div>
 
       <div id="cell-tooltip" class="cell-tooltip" style="display:none;"></div>
     `;
@@ -26,19 +27,15 @@ class Nat20Page extends HTMLElement {
     const container = this.querySelector('#modal-container');
     const shell = this.querySelector('#page-shell');
 
-    // Move existing children (light DOM) into #page-shell
-    const toMove = Array.from(this.childNodes).filter(n =>
-      !(n.id === 'modal-overlay' || n.id === 'topbar-root' || n.id === 'page-shell' || n.id === 'cell-tooltip')
+    // Move existing light-DOM children into #page-shell (flat flow)
+    const toMove = Array.from(this.childNodes).filter(
+      n => !(n.id === 'modal-overlay' || n.id === 'topbar-root' || n.id === 'page-shell' || n.id === 'cell-tooltip')
     );
     toMove.forEach(n => shell.appendChild(n));
 
-    // Modal helpers
     function runModalInit(path) {
-      if (path.includes('register.html') && window.initRegisterForm) {
-        window.initRegisterForm();
-      } else if (path.includes('login.html') && window.initLoginForm) {
-        window.initLoginForm();
-      }
+      if (path.includes('register.html') && window.initRegisterForm) window.initRegisterForm();
+      else if (path.includes('login.html') && window.initLoginForm) window.initLoginForm();
     }
 
     window.openModal = (path) => {
@@ -68,14 +65,12 @@ class Nat20Page extends HTMLElement {
       container.innerHTML = '';
     };
 
-    // Auth propagation hook
     window.onAuthStateChange = (isAuthed, username) => {
       if (window.scheduler && typeof window.scheduler.setAuth === 'function') {
         window.scheduler.setAuth(!!isAuthed, isAuthed ? username : null);
       }
     };
 
-    // Kick topbar auth refresh
     if (window.topbar && typeof window.topbar.refreshAuth === 'function') {
       window.topbar.refreshAuth();
     }
