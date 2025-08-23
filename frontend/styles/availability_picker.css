@@ -6,15 +6,14 @@
   --control-height: 32px;
   --timecol-width: 76px;
   --grid-pad: 8px;
+  --topbar-height: 40px;
   --vh: 100vh;
 }
-
 @supports (height: 100dvh) { :root { --vh: 100dvh; } }
 @supports (height: 100svh) { :root { --vh: 100svh; } }
+:root { --grid-height: calc(var(--vh) - var(--topbar-height) - 96px); }
 
-/* Page grid height independent of any top bar */
-:root { --grid-height: calc(var(--vh) - 96px); }
-
+.page-shell { width: min(var(--container-max, 1200px), 96vw); margin: 12px auto 32px; padding: 0 12px; }
 .header-row { display:flex; justify-content:space-between; align-items:center; margin: 6px 0 8px; }
 .week-and-help { display:flex; align-items:center; gap:14px; color:#9aa0a6; }
 .week-and-help #week-label { color:#fff; font-weight:600; }
@@ -39,6 +38,16 @@
 .controls button.active { outline: 2px solid #2d6cdf; }
 .controls button:disabled { opacity: 0.5; cursor: not-allowed; }
 
+header, nav, .navbar, .topbar, .top-bar, .header, .page-header {
+  position: static !important;
+  top: auto !important;
+  z-index: auto !important;
+  padding: 4px 8px !important;
+  margin-bottom: 6px !important;
+  box-shadow: none !important;
+}
+header + *, nav + *, .navbar + *, .topbar + *, .header + * { margin-top: 0 !important; }
+
 .grid {
   position: relative;
   background: #101010;
@@ -56,7 +65,7 @@
   height: 100%;
   width: 100%;
   background: #101010;
-  border-radius: 12px;
+  border-radius: 12px; /* stronger rounding on the scroll container */
   backface-visibility: hidden;
   transform: translateZ(0);
 }
@@ -76,15 +85,15 @@
   user-select: none;
   font-size: var(--font-size);
   background: #101010;
-  border-radius: 12px;
-  overflow: hidden;
+  border-radius: 12px;      /* round the table to match the container */
+  overflow: hidden;         /* ensures header corners clip cleanly */
 }
 .table th,
 .table td {
   border: 1px solid var(--line);
   text-align: center;
   background: #101010;
-  background-clip: padding-box;
+  background-clip: padding-box; /* prevents bleed at rounded corners */
 }
 .table thead th {
   position: sticky;
@@ -97,6 +106,7 @@
   font-size: 13px;
   background-clip: padding-box;
 }
+/* round the header's outer corners to avoid square overlap in rounded container */
 .table thead tr:first-child th:first-child { border-top-left-radius: 12px; }
 .table thead tr:first-child th:last-child  { border-top-right-radius: 12px; }
 

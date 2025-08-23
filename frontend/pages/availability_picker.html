@@ -4,10 +4,18 @@
   <meta charset="UTF-8" />
   <title>My Availability • NAT20 Scheduling</title>
   <link rel="icon" href="/assets/favicon.ico" type="image/x-icon">
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="stylesheet" href="/styles/common.css" />
-  <link rel="stylesheet" href="/styles/topbar.css" />
   <link rel="stylesheet" href="/styles/availability_picker.css" />
+  <style>
+    /* small page-specific tweaks */
+    .page-shell { width: min(var(--container-max), 96vw); margin: 16px auto 40px; padding: 0 var(--gutter); }
+    .breadcrumbs { display:flex; align-items:center; gap:8px; color:#9ecbff; }
+    .breadcrumbs a { color:#9ecbff; text-decoration:none; }
+    .header-row { display:flex; justify-content:space-between; align-items:center; margin: 8px 0 12px; }
+    .title { font-weight:700; }
+    .week-and-help { display:flex; align-items:center; gap:16px; color:#aaa; }
+    .week-and-help #week-label { color:#fff; font-weight:600; }
+  </style>
 </head>
 <body>
   <!-- Modal host reused by login/register -->
@@ -15,8 +23,17 @@
     <div id="modal-container"></div>
   </div>
 
-  <!-- Topbar mount -->
-  <div id="topbar-root" data-title="My Availability"></div>
+  <!-- Top bar -->
+  <header class="top-bar">
+    <div class="top-left">
+      <a href="/">&larr; Home</a>
+      <h1 class="title">My Availability</h1>
+    </div>
+    <div class="user-info">
+      <span id="user-label" class="user-label" style="display:none;"></span>
+      <button id="auth-button">Login</button>
+    </div>
+  </header>
 
   <main class="page-shell">
     <div class="header-row">
@@ -39,14 +56,11 @@
     <section id="grid" class="grid">
       <div id="grid-content" class="grid-content">
         <table id="schedule-table" class="table" aria-label="Weekly availability grid"></table>
-        <!-- NOW marker injected by JS -->
-        <div id="now-marker" class="now-marker" style="display:none;">
-          <span class="bubble">now</span>
-        </div>
+        <!-- NOW marker will be injected here by JS -->
       </div>
     </section>
 
-    <!-- Tooltip when not signed in -->
+    <!-- Tooltip shown when not signed in -->
     <div id="signin-tooltip" class="signin-tooltip">Sign in to edit your availability</div>
   </main>
 
@@ -55,8 +69,71 @@
   <script src="/scripts/login.js"></script>
   <script src="/scripts/register.js"></script>
   <script src="/scripts/availability_picker.js"></script>
-  <script src="/scripts/topbar.js"></script>
   <script>
+    // ---- Auth UI (mirrors index.html) ----
+    let isAuthenticated = false;
+    let currentUsername = null;
+
+    async function checkAuth() {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 3000);
+      try {
+        const res = await fetch('/auth/check', {
+          credentials: 'include',
+          cache: 'no-cache',
+          signal: controller.signal
+        });
+        if (res.ok) {
+          const data = await res.json().catch(() => ({}));
+          const uname =
+            (data && data.user && data.user.username) ||
+            data.username ||
+            data.name ||
+            null;
+          isAuthenticated = !!uname;
+          currentUsername = uname;
+        } else {
+          isAuthenticated = false;
+          currentUsername = null;
+        }
+      } catch {
+        isAuthenticated = false;
+        currentUsername = null;
+      } finally {
+        clearTimeout(timeout);
+      }
+      updateAuthUI();
+      if (window.schedule && window.schedule.setAuth) window.schedule.setAuth(isAuthenticated);
+    }
+
+    function updateAuthUI() {
+      const userLabel = document.getElementById('user-label');
+      const authButton = document.getElementById('auth-button');
+      if (!userLabel || !authButton) return;
+
+      if (isAuthenticated) {
+        userLabel.textContent = `Signed in as ${currentUsername}`;
+        userLabel.style.display = 'inline';
+        authButton.textContent = 'Logout';
+        authButton.onclick = logout;
+      } else {
+        userLabel.style.display = 'none';
+        userLabel.textContent = '';
+        authButton.textContent = 'Login';
+        authButton.onclick = () => openModal('/pages/login.html');
+      }
+    }
+
+    async function logout() {
+      try {
+        await fetch('/auth/logout', { method: 'POST', credentials: 'include' });
+      } catch {}
+      isAuthenticated = false;
+      currentUsername = null;
+      updateAuthUI();
+      if (window.schedule && window.schedule.setAuth) window.schedule.setAuth(false);
+    }
+
     function runModalInit(path) {
       if (path.includes('register.html') && window.initRegisterForm) {
         window.initRegisterForm();
@@ -101,17 +178,11 @@
     window.swapModal = swapModal;
     window.closeModal = closeModal;
 
-    // Page-specific auth reaction (called by topbar.js)
-    window.onAuthStateChange = function(isAuthed) {
-      if (window.schedule && window.schedule.setAuth) window.schedule.setAuth(!!isAuthed);
-    };
-
+    // ---- Page init ----
     document.addEventListener('DOMContentLoaded', async () => {
+      await checkAuth();                // sets header + schedule auth gate
       if (window.schedule && window.schedule.init) {
-        window.schedule.init();
-      }
-      if (window.topbar && typeof window.topbar.refreshAuth === 'function') {
-        window.topbar.refreshAuth();
+        window.schedule.init();         // builds the table/grid
       }
     });
   </script>

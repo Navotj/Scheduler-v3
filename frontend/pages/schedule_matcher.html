@@ -6,7 +6,6 @@
   <link rel="icon" href="/assets/favicon.ico" type="image/x-icon">
   <link rel="stylesheet" href="/styles/styles.css" />
   <link rel="stylesheet" href="/styles/common.css" />
-  <link rel="stylesheet" href="/styles/topbar.css" />
   <link rel="stylesheet" href="/styles/schedule_matcher.css" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 </head>
@@ -15,7 +14,14 @@
     <div id="modal-container"></div>
   </div>
 
-  <div id="topbar-root" data-title="Group Scheduler"></div>
+  <div class="top-bar">
+    <a class="breadcrumb" href="/index.html">← Home</a>
+    <div class="spacer"></div>
+    <div class="user-area">
+      <span id="user-label" class="user-label" style="display:none;"></span>
+      <button id="auth-button" class="btn btn-secondary">Login</button>
+    </div>
+  </div>
 
   <div class="container two-col">
     <div class="left-col">
@@ -56,7 +62,7 @@
             <input type="number" id="max-missing" min="0" value="0" />
           </div>
 
-          <div class="field">
+        <div class="field">
             <label for="min-hours">Min length</label>
             <div class="row">
               <input type="number" id="min-hours" min="0" step="0.5" value="1" />
@@ -97,8 +103,84 @@
   <script src="/scripts/schedule_matcher.js"></script>
   <script src="/scripts/login.js"></script>
   <script src="/scripts/register.js"></script>
-  <script src="/scripts/topbar.js"></script>
   <script>
+    let isAuthenticated = false;
+    let currentUsername = null;
+
+    async function checkAuth() {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 3000);
+      try {
+        const res = await fetch('/auth/check', {
+          credentials: 'include',
+          cache: 'no-cache',
+          signal: controller.signal
+        });
+        if (res.ok) {
+          const data = await res.json().catch(() => ({}));
+          const uname =
+            (data && data.user && data.user.username) ||
+            data.username ||
+            data.name ||
+            null;
+          isAuthenticated = !!uname;
+          currentUsername = uname;
+        } else {
+          isAuthenticated = false;
+          currentUsername = null;
+        }
+      } catch {
+        isAuthenticated = false;
+        currentUsername = null;
+      } finally {
+        clearTimeout(timeout);
+      }
+      updateAuthUI();
+      if (window.scheduler && typeof window.scheduler.setAuth === 'function') {
+        window.scheduler.setAuth(isAuthenticated, currentUsername);
+      }
+    }
+
+    function updateAuthUI() {
+      const userLabel = document.getElementById('user-label');
+      const authButton = document.getElementById('auth-button');
+      if (!userLabel || !authButton) return;
+
+      if (isAuthenticated) {
+        userLabel.textContent = `Signed in as ${currentUsername}`;
+        userLabel.style.display = 'inline';
+        authButton.textContent = 'Logout';
+        authButton.onclick = logout;
+      } else {
+        userLabel.style.display = 'none';
+        userLabel.textContent = '';
+        authButton.textContent = 'Login';
+        authButton.onclick = () => openModal('/pages/login.html');
+      }
+    }
+
+    window.setAuthState = function (authenticated, username) {
+      isAuthenticated = !!authenticated;
+      currentUsername = authenticated ? username : null;
+      updateAuthUI();
+      if (window.scheduler && typeof window.scheduler.setAuth === 'function') {
+        window.scheduler.setAuth(isAuthenticated, currentUsername);
+      }
+    };
+
+    async function logout() {
+      try {
+        await fetch('/auth/logout', {
+          method: 'POST',
+          credentials: 'include'
+        });
+      } catch {}
+      isAuthenticated = false;
+      currentUsername = null;
+      updateAuthUI();
+      window.location.href = '/index.html';
+    }
+
     function runModalInit(path) {
       if (path.includes('register.html') && window.initRegisterForm) {
         window.initRegisterForm();
@@ -143,21 +225,13 @@
     window.swapModal = swapModal;
     window.closeModal = closeModal;
 
-    // Page-specific auth reaction (called by topbar.js)
-    window.onAuthStateChange = function (isAuthed, username) {
-      if (window.scheduler && typeof window.scheduler.setAuth === 'function') {
-        window.scheduler.setAuth(!!isAuthed, isAuthed ? username : null);
-      }
-    };
-
     document.addEventListener('DOMContentLoaded', () => {
+      checkAuth();
       if (window.scheduler && typeof window.scheduler.init === 'function') {
         window.scheduler.init();
       }
-      if (window.topbar && typeof window.topbar.refreshAuth === 'function') {
-        window.topbar.refreshAuth();
-      }
     });
   </script>
+
 </body>
 </html>
