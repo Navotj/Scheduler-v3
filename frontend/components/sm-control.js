@@ -1,5 +1,5 @@
 // components/sm-control.js
-// Previous/Next buttons + helper, modular and movable.
+// Previous/Next buttons + helper. No page-specific logic; emits events only.
 
 class SmControl extends HTMLElement {
   connectedCallback() {
@@ -12,9 +12,11 @@ class SmControl extends HTMLElement {
         </div>
       </div>
     `;
-    if (window.scheduler && typeof window.scheduler.initControls === 'function') {
-      window.scheduler.initControls();
-    }
+
+    const prev = this.querySelector('#prev-week');
+    const next = this.querySelector('#next-week');
+    prev.addEventListener('click', () => this.dispatchEvent(new CustomEvent('change-week', { detail: { delta: -1 }, bubbles: true })));
+    next.addEventListener('click', () => this.dispatchEvent(new CustomEvent('change-week', { detail: { delta: 1 }, bubbles: true })));
   }
 }
 customElements.define('sm-control', SmControl);

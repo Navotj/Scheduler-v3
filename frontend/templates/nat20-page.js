@@ -1,5 +1,5 @@
 // templates/nat20-page.js
-// Minimal page template: topbar + modal + neutral container padding. NO enforced layout/columns.
+// Minimal page template: topbar + modal + shared page padding controlled by topbar.css (.page-shell).
 
 class Nat20Page extends HTMLElement {
   static get observedAttributes() { return ['title']; }
@@ -17,8 +17,8 @@ class Nat20Page extends HTMLElement {
 
       <div id="topbar-root" data-title="${this._title}"></div>
 
-      <!-- neutral page wrapper providing shared width/padding via .container -->
-      <div id="page-shell" class="container"></div>
+      <!-- shared page wrapper using .page-shell (padding/width defined in topbar.css) -->
+      <div id="page-shell" class="page-shell"></div>
 
       <div id="cell-tooltip" class="cell-tooltip" style="display:none;"></div>
     `;

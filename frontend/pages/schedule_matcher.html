@@ -15,7 +15,27 @@
   <link rel="stylesheet" href="../styles/schedule_matcher.css" />
 </head>
 <body>
-  <!-- Template (neutral) + components -->
+  <nat20-page title="Group Scheduler">
+    <div class="sm-layout">
+      <aside id="ads-panel" class="panel" aria-label="Ad column"></aside>
+
+      <section id="table-panel">
+        <sm-grid></sm-grid>
+      </section>
+
+      <section id="mf-panel">
+        <sm-control></sm-control>
+        <sm-members></sm-members>
+        <sm-filters></sm-filters>
+      </section>
+
+      <aside id="results-wrap">
+        <sm-results></sm-results>
+      </aside>
+    </div>
+  </nat20-page>
+
+  <!-- Template & components -->
   <script src="../templates/nat20-page.js"></script>
   <script src="../components/sm-grid.js"></script>
   <script src="../components/sm-control.js"></script>
@@ -23,36 +43,13 @@
   <script src="../components/sm-filters.js"></script>
   <script src="../components/sm-results.js"></script>
 
-  <!-- Auth / modal pages logic -->
+  <!-- Auth modal helpers (optional) -->
   <script src="../scripts/login.js"></script>
   <script src="../scripts/register.js"></script>
 
-  <!-- Topbar controller -->
+  <!-- Top bar and page logic -->
   <script src="../scripts/topbar.js"></script>
-
-  <!-- Page controller (existing scheduler logic) -->
   <script src="../scripts/schedule_matcher.js"></script>
-
-  <!-- Page layout -->
-  <nat20-page title="Group Scheduler">
-    <div id="sm-layout" class="sm-layout">
-      <aside id="ads-panel" class="panel"><div class="muted">ADS</div></aside>
-
-      <section id="table-panel">
-        <sm-grid></sm-grid>
-      </section>
-
-      <aside id="mf-panel">
-        <sm-control></sm-control>
-        <sm-members></sm-members>
-        <sm-filters></sm-filters>
-      </aside>
-
-      <aside id="results-wrap">
-        <sm-results></sm-results>
-      </aside>
-    </div>
-  </nat20-page>
 
   <script>
     document.addEventListener('DOMContentLoaded', () => {

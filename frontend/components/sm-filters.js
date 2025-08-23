@@ -1,4 +1,6 @@
 // components/sm-filters.js
+// Filter panel with neutral UI; emits 'filters-change' when fields change.
+
 class SmFilters extends HTMLElement {
   connectedCallback() {
     this.innerHTML = `
@@ -12,25 +14,8 @@ class SmFilters extends HTMLElement {
           </div>
 
           <div class="field">
-            <label for="min-hours">Min length</label>
-            <div class="row">
-              <input type="number" id="min-hours" min="0" step="0.5" value="1" />
-              <span>h</span>
-            </div>
-          </div>
-        </div>
-
-        <div class="sort-row">
-          <div class="field">
-            <label for="sort-method">Sort</label>
-            <select id="sort-method">
-              <option value="earliest-week">Earliest in week</option>
-              <option value="latest-week">Latest in week</option>
-              <option value="earliest">Earliest start (day)</option>
-              <option value="latest">Latest start (day)</option>
-              <option value="longest">Longest duration</option>
-              <option value="most" selected>Most participants</option>
-            </select>
+            <label for="min-hours">Min length (hours)</label>
+            <input type="number" id="min-hours" min="0.5" step="0.5" value="1" />
           </div>
         </div>
 
@@ -39,9 +24,11 @@ class SmFilters extends HTMLElement {
         </div>
       </div>
     `;
-    if (window.scheduler && typeof window.scheduler.initFilters === 'function') {
-      window.scheduler.initFilters();
-    }
+
+    const fields = this.querySelectorAll('#max-missing, #min-hours');
+    fields.forEach(el => el.addEventListener('input', () => {
+      this.dispatchEvent(new CustomEvent('filters-change', { bubbles: true }));
+    }));
   }
 }
 customElements.define('sm-filters', SmFilters);
