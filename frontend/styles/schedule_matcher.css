@@ -6,7 +6,7 @@
   --control-height: 32px;        /* compact but readable controls */
   --timecol-width: 76px;
   --grid-pad: 8px;               /* padding around the scrollable grid */
-  --topbar-height: 40px;         /* compact top bar */
+  /* --topbar-height from common.css */         /* compact top bar */
 
   /* Viewport-aware height variable (resizes with browser UI changes) */
   --vh: 100vh;
@@ -27,61 +27,24 @@
   align-items: start;
 }
 
-/* Right column */
+/* Left column = main grid area */
+.left-col { min-width: 0; }
+
+/* Right column — sticky panel set */
 .right-col {
   position: sticky;
   top: calc(var(--topbar-height) + 6px);
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  max-height: calc(var(--vh) - var(--topbar-height) - 12px);
+  max-height: var(--panels-height);
   overflow: auto;
+  display: grid;
+  gap: 12px;
 }
 
-/* Panels */
-.panel {
-  background: #121212;
-  border: 1px solid #242424;
-  border-radius: 12px;
-  padding: 10px 10px 16px 10px;  /* extra bottom padding */
-  box-sizing: border-box;
-}
-.right-col h3 {
-  margin: 0 0 8px 0;
-  font-size: 15px;
-}
-
-/* ─────────────────────── Top bar tweaks ─────────────────────── */
-/* Force non-sticky and tighten spacing regardless of actual class names */
-header, nav, .navbar, .topbar, .top-bar, .appbar, .app-bar, .header, .page-header, .site-header, .toolbar, .masthead {
-  position: static !important;
-  top: auto !important;
-  z-index: auto !important;
-  padding: 4px 8px !important;     /* tighter bar */
-  margin-bottom: 6px !important;   /* less dead space below */
-  box-shadow: none !important;
-}
-header + *, nav + *, .navbar + *, .topbar + *, .header + * { margin-top: 0 !important; }
-
-/* Controls row above the grid */
-.left-col .controls {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  margin: 6px 0 6px;
-  flex-wrap: wrap;
-}
-.left-col .controls .helper { margin-left: auto; color: #9aa0a6; font-size: 12px; }
-.left-col .controls button { height: 28px; padding: 3px 8px; }
-
-/* ─────────────────────── Grid outer shell ─────────────────────── */
+/* Grid shell */
 .grid {
-  position: relative;
-  background: #101010;
-  border: 1px solid var(--line);
-  border-radius: 12px;
+  height: var(--panels-height);
+  margin: 8px 0 0;
   padding: var(--grid-pad);
-  height: var(--panels-height);   /* matches the right column height */
   box-sizing: border-box;
   isolation: isolate;             /* new stacking context for sticky children */
 }
@@ -94,444 +57,131 @@ header + *, nav + *, .navbar + *, .topbar + *, .header + * { margin-top: 0 !impo
   height: 100%;
   width: 100%;
   background: #101010;
-  border-radius: 8px;
+  border-radius: 12px;
   backface-visibility: hidden;
   transform: translateZ(0);
 }
 
-/* Fix scrollbar corner (WebKit) */
-.grid-content::-webkit-scrollbar-corner { background: #101010; }
-
-/* Scrollbar styling (dark mode) */
-.grid-content { scrollbar-width: thin; scrollbar-color: #3a3a3a #101010; }
-.grid-content::-webkit-scrollbar { width: 10px; height: 10px; }
-.grid-content::-webkit-scrollbar-track { background: #101010; }
-.grid-content::-webkit-scrollbar-thumb { background: #3a3a3a; border-radius: 8px; }
-.grid-content::-webkit-scrollbar-thumb:hover { background: #4a4a4a; }
-
-/* ────────────────────────── Table core ───────────────────────── */
+/* Grid table */
 .table {
   width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
   table-layout: fixed;
-  border-collapse: separate;     /* prevent collapsed-border bleed-through */
-  border-spacing: 0;             /* keep cells flush */
-  user-select: none;
   font-size: var(--font-size);
-  min-width: 0;
-  background: #101010;           /* ensure no transparency anywhere */
+  color: #dcdcdc;
+  border-radius: 12px;
+  overflow: hidden;
 }
-
-/* Headers & cells */
-.table th,
-.table td {
-  border: 1px solid var(--line);
-  text-align: center;
-  background: #101010;           /* SOLID background so nothing can shine through */
-  background-clip: border-box;   /* paint under the border to avoid 1px gaps */
-}
-
-/* Sticky header (top row only) */
 .table thead th {
   position: sticky;
   top: 0;
-  z-index: 6;
-  background: #151515;
+  z-index: 10;
+  background: #171717;
+  border-bottom: 1px solid var(--line-strong);
+  height: 32px;
+  text-align: center;
   font-weight: 600;
-  padding: 6px 6px;
-  box-shadow: inset 0 -1px 0 var(--line);
 }
-
-/* Day headers — visible grey outline on ALL days */
-.table thead th.day {
-  font-size: clamp(10px, 1.05vw, 13px);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  border: 1px solid var(--line);
-  background-clip: padding-box;
-}
-
-/* Time column — NOT sticky-left; scrolls with the grid */
-.table tbody tr > th.time-col {
-  position: static;
-  left: auto;
-  z-index: auto;
-  background: #151515;
-  border-right: 1px solid var(--line);
-}
-
-/* Row sizing */
-.table tbody td,
-.table tbody th {
-  height: var(--row-height);
-  line-height: var(--row-height);
-  padding: 0;
-}
-
-/* Time column width */
-.time-col {
+.table .time-col {
   width: var(--timecol-width);
-  min-width: var(--timecol-width);
-  max-width: var(--timecol-width);
   text-align: right;
   padding-right: 6px;
-  color: #cfcfcf;
-  border-right: 1px solid var(--line);
-  background: #151515;
-}
-.time-col.hour {
-  font-size: calc(var(--font-size) * 1.15);
-  line-height: normal;
-}
-
-/* Distribute 7 day columns evenly (prevents horizontal scroll) */
-.table thead th.day,
-.table tbody td.slot-cell {
-  width: calc((100% - var(--timecol-width)) / 7);
-  min-width: 0;
-}
-
-/* Slot cells */
-.slot-cell {
-  position: relative;
-  box-sizing: border-box;
-  background: #101010;          /* solid to block any bleed from sticky left "time" */
-  background-clip: border-box;
-}
-
-/* Reinforce horizontal separators to avoid any gaps on scroll */
-.table tbody tr td.slot-cell { box-shadow: inset 0 1px 0 var(--line), inset 0 -1px 0 var(--line); }
-
-/* Thicker separators at each full hour */
-tr.row-hour > td,
-tr.row-hour > th {
-  border-top-width: 2px;
-  border-top-color: var(--line-strong);
-}
-
-/* Grey-out filter */
-.slot-cell.dim { filter: grayscale(40%) brightness(0.85); opacity: 0.45; }
-
-/* Past slots — subtle grey overlay */
-.slot-cell.past { pointer-events: none; }
-.slot-cell.past::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: rgba(255,255,255,0.16);
-  pointer-events: none;
-}
-
-/* Compress-low mode (>=11 members): 0..4 all render as black */
-.compress-low .slot-cell[data-c="0"],
-.compress-low .slot-cell[data-c="1"],
-.compress-low .slot-cell[data-c="2"],
-.compress-low .slot-cell[data-c="3"],
-.compress-low .slot-cell[data-c="4"] { background: #0b0b0b !important; }
-
-/* Hover tooltip */
-.cell-tooltip {
-  position: fixed;
-  z-index: 6000;
+  color: #a8a8a8;
   background: #141414;
-  border: 1px solid #333;
-  color: #eee;
-  padding: 6px 8px;
-  border-radius: 8px;
-  font-size: 11px;
-  max-width: 260px;
-  pointer-events: none;
-  box-shadow: 0 10px 28px rgba(0,0,0,0.45);
+  position: sticky;
+  left: 0;
+  z-index: 9;
+  border-right: 1px solid var(--line-strong);
+  font-variant-numeric: tabular-nums;
 }
 
-/* Results highlight */
-.slot-cell.highlight { outline: 2px solid #ffd54a; outline-offset: -2px; }
-
-/* Results list area inside the results panel */
-.results { flex: 1 1 auto; overflow: auto; box-sizing: border-box; padding: 0 6px; min-height: 0; }
-
-/* Sleek scrollbar (results only, dark mode) */
-.results { scrollbar-width: thin; scrollbar-color: #3a3a3a #121212; }
-.results::-webkit-scrollbar { width: 8px; }
-.results::-webkit-scrollbar-track { background: #121212; }
-.results::-webkit-scrollbar-thumb { background: #3a3a3a; border-radius: 8px; }
-.results::-webkit-scrollbar-thumb:hover { background: #4a4a4a; }
-
-/* Result cards */
-.results .result {
-  position: relative;
-  background: #121212;
-  border: 1px solid #2a2a2a;
-  border-radius: 10px;
-  padding: 8px 10px 26px 10px; /* bottom space for copy link */
-  margin: 8px 6px;
-  transition: border-color 0.12s ease;
-}
-.results .result .res-top { font-weight: 600; margin-bottom: 3px; font-size: 13px; }
-.results .result .res-sub { font-size: 11px; color: #bbb; margin-bottom: 3px; }
-.results .result .res-users { font-size: 11px; color: #cfe9cf; word-break: break-word; }
-
-/* Yellow outline on hover (all sides) */
-.results .result.hovered { border-color: #ffd54a; }
-
-/* Minimal "Copy" link bottom-right, no box; custom tooltip */
-.results .result button {
-  position: absolute;
-  right: 10px;
-  bottom: 8px;
-  background: none;
-  border: none;
+/* Body cells */
+.table td, .table th {
+  border-bottom: 1px solid var(--line);
+  height: var(--row-height);
   padding: 0;
-  cursor: pointer;
-  color: transparent;     /* hide original long text */
-  font-size: 0;           /* prevent layout from text length */
+  background: transparent;
 }
-.results .result button::before {
-  content: "Copy";
-  font-weight: 700;
-  font-size: 12px;
-  color: #e6e6e6;
-}
-.results .result button:hover::after {
-  content: "Copy Discord invitation";
-  position: fixed;
-  z-index: 7000;
-  font-size: 11px;
-  background: #141414;
-  color: #eee;
-  border: 1px solid #333;
-  border-radius: 8px;
-  padding: 6px 8px;
-  margin-left: 10px;
+.cell { position: relative; background-clip: padding-box; }
+
+/* Heatmap fills */
+.cell .fill {
+  position: absolute;
+  inset: 1px;
+  border-radius: 4px;
   pointer-events: none;
-  transform: translate(0, -28px);
-  box-shadow: 0 10px 28px rgba(0,0,0,0.45);
+  opacity: 0.85;
 }
 
-/* NOW marker — positioned within .grid-content so it scrolls with content */
+/* Hover & selection indicators */
+.cell .hover {
+  position: absolute;
+  inset: 1px;
+  border-radius: 4px;
+  border: 1px dashed #4f6ad6;
+  pointer-events: none;
+}
+
+/* NOW marker */
 .now-marker {
   position: absolute;
-  height: 0;
-  border-top: 2px solid #e53935;
-  z-index: 8;
-  display: none;
-  pointer-events: none;
+  left: var(--timecol-width);
+  right: 0;
+  height: 1px;
+  background: #e74c3c;
+  z-index: 50;
 }
 .now-marker .bubble {
   position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  background: #0f0f0f;
-  color: #e53935;
-  border: 1px solid #e53935;
-  border-radius: 6px;
+  top: -8px;
+  right: 8px;
   padding: 2px 6px;
   font-size: 10px;
-  font-weight: 700;
-  text-transform: uppercase;
   line-height: 1;
-  white-space: nowrap;
-  box-shadow: 0 2px 10px rgba(0,0,0,0.35);
+  color: #fff;
+  background: #e74c3c;
+  border-radius: 6px;
+  border: 1px solid rgba(255,255,255,0.15);
 }
 
-/* ─────────────── Right column: Filters / Members ─────────────── */
-.right-col .field { display: grid; grid-template-columns: 1fr; gap: 4px; min-width: 0; }
-.field-row { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 8px; margin-bottom: 8px; }
-.right-col .field label { white-space: nowrap; font-size: 12px; }
-
-/* Inputs — compact and readable */
-.right-col input[type="text"],
-.right-col input[type="number"],
-.right-col select {
-  background: #0f0f0f;
-  color: #eee;
-  border: 1px solid #333;
-  border-radius: 8px;
-  padding: 4px 8px;
-  width: 100%;
-  min-width: 0;
-  height: var(--control-height);
-  box-sizing: border-box;
+/* Right column panels */
+.panel {
+  background: #151515;
+  border: 1px solid #2a2a2a;
+  border-radius: 12px;
+  padding: 12px;
+}
+.panel h3 {
+  margin: 0 0 8px;
   font-size: 14px;
 }
 
-/* Number inputs: keep native spinners, DARK scheme, spinners pinned hard-right (no right padding) */
-.right-col input[type="number"] {
-  color-scheme: dark;
-  padding-right: 0;        /* ensure spinner sits flush to the right edge */
-  text-align: center;
+/* Members list styles */
+.member-list { list-style: none; margin: 8px 0 0; padding: 0; max-height: 200px; overflow: auto; }
+.member-list li { display: flex; align-items: center; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #222; }
+.member-list li:last-child { border-bottom: none; }
+
+/* Filters */
+.field { display: grid; gap: 6px; margin: 8px 0; }
+.field-row { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+.sort-row { display: grid; grid-template-columns: 1fr; gap: 8px; }
+
+#max-missing, #min-hours, #sort-method, #add-username {
+  background: #202020;
+  color: #fff;
+  border: 1px solid #333;
+  border-radius: 8px;
+  padding: 6px 8px;
+  height: 32px;
 }
 
-/* Min/Max are one digit: sane middle-ground width */
-.right-col > .panel:nth-of-type(2) input[type="number"] {
-  width: 6.2ch;
-  min-width: 52px;
-}
+.add-user { display: flex; gap: 8px; }
+.add-user .btn { height: 32px; padding: 0 10px; }
 
-/* Restore native spinners (no custom geometry) */
-input[type="number"] { appearance: auto; -moz-appearance: auto; }
-/* Optional subtle hover brightening of the native spinner (WebKit only) */
-.right-col input[type="number"]::-webkit-inner-spin-button,
-.right-col input[type="number"]::-webkit-outer-spin-button { opacity: 0.85; margin: 0; }
-.right-col input[type="number"]:hover::-webkit-inner-spin-button,
-.right-col input[type="number"]:hover::-webkit-outer-spin-button,
-.right-col input[type="number"]:focus::-webkit-inner-spin-button,
-.right-col input[type="number"]:focus::-webkit-outer-spin-button { opacity: 1; }
-
-/* layout of the input + suffix */
-.field .row {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;          /* small space between box and 'h' */
-  position: relative;
-  overflow: visible;
-}
-
-.field .row input { width: 100%; position: relative; z-index: 1; }
-
-/* the 'h' sits directly after the input, not absolutely positioned */
-.field .row span {
-  position: static;
-  transform: none;
-  margin-left: 0;
-  pointer-events: none;
-  white-space: nowrap;
-}
-
-/* no extra right padding; keep spinner hard against the right edge */
-#min-hours { padding-right: 0; }
-
-/* Members input row */
-.add-user {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
-  gap: 8px;
-  align-items: center;
-}
-.add-user input { height: 28px; min-width: 0; }
-.add-user button { height: 28px; line-height: 28px; white-space: nowrap; padding: 0 8px; font-size: 12px; }
-
-/* Member list: compact chips, multiple per row */
-.member-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.member-list li {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  background: #121212;
-  border: 1px solid #2a2a2a;
-  border-radius: 10px;
-  padding: 4px 22px 4px 10px;   /* room for the X */
-  max-width: 100%;
-  font-size: 12px;
-  line-height: 1.2;
-}
-
-/* Remove control: force absolute top-right red X and hide any text */
-.member-list li :is(button, .btn, .remove, .remove-btn, .member-remove, [data-remove], [aria-label="Remove"]) {
-  position: absolute !important;
-  top: 4px !important;
-  right: 4px !important;
-  width: 16px !important;
-  height: 16px !important;
-  padding: 0 !important;
-  margin: 0 !important;
-  background: transparent !important;
-  border: 0 !important;
-  cursor: pointer !important;
-  line-height: 1 !important;
-  color: transparent !important;
-  font-size: 0 !important;
-}
-.member-list li :is(button, .btn, .remove, .remove-btn, .member-remove, [data-remove], [aria-label="Remove"])::before {
-  content: "×";
-  font-size: 16px;
-  line-height: 1;
-  color: #ff4d4d;
-}
-.member-list li :is(button, .btn, .remove, .remove-btn, .member-remove, [data-remove], [aria-label="Remove"]):hover::before { color: #ff6b6b; }
-.member-list li :is(button, .btn, .remove, .remove-btn, .member-remove, [data-remove], [aria-label="Remove"]) * { display: none !important; }
-
-/* Inline error */
-.error-text { color: #ff6b6b; font-size: 12px; min-height: 1.2em; margin: 4px 2px 2px 2px; }
-
-/* Buttons */
-.btn { display: inline-flex; align-items: center; gap: 8px; }
-.btn.btn-primary { background: #2d6cdf; color: #fff; border: 0; padding: 5px 8px; border-radius: 8px; cursor: pointer; height: 28px; }
-.btn.btn-secondary { background: #272727; color: #fff; border: 1px solid #3a3a3a; padding: 5px 8px; border-radius: 8px; cursor: pointer; height: 28px; }
-
-/* Ensure Find matches select height exactly */
-.btn-find {
-  align-self: center;
-  height: var(--control-height);
-  line-height: calc(var(--control-height) - 2px);
-  padding: 0 8px;
-  box-sizing: border-box;
-}
-
-/* Legend — alternate rows: colors then numbers, repeat; fixed 5 columns per row */
-.legend { margin-top: 6px; }
-.legend-blocks { display: grid; gap: 6px; }
-.legend-blocks .steps-row,
-.legend-blocks .labels-row { display: grid; gap: 3px; grid-template-columns: repeat(5, 1fr); }
-.legend-blocks .chip { width: 100%; height: 10px; border-radius: 6px; border: 1px solid var(--line); }
-.legend-blocks .labels-row span { text-align: center; font-size: 12px; }
-/* Fillers so last row items don't stretch */
-.legend-blocks .spacer { visibility: hidden; pointer-events: none; }
-
-/* Back-compat for old single-row legend structure (if present) */
-.legend-steps { display: grid; gap: 3px; grid-template-columns: repeat(5, 1fr); }
-.legend-steps .chip { width: 100%; height: 10px; border-radius: 6px; border: 1px solid var(--line); }
-.legend-labels { display: grid; gap: 3px; margin-top: 2px; font-size: 12px; grid-template-columns: repeat(5, 1fr); }
-.legend-labels span { text-align: center; }
-
-/* ──────────────────────────────────────────────────────────────
-   WIDE SCREENS: Right column under Members uses the REMAINING height.
-   Row 1 (Members) is auto; Row 2 expands (1fr) to fill, keeping bottoms aligned with the table.
-   ────────────────────────────────────────────────────────────── */
-@media (min-width: 1101px) {
-  .right-col {
-    display: grid;
-    height: var(--panels-height);                 /* entire column = table height */
-    grid-template-columns: 1fr 1fr;
-    grid-template-rows: auto 1fr;                 /* remaining space is row 2 */
-    gap: 12px;
-    align-items: stretch;
-    max-height: none;
-    overflow: visible;
-  }
-
-  /* Members spans row 1 across both columns */
-  .right-col > *:first-child { grid-column: 1 / -1; grid-row: 1; }
-
-  /* Filters -> row2/col1, Results -> row2/col2 */
-  .right-col > *:nth-child(2) { grid-column: 1; grid-row: 2; }
-  .right-col > *:nth-child(3) { grid-column: 2; grid-row: 2; }
-
-  /* Make BOTH row-2 boxes identical height and scrolling behavior */
-  .right-col > *:nth-child(2),
-  .right-col > *:nth-child(3) {
-    height: 100% !important;
-    min-height: 0 !important;
-    overflow: auto;
-    box-sizing: border-box;
-    background: #121212;
-    border: 1px solid #242424;
-    border-radius: 12px;
-    padding: 10px 10px 16px 10px;
-  }
-
-  /* Results inner list must flex to fill the panel */
-  .right-col > *:nth-child(3) .results { flex: 1 1 auto; overflow: auto; min-height: 0; }
-}
+/* Results */
+.results { display: grid; gap: 8px; }
+.results .slot { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 8px; padding: 8px; }
 
 /* One-column fallback on narrow screens */
 @media (max-width: 1100px) {
@@ -546,3 +196,13 @@ input[type="number"] { appearance: auto; -moz-appearance: auto; }
 #filters-panel::-webkit-scrollbar-track { background: #121212; }
 #filters-panel::-webkit-scrollbar-thumb { background: #3a3a3a; border-radius: 8px; }
 #filters-panel::-webkit-scrollbar-thumb:hover { background: #4a4a4a; }
+
+/* Protect shared top bar host (Shadow DOM inside) from page-level overrides */
+#topbar-root {
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  position: static !important;
+  z-index: auto !important;
+  line-height: normal !important;
+}
