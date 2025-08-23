@@ -110,3 +110,30 @@
   margin: var(--page-margin-top) auto var(--page-margin-bottom);
   padding: 0 var(--page-gutter);
 }
+
+/* --- Unified page gutters & width (controls ALL pages) --- */
+:root {
+  --container-max: 1200px;
+  --page-gutter: 12px;
+  --page-margin-top: 12px;
+  --page-margin-bottom: 32px;
+}
+
+/* Centers topbar contents and applies same side padding as pages */
+.topbar-inner {
+  box-sizing: border-box;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  height: var(--_bar-h);
+  width: min(var(--container-max), 96vw);
+  margin: 0 auto;
+  padding: 0 var(--page-gutter);
+}
+
+/* Shared outer page wrapper — use this on every page */
+.page-shell {
+  width: min(var(--container-max), 96vw);
+  margin: var(--page-margin-top) auto var(--page-margin-bottom);
+  padding: 0 var(--page-gutter);
+}
