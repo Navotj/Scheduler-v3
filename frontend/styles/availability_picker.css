@@ -15,7 +15,6 @@
 /* Page grid height independent of any top bar */
 :root { --grid-height: calc(var(--vh) - 96px); }
 
-.page-shell { width: min(var(--container-max, 1200px), 96vw); margin: 12px auto 32px; padding: 0 12px; }
 .header-row { display:flex; justify-content:space-between; align-items:center; margin: 6px 0 8px; }
 .week-and-help { display:flex; align-items:center; gap:14px; color:#9aa0a6; }
 .week-and-help #week-label { color:#fff; font-weight:600; }

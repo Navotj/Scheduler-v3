@@ -95,3 +95,18 @@
 .auth-btn:hover {
   filter: brightness(1.1);
 }
+
+/* --- Page wrapper & gutters (LIGHT DOM) ---
+   Centralize page width/margins/padding here so every page has identical outer spacing. */
+:root {
+  --container-max: 1200px;
+  --page-gutter: 12px;
+  --page-margin-top: 12px;
+  --page-margin-bottom: 32px;
+}
+
+.page-shell {
+  width: min(var(--container-max), 96vw);
+  margin: var(--page-margin-top) auto var(--page-margin-bottom);
+  padding: 0 var(--page-gutter);
+}
