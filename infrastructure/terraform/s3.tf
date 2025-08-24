@@ -51,23 +51,21 @@ resource "aws_s3_bucket_lifecycle_configuration" "frontend" {
   bucket = aws_s3_bucket.frontend.id
 
   rule {
-    id     = "noncurrent-versions"
+    id     = "frontend-lifecycle"
     status = "Enabled"
 
-    noncurrent_version_transition {
-      noncurrent_days = 30
-      storage_class   = "STANDARD_IA"
+    # Apply to the entire bucket (required by provider)
+    filter {
+      prefix = ""
     }
 
-    noncurrent_version_expiration {
-      noncurrent_days = 365
-    }
-
+    # Keep or adjust to your preference; safe housekeeping
     abort_incomplete_multipart_upload {
       days_after_initiation = 7
     }
   }
 }
+
 
 # Strict OAC-only read policy (no ListBucket needed)
 data "aws_iam_policy_document" "frontend_bucket_policy" {
