@@ -1,134 +1,129 @@
-# Default VPC (used for SGs and VPC CIDR restriction)
-data "aws_vpc" "default" {
-  default = true
+##############################
+# CloudFront distribution (SPA + API routing)
+# - S3 origin (private) with OAC
+# - API origin routed at /api/*
+# - Viewer cert in us-east-1 (aws_acm_certificate.origin)
+##############################
+
+# Managed policy IDs by name
+data "aws_cloudfront_cache_policy" "caching_optimized" {
+  name = "Managed-CachingOptimized"
+}
+data "aws_cloudfront_cache_policy" "caching_disabled" {
+  name = "Managed-CachingDisabled"
+}
+data "aws_cloudfront_origin_request_policy" "cors_s3_origin" {
+  name = "Managed-CORS-S3Origin"
+}
+data "aws_cloudfront_origin_request_policy" "all_viewer" {
+  name = "Managed-AllViewer"
+}
+data "aws_cloudfront_response_headers_policy" "cors_with_preflight" {
+  name = "Managed-CORS-With-Preflight"
+}
+data "aws_cloudfront_response_headers_policy" "security_headers" {
+  name = "Managed-SecurityHeadersPolicy"
 }
 
-# CloudFront edge IP ranges (global)
-data "aws_ip_ranges" "cloudfront" {
-  services = ["CLOUDFRONT"]
-  regions  = ["GLOBAL"]
+resource "aws_cloudfront_origin_access_control" "frontend" {
+  name                              = "${var.app_prefix}-oac"
+  description                       = "OAC for ${var.app_prefix} S3 origin"
+  origin_access_control_origin_type = "s3"
+  signing_behavior                  = "always"
+  signing_protocol                  = "sigv4"
 }
 
-# ---------------------------------
-# Security Groups (cycle-free setup)
-# ---------------------------------
+resource "aws_cloudfront_distribution" "frontend" {
+  enabled             = true
+  is_ipv6_enabled     = true
+  price_class         = "PriceClass_100"
+  comment             = "Frontend SPA + API routing to regional endpoint"
+  default_root_object = "index.html"
+  http_version        = "http2and3"
 
-# Backend SG:
-# - Ingress: 80/443 only from CloudFront (IPv4/IPv6) using IP ranges
-# - Egress:
-#     * 27017 to VPC CIDR (DB lives inside VPC)
-#     * 443 to Internet (SSM/S3/updates)
-#     * DNS (53 TCP/UDP) + NTP (123 UDP)
-resource "aws_security_group" "backend" {
-  name        = "${var.app_prefix}-sg-backend"
-  description = "Backend SG: CloudFront ingress; minimal egress including Mongo to VPC CIDR"
-  vpc_id      = data.aws_vpc.default.id
+  aliases = ["www.${var.root_domain}"]
 
-  # Ingress from CloudFront only (HTTP)
-  ingress {
-    description = "CloudFront to backend (HTTP v4)"
-    from_port   = 80
-    to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = data.aws_ip_ranges.cloudfront.cidr_blocks
-  }
-  ingress {
-    description       = "CloudFront to backend (HTTP v6)"
-    from_port         = 80
-    to_port           = 80
-    protocol          = "tcp"
-    ipv6_cidr_blocks  = data.aws_ip_ranges.cloudfront.ipv6_cidr_blocks
+  # Origins
+  origin {
+    origin_id                = "s3-frontend-origin"
+    domain_name              = aws_s3_bucket.frontend.bucket_regional_domain_name
+    origin_access_control_id = aws_cloudfront_origin_access_control.frontend.id
   }
 
-  # Ingress from CloudFront only (HTTPS)
-  ingress {
-    description = "CloudFront to backend (HTTPS v4)"
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = data.aws_ip_ranges.cloudfront.cidr_blocks
-  }
-  ingress {
-    description       = "CloudFront to backend (HTTPS v6)"
-    from_port         = 443
-    to_port           = 443
-    protocol          = "tcp"
-    ipv6_cidr_blocks  = data.aws_ip_ranges.cloudfront.ipv6_cidr_blocks
+  # API origin (DNS target like api.example.com; can later be ALB/CNAME)
+  origin {
+    origin_id   = "api-origin"
+    domain_name = local.api_domain
+
+    custom_origin_config {
+      http_port              = 80
+      https_port             = 443
+      origin_protocol_policy = "https-only"
+      origin_ssl_protocols   = ["TLSv1.2"]
+    }
   }
 
-  # Egress to MongoDB within VPC (restrict to VPC CIDR to avoid SG-to-SG cycle)
-  egress {
-    description = "Backend to MongoDB (within VPC)"
-    from_port   = 27017
-    to_port     = 27017
-    protocol    = "tcp"
-    cidr_blocks = [data.aws_vpc.default.cidr_block]
+  # Default behavior: SPA assets from S3
+  default_cache_behavior {
+    target_origin_id           = "s3-frontend-origin"
+    viewer_protocol_policy     = "redirect-to-https"
+    allowed_methods            = ["GET", "HEAD", "OPTIONS"]
+    cached_methods             = ["GET", "HEAD"]
+    compress                   = true
+    cache_policy_id            = data.aws_cloudfront_cache_policy.caching_optimized.id
+    origin_request_policy_id   = data.aws_cloudfront_origin_request_policy.cors_s3_origin.id
+    response_headers_policy_id = data.aws_cloudfront_response_headers_policy.security_headers.id
   }
 
-  # Minimal Internet egress for SSM/S3/updates
-  egress {
-    description      = "HTTPS egress for SSM, S3 and OS updates"
-    from_port        = 443
-    to_port          = 443
-    protocol         = "tcp"
-    cidr_blocks      = ["0.0.0.0/0"]
-    ipv6_cidr_blocks = ["::/0"]
+  # API behavior: pass-through, no caching, CORS with preflight
+  ordered_cache_behavior {
+    path_pattern               = "/api/*"
+    target_origin_id           = "api-origin"
+    viewer_protocol_policy     = "redirect-to-https"
+    allowed_methods            = ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"]
+    cached_methods             = ["GET", "HEAD", "OPTIONS"]
+    compress                   = true
+    cache_policy_id            = data.aws_cloudfront_cache_policy.caching_disabled.id
+    origin_request_policy_id   = data.aws_cloudfront_origin_request_policy.all_viewer.id
+    response_headers_policy_id = data.aws_cloudfront_response_headers_policy.cors_with_preflight.id
   }
 
-  # DNS (UDP/TCP 53)
-  egress {
-    description      = "DNS UDP"
-    from_port        = 53
-    to_port          = 53
-    protocol         = "udp"
-    cidr_blocks      = ["0.0.0.0/0"]
-    ipv6_cidr_blocks = ["::/0"]
+  # SPA deep-link routing
+  custom_error_response {
+    error_code            = 403
+    response_code         = 200
+    response_page_path    = "/index.html"
+    error_caching_min_ttl = 0
   }
-  egress {
-    description      = "DNS TCP"
-    from_port        = 53
-    to_port          = 53
-    protocol         = "tcp"
-    cidr_blocks      = ["0.0.0.0/0"]
-    ipv6_cidr_blocks = ["::/0"]
+  custom_error_response {
+    error_code            = 404
+    response_code         = 200
+    response_page_path    = "/index.html"
+    error_caching_min_ttl = 0
   }
 
-  # NTP
-  egress {
-    description      = "NTP UDP"
-    from_port        = 123
-    to_port          = 123
-    protocol         = "udp"
-    cidr_blocks      = ["0.0.0.0/0"]
-    ipv6_cidr_blocks = ["::/0"]
+  restrictions {
+    geo_restriction {
+      restriction_type = "none"
+    }
+  }
+
+  viewer_certificate {
+    acm_certificate_arn            = aws_acm_certificate.origin.arn
+    ssl_support_method             = "sni-only"
+    minimum_protocol_version       = "TLSv1.2_2021"
+  }
+
+  depends_on = [
+    aws_acm_certificate_validation.origin,
+    aws_cloudfront_origin_access_control.frontend
+  ]
+
+  lifecycle {
+    ignore_changes = [tags]
   }
 
   tags = {
-    Name = "${var.app_prefix}-sg-backend"
+    App = var.app_prefix
   }
-}
-
-# Database SG (no inline ingress from backend to avoid cycle)
-resource "aws_security_group" "database" {
-  name        = "${var.app_prefix}-sg-database"
-  description = "Database SG: only backend may connect on 27017"
-  vpc_id      = data.aws_vpc.default.id
-
-  # Deny-all egress (return traffic is statefully allowed)
-  egress = []
-
-  tags = {
-    Name = "${var.app_prefix}-sg-database"
-  }
-}
-
-# Separate rule to allow DB ingress from Backend SG (breaks SG ↔ SG cycle)
-resource "aws_security_group_rule" "db_from_backend" {
-  type                     = "ingress"
-  description              = "Backend to MongoDB"
-  from_port                = 27017
-  to_port                  = 27017
-  protocol                 = "tcp"
-  security_group_id        = aws_security_group.database.id
-  source_security_group_id = aws_security_group.backend.id
 }

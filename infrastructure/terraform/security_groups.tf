@@ -3,10 +3,10 @@ data "aws_vpc" "default" {
   default = true
 }
 
-# CloudFront managed prefix list for origin-facing egress IPs
-# Restrict backend ingress to only CloudFront (when accessed via Internet-facing origin)
-data "aws_prefix_list" "cloudfront_origin" {
-  name = "com.amazonaws.global.cloudfront.origin-facing"
+# CloudFront edge IP ranges (global)
+data "aws_ip_ranges" "cloudfront" {
+  services = ["CLOUDFRONT"]
+  regions  = ["GLOBAL"]
 }
 
 # ---------------------------------
@@ -14,7 +14,7 @@ data "aws_prefix_list" "cloudfront_origin" {
 # ---------------------------------
 
 # Backend SG:
-# - Ingress: 80/443 only from CloudFront origin-facing managed prefix list
+# - Ingress: 80/443 only from CloudFront (IPv4/IPv6) using IP ranges
 # - Egress:
 #     * 27017 to VPC CIDR (DB lives inside VPC)
 #     * 443 to Internet (SSM/S3/updates)
@@ -24,21 +24,36 @@ resource "aws_security_group" "backend" {
   description = "Backend SG: CloudFront ingress; minimal egress including Mongo to VPC CIDR"
   vpc_id      = data.aws_vpc.default.id
 
-  # Ingress from CloudFront only (HTTP/HTTPS)
+  # Ingress from CloudFront only (HTTP)
   ingress {
-    description     = "CloudFront to backend (HTTP)"
-    from_port       = 80
-    to_port         = 80
-    protocol        = "tcp"
-    prefix_list_ids = [data.aws_prefix_list.cloudfront_origin.id]
+    description = "CloudFront to backend (HTTP v4)"
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = data.aws_ip_ranges.cloudfront.cidr_blocks
+  }
+  ingress {
+    description       = "CloudFront to backend (HTTP v6)"
+    from_port         = 80
+    to_port           = 80
+    protocol          = "tcp"
+    ipv6_cidr_blocks  = data.aws_ip_ranges.cloudfront.ipv6_cidr_blocks
   }
 
+  # Ingress from CloudFront only (HTTPS)
   ingress {
-    description     = "CloudFront to backend (HTTPS)"
-    from_port       = 443
-    to_port         = 443
-    protocol        = "tcp"
-    prefix_list_ids = [data.aws_prefix_list.cloudfront_origin.id]
+    description = "CloudFront to backend (HTTPS v4)"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = data.aws_ip_ranges.cloudfront.cidr_blocks
+  }
+  ingress {
+    description       = "CloudFront to backend (HTTPS v6)"
+    from_port         = 443
+    to_port           = 443
+    protocol          = "tcp"
+    ipv6_cidr_blocks  = data.aws_ip_ranges.cloudfront.ipv6_cidr_blocks
   }
 
   # Egress to MongoDB within VPC (restrict to VPC CIDR to avoid SG-to-SG cycle)
@@ -69,7 +84,6 @@ resource "aws_security_group" "backend" {
     cidr_blocks      = ["0.0.0.0/0"]
     ipv6_cidr_blocks = ["::/0"]
   }
-
   egress {
     description      = "DNS TCP"
     from_port        = 53
