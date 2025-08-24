@@ -14,8 +14,10 @@ jobs:
       group: bootstrap-remote-state
       cancel-in-progress: false
     env:
-      AWS_REGION: ${{ vars.AWS_REGION }}
-      APP_PREFIX: ${{ vars.APP_PREFIX }}
+        TF_VAR_app_prefix: ${{ vars.APP_PREFIX }}
+        TF_VAR_aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        TF_VAR_aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        AWS_REGION: ${{ vars.AWS_REGION }}
     steps:
       - name: checkout repo
         uses: actions/checkout@v5
