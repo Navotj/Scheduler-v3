@@ -57,11 +57,6 @@ jobs:
             -backend-config="use_lockfile=true" \
             -backend-config="encrypt=true"
 
-      - name: Terraform Plan (skip refresh for speed)
-        run: |
-          set -euo pipefail
-          terraform plan -refresh=false -lock-timeout=2m -out=tfplan_full
-
       - name: Heal CloudFront state if deleted manually
         shell: bash
         run: |
@@ -74,6 +69,10 @@ jobs:
             fi
           fi
 
+      - name: Terraform Plan (skip refresh for speed)
+        run: |
+          set -euo pipefail
+          terraform plan -refresh=false -lock-timeout=2m -out=tfplan_full
 
       - name: Terraform Apply
         run: |
