@@ -1,0 +1,95 @@
+name: deploy-frontend-to-s3
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [ "main" ]
+    paths:
+      - 'infrastructure/frontend/**'
+      - '.github/workflows/deploy_frontend_to_s3.yml'
+
+concurrency:
+  group: s3-upload-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  APP_PREFIX: ${{ vars.APP_PREFIX }}
+  AWS_REGION: ${{ vars.AWS_REGION }}
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    env:
+      AWS_ACCESS_KEY_ID:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_ROLE_TO_ASSUME:    ${{ secrets.AWS_ROLE_TO_ASSUME }}
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@v5
+
+      - name: configure aws credentials (keys)
+        if: ${{ env.AWS_ROLE_TO_ASSUME == '' }}
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ env.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ env.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ env.AWS_REGION }}
+
+      - name: configure aws credentials (assume role)
+        if: ${{ env.AWS_ROLE_TO_ASSUME != '' }}
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ env.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ env.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ env.AWS_REGION }}
+          role-to-assume:        ${{ env.AWS_ROLE_TO_ASSUME }}
+          role-session-name:     github-actions-s3-upload
+
+      - name: ensure aws cli
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v aws >/dev/null 2>&1; then
+            sudo apt-get update -y
+            sudo apt-get install -y unzip >/dev/null
+            curl -sSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o awscliv2.zip
+            unzip -q awscliv2.zip
+            sudo ./aws/install
+          fi
+          aws --version
+
+      - name: prepare vars (no new repo vars)
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "${APP_PREFIX}" ]] || { echo "APP_PREFIX is empty"; exit 1; }
+          [[ -n "${AWS_REGION}"  ]] || { echo "AWS_REGION is empty";  exit 1; }
+          echo "S3_BUCKET=${APP_PREFIX}-frontend" >> "$GITHUB_ENV"
+          echo "SOURCE_DIR=infrastructure/frontend" >> "$GITHUB_ENV"
+
+      - name: sanity checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -d "${SOURCE_DIR}" ]] || { echo "SOURCE_DIR missing: ${SOURCE_DIR}"; ls -la; exit 1; }
+          aws s3 ls "s3://${S3_BUCKET}" >/dev/null
+
+      - name: sync to s3 (SSE required)
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Syncing '${SOURCE_DIR}' -> 's3://${S3_BUCKET}/' in '${AWS_REGION}'..."
+          aws s3 sync "${SOURCE_DIR}/" "s3://${S3_BUCKET}/" \
+            --delete \
+            --only-show-errors \
+            --exact-timestamps \
+            --sse AES256
+          echo "Sync complete."
+
+      - name: list bucket root (debug)
+        shell: bash
+        run: aws s3 ls "s3://${S3_BUCKET}/"
