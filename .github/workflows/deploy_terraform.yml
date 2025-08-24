@@ -164,13 +164,43 @@ jobs:
           aws cloudfront create-invalidation --distribution-id "${CF_ID}" --paths "/*" >/dev/null
           echo "Invalidation submitted."
 
-      - name: Force-unlock Terraform state if needed
-        if: ${{ always() }}
+      - name: Clear stale Terraform S3 lock (native lockfile)
+        if: always()
+        shell: bash
         run: |
           set -euo pipefail
-          if [[ -f .terraform.tfstate.lock.info ]]; then
-            LOCK_ID="$(jq -r '.ID' .terraform.tfstate.lock.info || true)"
-            if [[ -n "${LOCK_ID}" && "${LOCK_ID}" != "null" ]]; then
-              terraform force-unlock -force "${LOCK_ID}" || true
+          BUCKET="${APP_PREFIX}-state-bucket"
+          KEY="state/${APP_PREFIX}.tfstate.tflock"
+
+          if aws s3api head-object --bucket "$BUCKET" --key "$KEY" >/dev/null 2>&1; then
+            echo "Found lockfile: s3://${BUCKET}/${KEY}"
+            aws s3 cp "s3://${BUCKET}/${KEY}" /tmp/tflock.json --quiet
+            ID="$(jq -r '.ID // empty' /tmp/tflock.json)"
+            CREATED="$(jq -r '.Created // empty' /tmp/tflock.json || true)"
+
+            # Compute age (seconds); treat unparsable date as very old
+            NOW="$(date -u +%s)"
+            if CREATED_S="$(date -u -d "${CREATED}" +%s 2>/dev/null)"; then
+              AGE=$(( NOW - CREATED_S ))
+            else
+              AGE=999999
             fi
+            echo "Lock ID: ${ID:-<none>} | Created: ${CREATED:-unknown} | Age: ${AGE}s"
+
+            # Only clear if stale (>15m) to avoid clobbering a legit concurrent run
+            if [[ -n "${ID}" && ${AGE} -gt 900 ]]; then
+              echo "Stale lock; forcing unlock via Terraform."
+              terraform force-unlock -force "${ID}" || true
+
+              # If still present, remove the object as a last resort
+              if aws s3api head-object --bucket "$BUCKET" --key "$KEY" >/dev/null 2>&1; then
+                echo "Lockfile still present; deleting object."
+                aws s3api delete-object --bucket "$BUCKET" --key "$KEY"
+              fi
+            else
+              echo "Lock present and recent; aborting to avoid contention."
+              exit 1
+            fi
+          else
+            echo "No S3 lockfile present."
           fi
