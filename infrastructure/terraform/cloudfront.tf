@@ -1,9 +1,36 @@
 ##############################
 # CloudFront distribution (SPA + API routing)
 # - S3 origin (private) with OAC
-# - Optional API origin routed at /api/*
+# - API origin routed at /api/*
 # - Viewer cert in us-east-1 (aws_acm_certificate.origin)
 ##############################
+
+# -------------------------
+# Resolve AWS-managed policy IDs by name (avoid hardcoded IDs)
+# -------------------------
+data "aws_cloudfront_cache_policy" "caching_optimized" {
+  name = "Managed-CachingOptimized"
+}
+
+data "aws_cloudfront_cache_policy" "caching_disabled" {
+  name = "Managed-CachingDisabled"
+}
+
+data "aws_cloudfront_origin_request_policy" "cors_s3_origin" {
+  name = "Managed-CORS-S3Origin"
+}
+
+data "aws_cloudfront_origin_request_policy" "all_viewer" {
+  name = "Managed-AllViewer"
+}
+
+data "aws_cloudfront_response_headers_policy" "cors_with_preflight" {
+  name = "Managed-CORS-With-Preflight"
+}
+
+data "aws_cloudfront_response_headers_policy" "security_headers" {
+  name = "Managed-SecurityHeadersPolicy"
+}
 
 # --------
 # OAC for S3
@@ -25,9 +52,8 @@ resource "aws_cloudfront_distribution" "frontend" {
   is_ipv6_enabled     = true
   default_root_object = "index.html"
 
-  # If you define this elsewhere as local.frontend_hostname, keep it.
-  # Otherwise, ensure the local exists: local.frontend_hostname = "www.${var.root_domain}"
-  aliases = [local.frontend_hostname]
+  # Use the canonical host name for the SPA
+  aliases = ["www.${var.root_domain}"]
 
   # ---------------
   # Origins
@@ -38,7 +64,7 @@ resource "aws_cloudfront_distribution" "frontend" {
     origin_access_control_id = aws_cloudfront_origin_access_control.frontend.id
   }
 
-  # API origin (HTTPS to your regional API endpoint / ALB via DNS name)
+  # API origin (HTTPS to regional API endpoint / ALB via DNS name)
   origin {
     origin_id   = "api-origin"
     domain_name = local.api_domain
@@ -65,10 +91,9 @@ resource "aws_cloudfront_distribution" "frontend" {
 
     compress = true
 
-    # AWS managed policies
-    cache_policy_id            = "658327ea-f89d-4fab-a63d-7e88639e58f6" # CachingOptimized
-    origin_request_policy_id   = "88a5eaf4-2fd4-4709-b370-b4c650ea3fcf" # CORS-S3Origin
-    response_headers_policy_id = "eaab4381-ed33-4a86-88ca-d9558dc6cd63" # CORS-With-Preflight
+    cache_policy_id            = data.aws_cloudfront_cache_policy.caching_optimized.id
+    origin_request_policy_id   = data.aws_cloudfront_origin_request_policy.cors_s3_origin.id
+    response_headers_policy_id = data.aws_cloudfront_response_headers_policy.cors_with_preflight.id
   }
 
   # Route API paths to API origin (disable caching)
@@ -82,9 +107,9 @@ resource "aws_cloudfront_distribution" "frontend" {
 
     compress = true
 
-    cache_policy_id            = "413f1604-3beb-4f5a-bbdf-00a4f4f68a47" # CachingDisabled
-    origin_request_policy_id   = "5cc3b908-e619-4b99-88e5-2cf7f05975a4" # AllViewer
-    response_headers_policy_id = "67f7725c-6f97-4210-82d7-5512b31e9d03" # SecurityHeadersPolicy
+    cache_policy_id            = data.aws_cloudfront_cache_policy.caching_disabled.id
+    origin_request_policy_id   = data.aws_cloudfront_origin_request_policy.all_viewer.id
+    response_headers_policy_id = data.aws_cloudfront_response_headers_policy.security_headers.id
   }
 
   # ---------------
@@ -130,7 +155,6 @@ resource "aws_cloudfront_distribution" "frontend" {
     aws_cloudfront_origin_access_control.frontend
   ]
 
-  # Avoid apply failures when CF was deleted out-of-band and tags would be "updated"
   lifecycle {
     ignore_changes = [tags]
   }
