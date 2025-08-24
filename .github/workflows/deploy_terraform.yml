@@ -88,36 +88,7 @@ jobs:
           set -euo pipefail
           terraform apply -auto-approve tfplan_full
 
-      - name: Invalidate CloudFront (viewer cache)
-        if: always()
-        shell: bash
-        run: |
-          set -euo pipefail
-          CF_ID="$(terraform output -raw cloudfront_distribution_id 2>/dev/null || true)"
-          if [[ -z "${CF_ID}" || "${CF_ID}" == "None" ]]; then
-            ROOT_DOMAIN="${{ vars.ROOT_DOMAIN }}"
-            FRONTEND_HOSTNAME="$(terraform output -raw frontend_hostname 2>/dev/null || true)"
-            if [[ -z "${FRONTEND_HOSTNAME}" || "${FRONTEND_HOSTNAME}" == "None" ]]; then
-              FRONTEND_HOSTNAME="www.${ROOT_DOMAIN}"
-            fi
-            CF_ID="$(
-              aws cloudfront list-distributions \
-                --query "DistributionList.Items[?Aliases && Aliases.Items && contains(Aliases.Items, \`${FRONTEND_HOSTNAME}\`)].Id" \
-                --output text 2>/dev/null || true
-            )"
-            [[ "${CF_ID}" == "None" ]] && CF_ID=""
-          fi
-
-          if [[ -z "${CF_ID}" ]]; then
-            echo "Could not resolve CloudFront distribution ID; skipping invalidation."
-            exit 0
-          fi
-
-          echo "Invalidating CloudFront cache for distribution ${CF_ID}"
-          aws cloudfront create-invalidation --distribution-id "${CF_ID}" --paths "/*" >/dev/null
-          echo "Invalidation submitted."
-
-      - name: Clear stale Terraform S3 lock (native lockfile)
+      - name: Clear stale Terraform S3 lock
         if: always()
         shell: bash
         run: |
