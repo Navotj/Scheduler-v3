@@ -36,8 +36,10 @@ jobs:
       - name: Terraform Init (local state)
         run: terraform init -backend=false
 
-      - name: Terraform Plan (bootstrap S3)
+      - name: manual fix
         run: terraform state -input=false -auto-approve rm aws_cloudfront_distribution.frontend
+
+      - name: Terraform Plan (bootstrap S3)
         run: terraform plan -input=false -var="app_prefix=${APP_PREFIX}"
 
       - name: Terraform Apply (bootstrap S3)
