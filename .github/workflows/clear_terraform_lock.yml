@@ -1,35 +1,20 @@
-name: Terraform Deploy
+name: Clear Terraform Lock
 
 on:
   workflow_dispatch: {}
-  push:
-    branches:
-      - main
-    paths:
-      - 'infrastructure/terraform/**'
-      - '.github/workflows/deploy_terraform.yml'
 
 defaults:
   run:
     working-directory: infrastructure/terraform
 
-concurrency:
-  group: terraform-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
-  deploy:
+  clear-lock:
     runs-on: ubuntu-latest
     env:
       APP_PREFIX: ${{ vars.APP_PREFIX }}
       AWS_REGION: ${{ vars.AWS_REGION }}
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-
-      # Terraform variables (lean set)
-      TF_VAR_app_prefix: ${{ vars.APP_PREFIX }}
-      TF_VAR_root_domain: ${{ vars.ROOT_DOMAIN }}
-      TF_VAR_ec2_instance_type: ${{ vars.EC2_INSTANCE_TYPE }}
 
     steps:
       - name: Checkout repo
@@ -39,14 +24,6 @@ jobs:
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.13.0
-
-      - name: Ensure jq is available
-        run: |
-          set -euo pipefail
-          if ! command -v jq >/dev/null 2>&1; then
-            sudo apt-get update -y
-            sudo apt-get install -y jq
-          fi
 
       - name: Terraform Init (remote state in S3 with DynamoDB lock)
         run: |
@@ -58,26 +35,17 @@ jobs:
             -backend-config="dynamodb_table=${APP_PREFIX}-tf-locks" \
             -backend-config="encrypt=true"
 
-      - name: Terraform Plan (faster; skip refresh)
+      - name: Clear any existing lock
         run: |
           set -euo pipefail
-          terraform plan -refresh=false -lock-timeout=2m -out=tfplan_full
-
-      - name: Terraform Apply
-        run: |
-          set -euo pipefail
-          terraform apply -auto-approve tfplan_full
-
-      # Best-effort cleanup of stale lock on failures
-      - name: Force-unlock Terraform state if needed
-        if: ${{ always() }}
-        run: |
-          set -euo pipefail
-          # If a local lock info file exists, use it to force-unlock
           if [[ -f .terraform.tfstate.lock.info ]]; then
             LOCK_ID="$(jq -r '.ID' .terraform.tfstate.lock.info || true)"
             if [[ -n "${LOCK_ID}" && "${LOCK_ID}" != "null" ]]; then
-              echo "Found lock info with ID: ${LOCK_ID}; attempting force-unlock."
+              echo "Forcing unlock of lock ID: ${LOCK_ID}"
               terraform force-unlock -force "${LOCK_ID}" || true
+            else
+              echo "No valid lock ID found in .terraform.tfstate.lock.info"
             fi
+          else
+            echo "No local lock info file found; nothing to clear."
           fi

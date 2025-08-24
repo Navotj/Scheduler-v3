@@ -10,7 +10,7 @@ variable "ec2_instance_type" {
 }
 
 variable "root_domain" {
-  description = "Apex domain that has the public Route 53 hosted zone (e.g., nat20scheduling.com)."
+  description = "Apex domain that has the public Route 53 hosted zone."
   type        = string
 }
 
