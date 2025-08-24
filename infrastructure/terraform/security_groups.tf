@@ -91,7 +91,7 @@ resource "aws_security_group" "backend" {
 # Database SG (no inline ingress from backend to avoid cycle)
 resource "aws_security_group" "database" {
   name        = "${var.app_prefix}-sg-database"
-  description = "Database SG only backend may connect on 27017"
+  description = "Database SG: only backend may connect on 27017"
   vpc_id      = data.aws_vpc.default.id
 
   # Deny-all egress (return traffic is statefully allowed)
