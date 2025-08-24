@@ -5,7 +5,7 @@ on:
   push:
     branches: [ "main" ]
     paths:
-      - 'infrastructure/frontend/**'
+      - 'frontend/**'
       - '.github/workflows/deploy_frontend.yml'
 
 concurrency:
@@ -56,15 +56,15 @@ jobs:
           set -euo pipefail
           [[ -n "${APP_PREFIX}" ]] || { echo "APP_PREFIX is empty"; exit 1; }
           [[ -n "${AWS_REGION}"  ]] || { echo "AWS_REGION is empty";  exit 1; }
-          [[ -d "infrastructure/frontend" ]] || { echo "missing: infrastructure/frontend"; ls -la infrastructure || true; exit 1; }
+          [[ -d "frontend" ]] || { echo "missing: frontend"; ls -la infrastructure || true; exit 1; }
           aws s3 ls "s3://${APP_PREFIX}-frontend" >/dev/null
 
       - name: sync to s3 (SSE required)
         shell: bash
         run: |
           set -euo pipefail
-          echo "Syncing 'infrastructure/frontend/' -> 's3://${APP_PREFIX}-frontend/' in '${AWS_REGION}'..."
-          aws s3 sync "infrastructure/frontend/" "s3://${APP_PREFIX}-frontend/" \
+          echo "Syncing 'frontend/' -> 's3://${APP_PREFIX}-frontend/' in '${AWS_REGION}'..."
+          aws s3 sync "frontend/" "s3://${APP_PREFIX}-frontend/" \
             --delete \
             --only-show-errors \
             --exact-timestamps \
