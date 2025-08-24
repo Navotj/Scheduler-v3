@@ -13,7 +13,6 @@ variable "aws_secret_access_key" {
 variable "aws_region" {
   description = "AWS region to deploy into"
   type        = string
-  default     = "eu-central-1"
 }
 
 variable "ec2_instance_type" {
@@ -25,5 +24,4 @@ variable "ec2_instance_type" {
 variable "app_prefix" {
   description = "Prefix for naming resources"
   type        = string
-  default     = "nat20scheduler"
 }

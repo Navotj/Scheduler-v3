@@ -5,9 +5,7 @@ terraform {
       version = "~> 6.10"
     }
   }
-
   required_version = ">= 1.2"
 
-  backend "s3" {}
+  remote_state "s3" {}
 }
-

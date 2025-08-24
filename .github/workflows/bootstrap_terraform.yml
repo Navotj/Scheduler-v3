@@ -1,0 +1,46 @@
+name: bootstrap remote state
+
+on:
+  workflow_dispatch: {}
+
+defaults:
+  run:
+    working-directory: infrastructure/bootstrap
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: bootstrap-remote-state
+      cancel-in-progress: false
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      APP_PREFIX: ${{ vars.APP_PREFIX }}
+    steps:
+      - name: checkout repo
+        uses: actions/checkout@v5
+
+      - name: setup terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.13.0
+
+      - name: terraform init (local)
+        run: terraform init -backend=false
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+      - name: terraform plan (bootstrap)
+        run: terraform plan -input=false -lock=false -var="app_prefix=${APP_PREFIX}"
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ env.AWS_REGION }}
+
+      - name: terraform apply (bootstrap)
+        run: terraform apply -input=false -lock=false -auto-approve -var="app_prefix=${APP_PREFIX}"
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ env.AWS_REGION }}
