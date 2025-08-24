@@ -21,12 +21,7 @@ resource "aws_cloudfront_distribution" "frontend" {
   wait_for_deployment = true
   http_version        = "http2and3"
 
-  # Serve apex + www (+ keep origin.<root_domain> working)
-  aliases = [
-    var.root_domain,
-    "www.${var.root_domain}",
-    local.origin_domain
-  ]
+  aliases = [local.frontend_hostname]
 
   origin {
     origin_id                = "s3-${aws_s3_bucket.frontend.id}"
