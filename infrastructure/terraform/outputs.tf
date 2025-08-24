@@ -18,9 +18,9 @@ output "cloudfront_domain_name" {
   value       = aws_cloudfront_distribution.frontend.domain_name
 }
 
-output "frontend_public_hostname" {
-  description = "Hostname serving the SPA via CloudFront."
-  value       = local.origin_domain
+output "frontend_hostnames" {
+  description = "Hostnames serving the SPA via CloudFront."
+  value       = [var.root_domain, "www.${var.root_domain}", local.origin_domain]
 }
 
 output "frontend_bucket_name" {

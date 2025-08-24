@@ -1,6 +1,6 @@
 ##############################
 # CloudFront distribution (SPA) in front of the private S3 bucket
-# Uses OAC; bucket remains private. Viewer cert is the "origin" ACM cert in us-east-1.
+# Uses OAC; bucket remains private. Viewer cert is the us-east-1 ACM cert.
 ##############################
 
 # Origin Access Control for S3
@@ -21,7 +21,12 @@ resource "aws_cloudfront_distribution" "frontend" {
   wait_for_deployment = true
   http_version        = "http2and3"
 
-  aliases = [local.origin_domain]
+  # Serve apex + www (+ keep origin.<root_domain> working)
+  aliases = [
+    var.root_domain,
+    "www.${var.root_domain}",
+    local.origin_domain
+  ]
 
   origin {
     origin_id                = "s3-${aws_s3_bucket.frontend.id}"
@@ -41,10 +46,10 @@ resource "aws_cloudfront_distribution" "frontend" {
     # Managed cache policy: CachingOptimized
     cache_policy_id = "658327ea-f89d-4fab-a63d-7e88639e58f6"
 
-    # Managed origin request policy: AllViewer (so querystrings work for SPA assets when needed)
+    # Managed origin request policy: AllViewer
     origin_request_policy_id = "216adef6-5c7f-47e4-b989-5492eafa07d3"
 
-    # Optional managed security headers policy
+    # Managed security headers policy
     response_headers_policy_id = "67f7725c-6f97-4210-82d7-5512b31e9d03"
   }
 
@@ -70,7 +75,7 @@ resource "aws_cloudfront_distribution" "frontend" {
   }
 
   viewer_certificate {
-    # ACM cert in us-east-1; created in certs.tf as aws_acm_certificate.origin (provider alias us_east_1)
+    # ACM cert in us-east-1; created in certs.tf as aws_acm_certificate.origin
     acm_certificate_arn            = aws_acm_certificate.origin.arn
     ssl_support_method             = "sni-only"
     minimum_protocol_version       = "TLSv1.2_2021"
@@ -85,9 +90,7 @@ resource "aws_cloudfront_distribution" "frontend" {
     Environment = "prod"
   }
 
-  depends_on = [
-    aws_cloudfront_origin_access_control.frontend
-  ]
+  depends_on = [aws_cloudfront_origin_access_control.frontend]
 }
 
 # Bucket policy to allow CloudFront (via OAC) to read objects
@@ -102,11 +105,8 @@ data "aws_iam_policy_document" "frontend_allow_cloudfront" {
       identifiers = ["cloudfront.amazonaws.com"]
     }
 
-    resources = [
-      "${aws_s3_bucket.frontend.arn}/*"
-    ]
+    resources = ["${aws_s3_bucket.frontend.arn}/*"]
 
-    # Ensure requests only come from this distribution
     condition {
       test     = "StringEquals"
       variable = "AWS:SourceArn"
