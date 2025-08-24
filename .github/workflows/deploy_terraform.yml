@@ -25,6 +25,7 @@ jobs:
       AWS_REGION: ${{ vars.AWS_REGION }}
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_PAGER: ""
 
       TF_VAR_app_prefix: ${{ vars.APP_PREFIX }}
       TF_VAR_root_domain: ${{ vars.ROOT_DOMAIN }}
@@ -57,17 +58,70 @@ jobs:
             -backend-config="use_lockfile=true" \
             -backend-config="encrypt=true"
 
-      # Heal must run before plan so the plan includes the (re)create
-      - name: Heal CloudFront state if deleted manually
+      # ---------------------------
+      # Diagnose current CloudFront state (useful logs)
+      # ---------------------------
+      - name: Diagnose CloudFront presence (by alias and by state)
         shell: bash
         run: |
           set -euo pipefail
+
+          ROOT_DOMAIN="${{ vars.ROOT_DOMAIN }}"
+          FRONTEND_HOSTNAME="$(terraform output -raw frontend_hostname 2>/dev/null || true)"
+          if [[ -z "${FRONTEND_HOSTNAME}" || "${FRONTEND_HOSTNAME}" == "None" ]]; then
+            FRONTEND_HOSTNAME="www.${ROOT_DOMAIN}"
+          fi
+          echo "Expected alias (frontend_hostname): ${FRONTEND_HOSTNAME}"
+
+          CF_ID_STATE=""
           if terraform state list | grep -q '^aws_cloudfront_distribution.frontend$'; then
-            CF_ID="$(terraform state show aws_cloudfront_distribution.frontend | awk '/^id +=/ {print $3; exit}')"
-            if [[ -n "${CF_ID:-}" ]] && ! aws cloudfront get-distribution --id "${CF_ID}" >/dev/null 2>&1; then
-              echo "CloudFront ${CF_ID} missing in AWS; removing from state."
+            CF_ID_STATE="$(terraform state show aws_cloudfront_distribution.frontend | awk '/^id +=/ {print $3; exit}')"
+          fi
+          echo "ID in Terraform state (if any): ${CF_ID_STATE:-<none>}"
+
+          CF_ID_ALIAS="$(aws cloudfront list-distributions --query "DistributionList.Items[?Aliases && Aliases.Items && contains(Aliases.Items, \`${FRONTEND_HOSTNAME}\`)].Id" --output text 2>/dev/null || true)"
+          [[ "${CF_ID_ALIAS}" == "None" ]] && CF_ID_ALIAS=""
+          echo "ID found in AWS by alias: ${CF_ID_ALIAS:-<none>}"
+
+      # ---------------------------
+      # Heal must run BEFORE planning so a create is planned
+      # Heals both cases:
+      # 1) State has an ID but AWS no longer has that distribution
+      # 2) No distribution exists in AWS for the expected alias
+      # ---------------------------
+      - name: Heal CloudFront state if deleted or out-of-sync
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ROOT_DOMAIN="${{ vars.ROOT_DOMAIN }}"
+          FRONTEND_HOSTNAME="$(terraform output -raw frontend_hostname 2>/dev/null || true)"
+          if [[ -z "${FRONTEND_HOSTNAME}" || "${FRONTEND_HOSTNAME}" == "None" ]]; then
+            FRONTEND_HOSTNAME="www.${ROOT_DOMAIN}"
+          fi
+
+          CF_ID_STATE=""
+          if terraform state list | grep -q '^aws_cloudfront_distribution.frontend$'; then
+            CF_ID_STATE="$(terraform state show aws_cloudfront_distribution.frontend | awk '/^id +=/ {print $3; exit}')"
+          fi
+
+          CF_ID_ALIAS="$(aws cloudfront list-distributions --query "DistributionList.Items[?Aliases && Aliases.Items && contains(Aliases.Items, \`${FRONTEND_HOSTNAME}\`)].Id" --output text 2>/dev/null || true)"
+          [[ "${CF_ID_ALIAS}" == "None" ]] && CF_ID_ALIAS=""
+
+          # If state has an ID but AWS does not, drop it from state to force recreate
+          if [[ -n "${CF_ID_STATE}" ]]; then
+            if ! aws cloudfront get-distribution --id "${CF_ID_STATE}" >/dev/null 2>&1; then
+              echo "State references ${CF_ID_STATE} but AWS does not; removing from state."
               terraform state rm aws_cloudfront_distribution.frontend
             fi
+          fi
+
+          # If AWS has no distribution for the expected alias, and the resource is NOT in state,
+          # Terraform should plan a create. Nothing to remove here; just log it.
+          if [[ -z "${CF_ID_ALIAS}" ]]; then
+            echo "No existing CloudFront distribution found in AWS for alias ${FRONTEND_HOSTNAME}."
+          else
+            echo "AWS already has distribution ${CF_ID_ALIAS} for alias ${FRONTEND_HOSTNAME}."
           fi
 
       - name: Terraform Plan
@@ -85,20 +139,22 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # Prefer Terraform output (authoritative) and avoid depending on Comment strings.
           CF_ID="$(terraform output -raw cloudfront_distribution_id 2>/dev/null || true)"
           if [[ -z "${CF_ID}" || "${CF_ID}" == "None" ]]; then
+            ROOT_DOMAIN="${{ vars.ROOT_DOMAIN }}"
             FRONTEND_HOSTNAME="$(terraform output -raw frontend_hostname 2>/dev/null || true)"
-            if [[ -n "${FRONTEND_HOSTNAME}" && "${FRONTEND_HOSTNAME}" != "None" ]]; then
-              CF_ID="$(
-                aws cloudfront list-distributions \
-                  --query "DistributionList.Items[?Aliases && Aliases.Items && contains(Aliases.Items, \`${FRONTEND_HOSTNAME}\`)].Id" \
-                  --output text 2>/dev/null || true
-              )"
+            if [[ -z "${FRONTEND_HOSTNAME}" || "${FRONTEND_HOSTNAME}" == "None" ]]; then
+              FRONTEND_HOSTNAME="www.${ROOT_DOMAIN}"
             fi
+            CF_ID="$(
+              aws cloudfront list-distributions \
+                --query "DistributionList.Items[?Aliases && Aliases.Items && contains(Aliases.Items, \`${FRONTEND_HOSTNAME}\`)].Id" \
+                --output text 2>/dev/null || true
+            )"
+            [[ "${CF_ID}" == "None" ]] && CF_ID=""
           fi
 
-          if [[ -z "${CF_ID}" || "${CF_ID}" == "None" ]]; then
+          if [[ -z "${CF_ID}" ]]; then
             echo "Could not resolve CloudFront distribution ID; skipping invalidation."
             exit 0
           fi
