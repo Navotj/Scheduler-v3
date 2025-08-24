@@ -57,6 +57,7 @@ jobs:
             -backend-config="use_lockfile=true" \
             -backend-config="encrypt=true"
 
+      # Heal must run before plan so the plan includes the (re)create
       - name: Heal CloudFront state if deleted manually
         shell: bash
         run: |
@@ -69,15 +70,42 @@ jobs:
             fi
           fi
 
-      - name: Terraform Plan (skip refresh for speed)
+      - name: Terraform Plan
         run: |
           set -euo pipefail
-          terraform plan -refresh=false -lock-timeout=2m -out=tfplan_full
+          terraform plan -lock-timeout=2m -out=tfplan_full
 
       - name: Terraform Apply
         run: |
           set -euo pipefail
           terraform apply -auto-approve tfplan_full
+
+      - name: Invalidate CloudFront (viewer cache)
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Prefer Terraform output (authoritative) and avoid depending on Comment strings.
+          CF_ID="$(terraform output -raw cloudfront_distribution_id 2>/dev/null || true)"
+          if [[ -z "${CF_ID}" || "${CF_ID}" == "None" ]]; then
+            FRONTEND_HOSTNAME="$(terraform output -raw frontend_hostname 2>/dev/null || true)"
+            if [[ -n "${FRONTEND_HOSTNAME}" && "${FRONTEND_HOSTNAME}" != "None" ]]; then
+              CF_ID="$(
+                aws cloudfront list-distributions \
+                  --query "DistributionList.Items[?Aliases && Aliases.Items && contains(Aliases.Items, \`${FRONTEND_HOSTNAME}\`)].Id" \
+                  --output text 2>/dev/null || true
+              )"
+            fi
+          fi
+
+          if [[ -z "${CF_ID}" || "${CF_ID}" == "None" ]]; then
+            echo "Could not resolve CloudFront distribution ID; skipping invalidation."
+            exit 0
+          fi
+
+          echo "Invalidating CloudFront cache for distribution ${CF_ID}"
+          aws cloudfront create-invalidation --distribution-id "${CF_ID}" --paths "/*" >/dev/null
+          echo "Invalidation submitted."
 
       - name: Force-unlock Terraform state if needed
         if: ${{ always() }}
