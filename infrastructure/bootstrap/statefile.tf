@@ -72,36 +72,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "tfstate" {
   }
 }
 
-# DynamoDB table for state locking (name aligned with deploy workflow)
-resource "aws_dynamodb_table" "locks" {
-  name         = "${var.app_prefix}-tf-locks"
-  billing_mode = "PAY_PER_REQUEST"
-  hash_key     = "LockID"
-
-  attribute {
-    name = "LockID"
-    type = "S"
-  }
-
-  point_in_time_recovery {
-    enabled = true
-  }
-
-  tags = {
-    Name        = "${var.app_prefix}-tf-locks"
-    App         = var.app_prefix
-    Terraform   = "true"
-    ManagedBy   = "terraform"
-    Environment = "prod"
-  }
-}
-
 output "state_bucket_name" {
   value       = aws_s3_bucket.tfstate.bucket
   description = "S3 bucket name for Terraform remote state"
-}
-
-output "lock_table_name" {
-  value       = aws_dynamodb_table.locks.name
-  description = "DynamoDB table name for Terraform state locking"
 }

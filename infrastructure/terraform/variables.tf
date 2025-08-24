@@ -1,17 +1,13 @@
 variable "app_prefix" {
-  description = "Prefix for naming resources (must be globally unique for S3)"
-  type        = string
-}
-
-variable "ec2_instance_type" {
-  description = "EC2 instance type"
-  type        = string
-  default     = "t3.micro"
+  type = string
 }
 
 variable "root_domain" {
-  description = "Apex domain that has the public Route 53 hosted zone."
-  type        = string
+  type = string
+}
+
+variable "ec2_instance_type" {
+  type = string
 }
 
 locals {

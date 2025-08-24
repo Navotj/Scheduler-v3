@@ -26,7 +26,6 @@ jobs:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 
-      # Terraform variables (lean set)
       TF_VAR_app_prefix: ${{ vars.APP_PREFIX }}
       TF_VAR_root_domain: ${{ vars.ROOT_DOMAIN }}
       TF_VAR_ec2_instance_type: ${{ vars.EC2_INSTANCE_TYPE }}
@@ -48,14 +47,14 @@ jobs:
             sudo apt-get install -y jq
           fi
 
-      - name: Terraform Init (remote state in S3 with DynamoDB lock)
+      - name: Terraform Init (S3 backend with native lockfile)
         run: |
           set -euo pipefail
           terraform init \
             -backend-config="bucket=${APP_PREFIX}-state-bucket" \
             -backend-config="key=state/${APP_PREFIX}.tfstate" \
             -backend-config="region=${AWS_REGION}" \
-            -backend-config="dynamodb_table=${APP_PREFIX}-tf-locks" \
+            -backend-config="use_lockfile=true" \
             -backend-config="encrypt=true"
 
       - name: Terraform Plan (faster; skip refresh)
