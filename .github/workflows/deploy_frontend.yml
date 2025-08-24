@@ -31,6 +31,7 @@ jobs:
       - name: checkout
         uses: actions/checkout@v5
 
+      # keys only
       - name: configure aws credentials (keys)
         if: ${{ env.AWS_ROLE_TO_ASSUME == '' }}
         uses: aws-actions/configure-aws-credentials@v4
@@ -39,15 +40,17 @@ jobs:
           aws-secret-access-key: ${{ env.AWS_SECRET_ACCESS_KEY }}
           aws-region:            ${{ env.AWS_REGION }}
 
+      # keys + assume role (skip session tagging to avoid sts:TagSession permission)
       - name: configure aws credentials (assume role)
         if: ${{ env.AWS_ROLE_TO_ASSUME != '' }}
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id:     ${{ env.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ env.AWS_SECRET_ACCESS_KEY }}
-          aws-region:            ${{ env.AWS_REGION }}
-          role-to-assume:        ${{ env.AWS_ROLE_TO_ASSUME }}
-          role-session-name:     github-actions-s3-upload
+          aws-access-key-id:         ${{ env.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key:     ${{ env.AWS_SECRET_ACCESS_KEY }}
+          aws-region:                ${{ env.AWS_REGION }}
+          role-to-assume:            ${{ env.AWS_ROLE_TO_ASSUME }}
+          role-session-name:         github-actions-s3-upload
+          role-skip-session-tagging: true
 
       - name: ensure aws cli
         shell: bash
