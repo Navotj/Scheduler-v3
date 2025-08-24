@@ -10,6 +10,12 @@ variable "aws_secret_access_key" {
   sensitive   = true
 }
 
+variable "aws_region" {
+  description = "AWS region to deploy into"
+  type        = string
+  default     = "eu-central-1"
+}
+
 variable "ec2_instance_type" {
   description = "EC2 instance type"
   type        = string

@@ -25,8 +25,14 @@ jobs:
         with:
           terraform_version: 1.13.0
 
-      - name: Terraform Init
-        run: terraform init
+      - name: Terraform Init (S3 backend)
+        run: |
+          terraform init \
+            -backend-config="bucket=${{ vars.APP_PREFIX }}-state-bucket" \
+            -backend-config="key=state/${{ vars.APP_PREFIX }}.tfstate" \
+            -backend-config="region=${{ vars.AWS_REGION }}" \
+            -backend-config="dynamodb_table=${{ vars.APP_PREFIX }}-locks" \
+            -backend-config="encrypt=true"
 
       - name: Terraform Plan
         run: terraform plan
