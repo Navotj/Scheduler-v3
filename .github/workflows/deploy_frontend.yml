@@ -1,4 +1,4 @@
-name: deploy-frontend-to-s3
+name: deploy-frontend
 
 on:
   workflow_dispatch: {}
@@ -6,7 +6,7 @@ on:
     branches: [ "main" ]
     paths:
       - 'infrastructure/frontend/**'
-      - '.github/workflows/deploy_frontend_to_s3.yml'
+      - '.github/workflows/deploy_frontend.yml'
 
 concurrency:
   group: s3-upload-${{ github.ref }}
