@@ -3,6 +3,11 @@ variable "app_prefix" {
   type        = string
 }
 
+variable "environment" {
+  description = "Environment for workload"
+  type        = string
+}
+
 variable "ec2_instance_type" {
   description = "EC2 instance type"
   type        = string
