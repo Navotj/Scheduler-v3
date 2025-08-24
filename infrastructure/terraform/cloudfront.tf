@@ -17,7 +17,7 @@ resource "aws_cloudfront_origin_access_control" "frontend" {
 }
 
 # ---------------
-# CloudFront Dist
+# CloudFront Distribution
 # ---------------
 resource "aws_cloudfront_distribution" "frontend" {
   enabled             = true
@@ -25,6 +25,8 @@ resource "aws_cloudfront_distribution" "frontend" {
   is_ipv6_enabled     = true
   default_root_object = "index.html"
 
+  # If you define this elsewhere as local.frontend_hostname, keep it.
+  # Otherwise, ensure the local exists: local.frontend_hostname = "www.${var.root_domain}"
   aliases = [local.frontend_hostname]
 
   # ---------------
@@ -36,8 +38,7 @@ resource "aws_cloudfront_distribution" "frontend" {
     origin_access_control_id = aws_cloudfront_origin_access_control.frontend.id
   }
 
-  # API origin (HTTP(S) to your regional ALB / API domain)
-  # Uses the api.${var.root_domain} hostname defined in locals.
+  # API origin (HTTPS to your regional API endpoint / ALB via DNS name)
   origin {
     origin_id   = "api-origin"
     domain_name = local.api_domain
@@ -65,8 +66,8 @@ resource "aws_cloudfront_distribution" "frontend" {
     compress = true
 
     # AWS managed policies
-    cache_policy_id          = "658327ea-f89d-4fab-a63d-7e88639e58f6" # CachingOptimized
-    origin_request_policy_id = "88a5eaf4-2fd4-4709-b370-b4c650ea3fcf" # CORS-S3Origin
+    cache_policy_id            = "658327ea-f89d-4fab-a63d-7e88639e58f6" # CachingOptimized
+    origin_request_policy_id   = "88a5eaf4-2fd4-4709-b370-b4c650ea3fcf" # CORS-S3Origin
     response_headers_policy_id = "eaab4381-ed33-4a86-88ca-d9558dc6cd63" # CORS-With-Preflight
   }
 
@@ -104,15 +105,6 @@ resource "aws_cloudfront_distribution" "frontend" {
   }
 
   # ---------------
-  # Logging (off by default)
-  # ---------------
-  # logging_config {
-  #   include_cookies = false
-  #   bucket          = aws_s3_bucket.logs.bucket_domain_name
-  #   prefix          = "cloudfront/"
-  # }
-
-  # ---------------
   # Price class / geo
   # ---------------
   price_class = "PriceClass_100"
@@ -137,4 +129,13 @@ resource "aws_cloudfront_distribution" "frontend" {
     aws_acm_certificate_validation.origin,
     aws_cloudfront_origin_access_control.frontend
   ]
+
+  # Avoid apply failures when CF was deleted out-of-band and tags would be "updated"
+  lifecycle {
+    ignore_changes = [tags]
+  }
+
+  tags = {
+    App = var.app_prefix
+  }
 }

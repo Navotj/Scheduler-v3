@@ -1,4 +1,4 @@
-name: Bootstrap Remote State
+name: Deploy Terraform
 
 on:
   workflow_dispatch: {}
@@ -6,38 +6,56 @@ on:
     branches:
       - main
     paths:
-      - 'infrastructure/bootstrap/**'
-      - '.github/workflows/bootstrap_terraform.yml'
+      - 'infrastructure/terraform/**'
+      - '.github/workflows/deploy_terraform.yml'
 
 defaults:
   run:
-    working-directory: infrastructure/bootstrap
+    working-directory: infrastructure/terraform
 
 jobs:
-  bootstrap:
+  deploy:
     runs-on: ubuntu-latest
     concurrency:
-      group: bootstrap-remote-state
+      group: deploy-terraform
       cancel-in-progress: false
     env:
       AWS_REGION: ${{ vars.AWS_REGION }}
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       APP_PREFIX: ${{ vars.APP_PREFIX }}
+      TF_VAR_app_prefix: ${{ vars.APP_PREFIX }}
+      TF_VAR_root_domain: ${{ vars.ROOT_DOMAIN }}
+      TF_VAR_ec2_instance_type: ${{ vars.EC2_INSTANCE_TYPE }}
+
     steps:
-      - name: Checkout repo
+      - name: checkout repo
         uses: actions/checkout@v5
 
-      - name: Setup Terraform
+      - name: setup terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.13.0
 
-      - name: Terraform Init (local state)
-        run: terraform init -backend=false
+      - name: terraform init
+        run: terraform init -input=false
 
-      - name: Terraform Plan (bootstrap S3)
-        run: terraform plan -input=false -lock=false -var="app_prefix=${APP_PREFIX}"
+      - name: heal cloudfront state if deleted manually
+        shell: bash
+        run: |
+          set -euo pipefail
+          if terraform state list | grep -q '^aws_cloudfront_distribution.frontend$'; then
+            CF_ID="$(terraform state show aws_cloudfront_distribution.frontend | awk '/^id +=/ {print $3; exit}')"
+            if [[ -n "${CF_ID:-}" ]]; then
+              if ! aws cloudfront get-distribution --id "${CF_ID}" >/dev/null 2>&1; then
+                echo "CloudFront distribution ${CF_ID} missing in AWS; removing from state."
+                terraform state rm aws_cloudfront_distribution.frontend
+              fi
+            fi
+          fi
 
-      - name: Terraform Apply (bootstrap S3)
-        run: terraform apply -input=false -lock=false -auto-approve -var="app_prefix=${APP_PREFIX}"
+      - name: terraform plan
+        run: terraform plan -input=false -out=tfplan_full
+
+      - name: terraform apply
+        run: terraform apply -input=false -auto-approve tfplan_full
