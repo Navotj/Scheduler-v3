@@ -1,8 +1,5 @@
 ##############################
-# S3 bucket for frontend artifacts (private; ready for CloudFront origin)
-# - No public access (use CloudFront with OAC later)
-# - Versioned + encrypted
-# - Lifecycle to control noncurrent versions and abort incomplete MPU
+# S3 bucket for frontend artifacts (private; OAC via CloudFront)
 ##############################
 
 resource "aws_s3_bucket" "frontend" {
@@ -14,11 +11,9 @@ resource "aws_s3_bucket" "frontend" {
     App         = var.app_prefix
     Terraform   = "true"
     ManagedBy   = "terraform"
-    Environment = "prod"
   }
 }
 
-# Enforce bucket-owner-only control (no ACLs)
 resource "aws_s3_bucket_ownership_controls" "frontend" {
   bucket = aws_s3_bucket.frontend.id
   rule {
@@ -26,16 +21,15 @@ resource "aws_s3_bucket_ownership_controls" "frontend" {
   }
 }
 
-# Block all public access (we'll attach CloudFront OAC later)
 resource "aws_s3_bucket_public_access_block" "frontend" {
-  bucket                  = aws_s3_bucket.frontend.id
+  bucket = aws_s3_bucket.frontend.id
+
   block_public_acls       = true
-  block_public_policy     = true
   ignore_public_acls      = true
+  block_public_policy     = true
   restrict_public_buckets = true
 }
 
-# Keep object history
 resource "aws_s3_bucket_versioning" "frontend" {
   bucket = aws_s3_bucket.frontend.id
   versioning_configuration {
@@ -43,9 +37,9 @@ resource "aws_s3_bucket_versioning" "frontend" {
   }
 }
 
-# Server-side encryption at rest
 resource "aws_s3_bucket_server_side_encryption_configuration" "frontend" {
   bucket = aws_s3_bucket.frontend.id
+
   rule {
     apply_server_side_encryption_by_default {
       sse_algorithm = "AES256"
@@ -53,24 +47,21 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "frontend" {
   }
 }
 
-# Lifecycle: keep noncurrent versions manageable + clean up failed uploads
 resource "aws_s3_bucket_lifecycle_configuration" "frontend" {
   bucket = aws_s3_bucket.frontend.id
 
   rule {
-    id     = "noncurrent-expiration"
+    id     = "noncurrent-versions"
     status = "Enabled"
-    filter {}
+
+    noncurrent_version_transition {
+      noncurrent_days = 30
+      storage_class   = "STANDARD_IA"
+    }
 
     noncurrent_version_expiration {
-      noncurrent_days = 90
+      noncurrent_days = 365
     }
-  }
-
-  rule {
-    id     = "abort-mpu"
-    status = "Enabled"
-    filter {}
 
     abort_incomplete_multipart_upload {
       days_after_initiation = 7
@@ -78,75 +69,48 @@ resource "aws_s3_bucket_lifecycle_configuration" "frontend" {
   }
 }
 
+# Strict OAC-only read policy (no ListBucket needed)
 data "aws_iam_policy_document" "frontend_bucket_policy" {
-  # Deny insecure transport
   statement {
-    sid    = "DenyInsecureTransport"
-    effect = "Deny"
+    sid = "AllowCloudFrontOACRead"
+    effect = "Allow"
+
     principals {
-      type        = "*"
-      identifiers = ["*"]
+      type        = "Service"
+      identifiers = ["cloudfront.amazonaws.com"]
     }
-    actions = ["s3:*"]
+
+    actions = [
+      "s3:GetObject"
+    ]
+
     resources = [
-      aws_s3_bucket.frontend.arn,
       "${aws_s3_bucket.frontend.arn}/*"
     ]
+
     condition {
-      test     = "Bool"
-      variable = "aws:SecureTransport"
-      values   = ["false"]
+      test     = "StringEquals"
+      variable = "AWS:SourceArn"
+      values   = [aws_cloudfront_distribution.frontend.arn]
     }
   }
 
-  # Deny unencrypted PUTs
+  # Optional: deny unencrypted uploads (defensive; no uploads expected from web)
   statement {
-    sid    = "DenyUnEncryptedObjects"
-    effect = "Deny"
-    principals {
-      type        = "*"
-      identifiers = ["*"]
-    }
-    actions   = ["s3:PutObject"]
-    resources = ["${aws_s3_bucket.frontend.arn}/*"]
+    sid     = "DenyUnencryptedObjectUploads"
+    effect  = "Deny"
+    actions = ["s3:PutObject"]
+    resources = [
+      "${aws_s3_bucket.frontend.arn}/*"
+    ]
     condition {
       test     = "StringNotEquals"
       variable = "s3:x-amz-server-side-encryption"
       values   = ["AES256"]
     }
-  }
-
-  # Allow CloudFront (OAC) to GET objects
-  statement {
-    sid    = "AllowCloudFrontServiceGetObject"
-    effect = "Allow"
     principals {
-      type        = "Service"
-      identifiers = ["cloudfront.amazonaws.com"]
-    }
-    actions   = ["s3:GetObject"]
-    resources = ["${aws_s3_bucket.frontend.arn}/*"]
-    condition {
-      test     = "StringEquals"
-      variable = "AWS:SourceArn"
-      values   = [aws_cloudfront_distribution.frontend.arn]
-    }
-  }
-
-  # Allow CloudFront (OAC) to LIST bucket (needed for default root object and some range requests)
-  statement {
-    sid    = "AllowCloudFrontServiceListBucket"
-    effect = "Allow"
-    principals {
-      type        = "Service"
-      identifiers = ["cloudfront.amazonaws.com"]
-    }
-    actions   = ["s3:ListBucket"]
-    resources = [aws_s3_bucket.frontend.arn]
-    condition {
-      test     = "StringEquals"
-      variable = "AWS:SourceArn"
-      values   = [aws_cloudfront_distribution.frontend.arn]
+      type        = "*"
+      identifiers = ["*"]
     }
   }
 }

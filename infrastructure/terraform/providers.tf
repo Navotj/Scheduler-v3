@@ -1,5 +1,5 @@
 provider "aws" {
-  # Region comes directly from AWS_REGION environment variable
+  # Region comes from AWS_REGION env
   default_tags {
     tags = {
       App         = var.app_prefix
@@ -10,7 +10,7 @@ provider "aws" {
   }
 }
 
-# us-east-1 alias for resources that must live there (CloudFront/ACM)
+# us-east-1 for CloudFront/ACM viewer cert
 provider "aws" {
   alias  = "us_east_1"
   region = "us-east-1"

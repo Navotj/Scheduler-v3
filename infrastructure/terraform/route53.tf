@@ -1,7 +1,7 @@
 resource "aws_route53_record" "www_a" {
-  zone_id = data.aws_route53_zone.root.zone_id
-  name    = local.frontend_hostname
-  type    = "A"
+  zone_id         = data.aws_route53_zone.root.zone_id
+  name            = local.frontend_hostname
+  type            = "A"
   allow_overwrite = true
 
   alias {
@@ -12,9 +12,9 @@ resource "aws_route53_record" "www_a" {
 }
 
 resource "aws_route53_record" "www_aaaa" {
-  zone_id = data.aws_route53_zone.root.zone_id
-  name    = local.frontend_hostname
-  type    = "AAAA"
+  zone_id         = data.aws_route53_zone.root.zone_id
+  name            = local.frontend_hostname
+  type            = "AAAA"
   allow_overwrite = true
 
   alias {
