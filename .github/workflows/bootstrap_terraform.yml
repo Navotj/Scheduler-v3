@@ -36,8 +36,8 @@ jobs:
       - name: Terraform Init (local state)
         run: terraform init -backend=false
 
-      - name: Terraform Plan (bootstrap S3)
+      - name: Terraform Plan (bootstrap S3 + DynamoDB)
         run: terraform plan -input=false -lock=false -var="app_prefix=${APP_PREFIX}"
 
-      - name: Terraform Apply (bootstrap S3)
+      - name: Terraform Apply (bootstrap S3 + DynamoDB)
         run: terraform apply -input=false -lock=false -auto-approve -var="app_prefix=${APP_PREFIX}"

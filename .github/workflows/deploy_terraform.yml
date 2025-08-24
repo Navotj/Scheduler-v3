@@ -68,12 +68,10 @@ jobs:
           set -euo pipefail
           terraform apply -auto-approve tfplan_full
 
-      # Best-effort cleanup of stale lock on failures
       - name: Force-unlock Terraform state if needed
         if: ${{ always() }}
         run: |
           set -euo pipefail
-          # If a local lock info file exists, use it to force-unlock
           if [[ -f .terraform.tfstate.lock.info ]]; then
             LOCK_ID="$(jq -r '.ID' .terraform.tfstate.lock.info || true)"
             if [[ -n "${LOCK_ID}" && "${LOCK_ID}" != "null" ]]; then

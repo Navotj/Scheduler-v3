@@ -54,7 +54,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "tfstate" {
   rule {
     id     = "noncurrent-expiration"
     status = "Enabled"
-    filter {}  # apply to all objects
+    filter {}
 
     noncurrent_version_expiration {
       noncurrent_days = 90
@@ -64,7 +64,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "tfstate" {
   rule {
     id     = "abort-mpu"
     status = "Enabled"
-    filter {}  # apply to all objects
+    filter {}
 
     abort_incomplete_multipart_upload {
       days_after_initiation = 7
@@ -72,9 +72,9 @@ resource "aws_s3_bucket_lifecycle_configuration" "tfstate" {
   }
 }
 
-# DynamoDB table for state locking
+# DynamoDB table for state locking (name aligned with deploy workflow)
 resource "aws_dynamodb_table" "locks" {
-  name         = "${var.app_prefix}-locks"
+  name         = "${var.app_prefix}-tf-locks"
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "LockID"
 
@@ -94,4 +94,14 @@ resource "aws_dynamodb_table" "locks" {
     ManagedBy   = "terraform"
     Environment = "prod"
   }
+}
+
+output "state_bucket_name" {
+  value       = aws_s3_bucket.tfstate.bucket
+  description = "S3 bucket name for Terraform remote state"
+}
+
+output "lock_table_name" {
+  value       = aws_dynamodb_table.locks.name
+  description = "DynamoDB table name for Terraform state locking"
 }
