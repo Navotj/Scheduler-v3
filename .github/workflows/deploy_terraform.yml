@@ -60,6 +60,24 @@ jobs:
             -backend-config="use_lockfile=true" \
             -backend-config="encrypt=true"
 
+      - name: Re-import backend SG to fix identity mismatch (one-time)
+        shell: bash
+        run: |
+          set -euo pipefail
+          VPC_ID="$(aws ec2 describe-vpcs --filters Name=isDefault,Values=true --query 'Vpcs[0].VpcId' --output text)"
+          SG_ID="$(aws ec2 describe-security-groups \
+            --filters "Name=vpc-id,Values=${VPC_ID}" "Name=group-name,Values=${APP_PREFIX}-sg-backend" \
+            --query 'SecurityGroups[0].GroupId' --output text)"
+          if [[ -z "${SG_ID}" || "${SG_ID}" == "None" ]]; then
+            SG_ID="$(aws ec2 describe-security-groups \
+              --filters "Name=vpc-id,Values=${VPC_ID}" "Name=tag:Name,Values=${APP_PREFIX}-sg-backend" \
+              --query 'SecurityGroups[0].GroupId' --output text)"
+          fi
+          [[ -n "${SG_ID}" && "${SG_ID}" != "None" ]] || { echo "Could not resolve backend SG id"; exit 1; }
+
+          terraform state rm aws_security_group.backend || true
+          terraform import aws_security_group.backend "${SG_ID}"
+
       - name: Terraform Plan
         run: |
           set -euo pipefail
