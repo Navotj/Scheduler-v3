@@ -4,153 +4,129 @@ data "aws_vpc" "default" {
 }
 
 # ---------------------------------
-# Security Groups (split to avoid per-SG rule limits)
+# Security Groups (cycle-free setup)
 # ---------------------------------
 
-# Backend identity SG (no rules) — used for DB allowlisting
+# Backend SG (rules managed via aws_security_group_rule to avoid update-order limits)
 resource "aws_security_group" "backend" {
-  name_prefix = "${var.app_prefix}-sg-backend-ident-"
-  description = "Backend identity SG (attach to backend EC2; referenced by DB SG)"
+  name        = "${var.app_prefix}-sg-backend"
+  description = "Backend SG CloudFront ingress and minimal egress"
   vpc_id      = data.aws_vpc.default.id
 
+  # Remove default allow-all rules so we can add only what we need below
   ingress = []
   egress  = []
 
   revoke_rules_on_delete = true
 
-  lifecycle {
-    create_before_destroy = true
-  }
-
   tags = {
-    Name = "${var.app_prefix}-sg-backend-ident"
+    Name = "${var.app_prefix}-sg-backend"
   }
 }
 
-# Backend ingress SG — only CloudFront -> backend (HTTP/HTTPS)
-resource "aws_security_group" "backend_ingress" {
-  name_prefix = "${var.app_prefix}-sg-backend-ingress-"
-  description = "Backend ingress from CloudFront only"
-  vpc_id      = data.aws_vpc.default.id
-
-  ingress = []
-  egress  = []
-
-  revoke_rules_on_delete = true
-
-  lifecycle {
-    create_before_destroy = true
-  }
-
-  tags = {
-    Name = "${var.app_prefix}-sg-backend-ingress"
-  }
-}
-
-# CloudFront to backend HTTP
-resource "aws_vpc_security_group_ingress_rule" "backend_from_cloudfront_http" {
-  security_group_id = aws_security_group.backend_ingress.id
+# Ingress from CloudFront only (HTTP/HTTPS) using AWS-managed prefix list ID
+resource "aws_security_group_rule" "backend_ingress_http" {
+  type              = "ingress"
   description       = "CloudFront to backend HTTP"
   from_port         = 80
   to_port           = 80
-  ip_protocol       = "tcp"
-  prefix_list_id    = var.cloudfront_origin_prefix_list_id
+  protocol          = "tcp"
+  prefix_list_ids   = [var.cloudfront_origin_prefix_list_id]
+  security_group_id = aws_security_group.backend.id
 }
 
-# CloudFront to backend HTTPS
-resource "aws_vpc_security_group_ingress_rule" "backend_from_cloudfront_https" {
-  security_group_id = aws_security_group.backend_ingress.id
+resource "aws_security_group_rule" "backend_ingress_https" {
+  type              = "ingress"
   description       = "CloudFront to backend HTTPS"
   from_port         = 443
   to_port           = 443
-  ip_protocol       = "tcp"
-  prefix_list_id    = var.cloudfront_origin_prefix_list_id
+  protocol          = "tcp"
+  prefix_list_ids   = [var.cloudfront_origin_prefix_list_id]
+  security_group_id = aws_security_group.backend.id
 }
 
-# Backend egress SG — single baseline egress (all protocols) to reduce rule count
-resource "aws_security_group" "backend_egress" {
-  name_prefix = "${var.app_prefix}-sg-backend-egress-"
-  description = "Backend baseline egress"
-  vpc_id      = data.aws_vpc.default.id
-
-  ingress = []
-  egress  = []
-
-  revoke_rules_on_delete = true
-
-  lifecycle {
-    create_before_destroy = true
-  }
-
-  tags = {
-    Name = "${var.app_prefix}-sg-backend-egress"
-  }
-}
-
-# Allow all outbound (covers HTTPS, DNS, NTP, SSM, etc.) — minimizes rule count
-resource "aws_vpc_security_group_egress_rule" "backend_all_out" {
-  security_group_id = aws_security_group.backend_egress.id
-  description       = "Baseline egress for OS updates/SSM/S3/DNS/NTP"
-  ip_protocol       = "-1"
-  cidr_ipv4         = "0.0.0.0/0"
-}
-
-# Optional: direct backend-to-DB egress within VPC on 27017 (not strictly required due to baseline egress)
-# Keeping explicit rule for clarity and future tightening if baseline egress is reduced.
-resource "aws_vpc_security_group_egress_rule" "backend_to_db_vpc_mongo" {
-  security_group_id = aws_security_group.backend_egress.id
-  description       = "Backend to MongoDB within VPC on 27017"
+# Egress to MongoDB within VPC (restrict to VPC CIDR to avoid SG-to-SG cycle)
+resource "aws_security_group_rule" "backend_egress_mongo" {
+  type              = "egress"
+  description       = "Backend to MongoDB within VPC"
   from_port         = 27017
   to_port           = 27017
-  ip_protocol       = "tcp"
-  cidr_ipv4         = data.aws_vpc.default.cidr_block
+  protocol          = "tcp"
+  cidr_blocks       = [data.aws_vpc.default.cidr_block]
+  security_group_id = aws_security_group.backend.id
 }
 
-# Database SG (no egress; only backend identity SG may connect on 27017)
+# Minimal Internet egress for SSM/S3/updates (HTTPS)
+resource "aws_security_group_rule" "backend_egress_https" {
+  type                = "egress"
+  description         = "HTTPS egress for system and SSM"
+  from_port           = 443
+  to_port             = 443
+  protocol            = "tcp"
+  cidr_blocks         = ["0.0.0.0/0"]
+  ipv6_cidr_blocks    = ["::/0"]
+  security_group_id   = aws_security_group.backend.id
+}
+
+# DNS (UDP/TCP 53)
+resource "aws_security_group_rule" "backend_egress_dns_udp" {
+  type                = "egress"
+  description         = "DNS UDP"
+  from_port           = 53
+  to_port             = 53
+  protocol            = "udp"
+  cidr_blocks         = ["0.0.0.0/0"]
+  ipv6_cidr_blocks    = ["::/0"]
+  security_group_id   = aws_security_group.backend.id
+}
+
+resource "aws_security_group_rule" "backend_egress_dns_tcp" {
+  type                = "egress"
+  description         = "DNS TCP"
+  from_port           = 53
+  to_port             = 53
+  protocol            = "tcp"
+  cidr_blocks         = ["0.0.0.0/0"]
+  ipv6_cidr_blocks    = ["::/0"]
+  security_group_id   = aws_security_group.backend.id
+}
+
+# NTP (UDP 123)
+resource "aws_security_group_rule" "backend_egress_ntp" {
+  type                = "egress"
+  description         = "NTP UDP"
+  from_port           = 123
+  to_port             = 123
+  protocol            = "udp"
+  cidr_blocks         = ["0.0.0.0/0"]
+  ipv6_cidr_blocks    = ["::/0"]
+  security_group_id   = aws_security_group.backend.id
+}
+
+# Database SG (deny-all egress; only backend may connect on 27017)
 resource "aws_security_group" "database" {
-  name_prefix = "${var.app_prefix}-sg-database-"
+  name        = "${var.app_prefix}-sg-database"
   description = "Database SG: only backend may connect on 27017"
   vpc_id      = data.aws_vpc.default.id
 
+  # Explicitly no default rules
   ingress = []
   egress  = []
 
   revoke_rules_on_delete = true
-
-  lifecycle {
-    create_before_destroy = true
-  }
 
   tags = {
     Name = "${var.app_prefix}-sg-database"
   }
 }
 
-# Allow DB ingress from Backend identity SG (avoids SG↔SG update cycles)
-resource "aws_vpc_security_group_ingress_rule" "db_from_backend_ident" {
-  security_group_id             = aws_security_group.database.id
-  referenced_security_group_id  = aws_security_group.backend.id
-  description                   = "Backend to MongoDB"
-  from_port                     = 27017
-  to_port                       = 27017
-  ip_protocol                   = "tcp"
-}
-
-# ----------------------
-# Useful Security Group Outputs
-# ----------------------
-output "sg_backend_ident_id" {
-  value = aws_security_group.backend.id
-}
-
-output "sg_backend_ingress_id" {
-  value = aws_security_group.backend_ingress.id
-}
-
-output "sg_backend_egress_id" {
-  value = aws_security_group.backend_egress.id
-}
-
-output "sg_database_id" {
-  value = aws_security_group.database.id
+# Allow DB ingress from Backend SG (separate resource to avoid SG ↔ SG cycles)
+resource "aws_security_group_rule" "db_from_backend" {
+  type                     = "ingress"
+  description              = "Backend to MongoDB"
+  from_port                = 27017
+  to_port                  = 27017
+  protocol                 = "tcp"
+  security_group_id        = aws_security_group.database.id
+  source_security_group_id = aws_security_group.backend.id
 }
