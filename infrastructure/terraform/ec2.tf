@@ -16,3 +16,12 @@ resource "aws_instance" "backend" {
     Name = "backend"
   }
 }
+
+resource "aws_instance" "database" {
+  ami           = data.aws_ami.al2023.id
+  instance_type = var.ec2_instance_type
+
+  tags = {
+    Name = "database"
+  }
+}

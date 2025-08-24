@@ -9,3 +9,13 @@ variable "ec2_instance_type" {
   type        = string
   default     = "t3.micro"
 }
+
+variable "frontend_domain" {
+  description = "Frontend domain (CloudFront)."
+  type        = string
+}
+
+variable "api_domain" {
+  description = "API domain (ALB)."
+  type        = string
+}
