@@ -1,24 +1,18 @@
-##############################
-# ACM certificates (DNS-validated via Route 53)
-# - origin certificate in us-east-1 (for CloudFront / global)
-# - api certificate in the default region (for regional ALB)
-# Uses var.root_domain and locals (origin/api) defined in variables.tf
-##############################
-
-# Resolve hosted zone for DNS validation without hardcoding the zone ID
+########################################
+# Route 53 zone reference (existing zone)
+########################################
 data "aws_route53_zone" "root" {
   name         = var.root_domain
   private_zone = false
 }
 
-##############################
-# ORIGIN cert (us-east-1) — covers apex + www + origin
-##############################
+########################################
+# Viewer cert for CloudFront (us-east-1), WWW ONLY
+########################################
 resource "aws_acm_certificate" "origin" {
-  provider                  = aws.us_east_1
-  domain_name               = var.root_domain
-  subject_alternative_names = ["www.${var.root_domain}", local.origin_domain]
-  validation_method         = "DNS"
+  provider          = aws.us_east_1
+  domain_name       = local.frontend_hostname
+  validation_method = "DNS"
 
   lifecycle {
     create_before_destroy = true
@@ -33,7 +27,6 @@ resource "aws_acm_certificate" "origin" {
   }
 }
 
-# DNS validation records for all names on the us-east-1 cert
 resource "aws_route53_record" "origin_validation" {
   for_each = {
     for dvo in aws_acm_certificate.origin.domain_validation_options :
@@ -51,7 +44,6 @@ resource "aws_route53_record" "origin_validation" {
   records = [each.value.record]
 }
 
-# Complete validation (us-east-1)
 resource "aws_acm_certificate_validation" "origin" {
   provider                 = aws.us_east_1
   certificate_arn         = aws_acm_certificate.origin.arn
@@ -60,9 +52,9 @@ resource "aws_acm_certificate_validation" "origin" {
   depends_on = [aws_route53_record.origin_validation]
 }
 
-##############################
-# API cert (regional)
-##############################
+########################################
+# API cert (regional, unchanged)
+########################################
 resource "aws_acm_certificate" "api" {
   domain_name       = local.api_domain
   validation_method = "DNS"

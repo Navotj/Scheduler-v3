@@ -57,73 +57,7 @@ jobs:
             -backend-config="use_lockfile=true" \
             -backend-config="encrypt=true"
 
-      - name: Resolve available CloudFront aliases (avoid CNAMEAlreadyExists)
-        shell: bash
-        run: |
-          set -euo pipefail
-          ROOT="${{ vars.ROOT_DOMAIN }}"
-          CANDIDATES=("${ROOT}" "www.${ROOT}" "origin.${ROOT}")
-          AVAILABLE=()
-
-          # If distribution already exists in state, capture its ID so we treat aliases on it as OK
-          CF_ID="$(terraform state show -no-color aws_cloudfront_distribution.frontend 2>/dev/null | awk '/^id = /{print $3; exit}' || true)"
-          echo "Detected CloudFront distribution in state: ${CF_ID:-<none>}"
-
-          # Helper to check if alias is currently claimed by a different resource
-          is_claimed_elsewhere() {
-            local name="$1"
-
-            # CloudFront — if alias is on a different dist, it's a conflict
-            local cf
-            cf="$(aws cloudfront list-distributions \
-                    --query "DistributionList.Items[?Aliases.Items && contains(Aliases.Items, \`${name}\`)].[Id]" \
-                    --output text 2>/dev/null || true)"
-            if [[ -n "${cf}" && ( -z "${CF_ID}" || "${cf}" != "${CF_ID}" ) ]]; then
-              echo "Alias ${name} is on CloudFront distribution ${cf} (not ours)."
-              return 0
-            fi
-
-            # API Gateway (edge-optimized) v1
-            local api1
-            api1="$(aws apigateway get-domain-names --region us-east-1 \
-                     --query "items[?domainName=='${name}'].[domainName]" \
-                     --output text 2>/dev/null || true)"
-            if [[ -n "${api1}" ]]; then
-              echo "Alias ${name} is on API Gateway v1."
-              return 0
-            fi
-
-            # API Gateway v2 (HTTP/WebSocket)
-            local api2
-            api2="$(aws apigatewayv2 get-domain-names --region us-east-1 \
-                     --query "Items[?DomainName=='${name}'].[DomainName]" \
-                     --output text 2>/dev/null || true)"
-            if [[ -n "${api2}" ]]; then
-              echo "Alias ${name} is on API Gateway v2."
-              return 0
-            fi
-
-            return 1
-          }
-
-          for name in "${CANDIDATES[@]}"; do
-            if is_claimed_elsewhere "${name}"; then
-              echo "Skipping alias ${name} to avoid CNAMEAlreadyExists."
-            else
-              AVAILABLE+=("${name}")
-            fi
-          done
-
-          if [[ ${#AVAILABLE[@]} -eq 0 ]]; then
-            echo "No free aliases found (checked: ${CANDIDATES[*]}). Free one of them and re-run." >&2
-            exit 1
-          fi
-
-          JSON="$(printf '%s\n' "${AVAILABLE[@]}" | jq -R . | jq -s .)"
-          echo "Using aliases: ${JSON}"
-          echo "TF_VAR_frontend_aliases=${JSON}" >> "$GITHUB_ENV"
-
-      - name: Terraform Plan (faster; skip refresh)
+      - name: Terraform Plan (skip refresh for speed)
         run: |
           set -euo pipefail
           terraform plan -refresh=false -lock-timeout=2m -out=tfplan_full
@@ -140,7 +74,6 @@ jobs:
           if [[ -f .terraform.tfstate.lock.info ]]; then
             LOCK_ID="$(jq -r '.ID' .terraform.tfstate.lock.info || true)"
             if [[ -n "${LOCK_ID}" && "${LOCK_ID}" != "null" ]]; then
-              echo "Found lock info with ID: ${LOCK_ID}; attempting force-unlock."
               terraform force-unlock -force "${LOCK_ID}" || true
             fi
           fi

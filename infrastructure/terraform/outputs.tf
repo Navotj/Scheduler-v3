@@ -1,10 +1,10 @@
 output "origin_cert_arn" {
-  description = "ARN of the origin certificate (in us-east-1, for CloudFront)."
+  description = "ARN of the viewer certificate (us-east-1, for CloudFront)."
   value       = aws_acm_certificate.origin.arn
 }
 
 output "api_cert_arn" {
-  description = "ARN of the API certificate (in the default region, for ALB)."
+  description = "ARN of the API certificate (regional, for ALB)."
   value       = aws_acm_certificate.api.arn
 }
 
@@ -18,9 +18,9 @@ output "cloudfront_domain_name" {
   value       = aws_cloudfront_distribution.frontend.domain_name
 }
 
-output "frontend_hostnames" {
-  description = "Hostnames serving the SPA via CloudFront."
-  value       = [var.root_domain, "www.${var.root_domain}", local.origin_domain]
+output "frontend_hostname" {
+  description = "Canonical hostname serving the SPA via CloudFront."
+  value       = local.frontend_hostname
 }
 
 output "frontend_bucket_name" {
