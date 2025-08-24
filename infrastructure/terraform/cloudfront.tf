@@ -20,6 +20,7 @@ resource "aws_cloudfront_distribution" "frontend" {
   price_class         = "PriceClass_100"
   wait_for_deployment = true
   http_version        = "http2and3"
+  default_root_object = "index.html"
 
   aliases = [local.frontend_hostname]
 
