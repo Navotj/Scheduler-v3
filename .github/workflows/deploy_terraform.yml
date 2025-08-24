@@ -1,226 +1,31 @@
-name: Terraform Apply (EKS bootstrap-safe)
+name: Terraform Deploy
 
 on:
   workflow_dispatch: {}
-  push:
-    paths:
-      - ".github/workflows/deploy_terraform.yml"
 
 jobs:
-  tf-apply:
+  deploy:
     runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-      contents: read
-
-    env:
-      AWS_REGION: eu-central-1
-      TF_PLUGIN_CACHE_DIR: ${{ github.workspace }}/.tf-plugin-cache
-      TF_VAR_admin_principal_arn: ${{ secrets.EKS_ADMIN_PRINCIPAL_ARN }}
-      CLUSTER_NAME: nat20-eks
-
-    defaults:
-      run:
-        shell: bash
-        working-directory: infrastructure/terraform
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Configure AWS credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-region: ${{ env.AWS_REGION }}
-          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
-          role-session-name: gh-terraform-apply
-
-      - name: Who am I?
-        run: aws sts get-caller-identity
-
-      - name: Prepare Terraform plugin cache
-        run: |
-          set -euo pipefail
-          mkdir -p "$TF_PLUGIN_CACHE_DIR"
-          printf 'plugin_cache_dir = "%s"\n' "$TF_PLUGIN_CACHE_DIR" > ~/.terraformrc
-          ls -la "$TF_PLUGIN_CACHE_DIR"
+      - name: Checkout repo
+        uses: actions/checkout@v5
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: 1.8.5
+          terraform_version: 1.13.0
 
       - name: Terraform Init
-        run: terraform init -input=false
+        run: terraform init
 
-      - name: Probe EKS cluster existence
-        id: probe
+      - name: Terraform Plan
+        run: terraform plan
         env:
-          AWS_REGION: ${{ env.AWS_REGION }}
-          CLUSTER_NAME: ${{ env.CLUSTER_NAME }}
-        run: |
-          set -euo pipefail
-          if aws eks describe-cluster --region "${AWS_REGION}" --name "${CLUSTER_NAME}" >/dev/null 2>&1; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-            echo "Cluster exists."
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
-            echo "Cluster missing."
-          fi
+          TF_VAR_aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          TF_VAR_aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 
-      - name: Prune state if cluster is missing (remove EKS/Helm/K8s/IRSA-bound)
-        if: steps.probe.outputs.exists == 'false'
-        run: |
-          set -euo pipefail
-          terraform state list || true
-          PATTERN='^(helm_release\.|kubernetes_|aws_eks_|aws_iam_openid_connect_provider\.eks$)'
-          MATCHES="$(terraform state list | grep -E "$PATTERN" || true)"
-          if [ -n "$MATCHES" ]; then
-            echo "$MATCHES" | while read -r res; do
-              echo "Removing from state: $res"
-              terraform state rm "$res" || true
-            done
-          else
-            echo "No matching resources to remove."
-          fi
-
-      # -------- Phase A: create/repair base (no addons) --------
-      - name: Plan base (no addons)
-        if: steps.probe.outputs.exists == 'false'
+      - name: Terraform Apply
+        run: terraform apply -auto-approve
         env:
-          TF_VAR_install_addons: "false"
-        run: terraform plan -lock-timeout=2m -out=tfplan_base
-
-      - name: Apply base (no addons)
-        if: steps.probe.outputs.exists == 'false'
-        run: terraform apply -input=false -lock-timeout=2m -auto-approve tfplan_base
-
-      # Ensure EKS API is reachable from this runner before any Helm/K8s provider refresh.
-      # Wait for the endpoint-access update we trigger to finish to avoid 409 races with TF.
-      - name: Ensure EKS API reachability (add runner IP CIDR, wait for success)
-        env:
-          AWS_REGION: ${{ env.AWS_REGION }}
-          CLUSTER_NAME: ${{ env.CLUSTER_NAME }}
-        run: |
-          set -euo pipefail
-
-          RUNNER_IP="$(curl -s https://checkip.amazonaws.com/ | tr -d '\r\n')"
-          CIDR="${RUNNER_IP}/32"
-          export CIDR
-          echo "Runner public IP: ${RUNNER_IP}"
-
-          # Wait until cluster is describable (after create)
-          for i in $(seq 1 60); do
-            if aws eks describe-cluster --region "${AWS_REGION}" --name "${CLUSTER_NAME}" >/dev/null 2>&1; then
-              break
-            fi
-            echo "  attempt ${i}: cluster not describable yet"
-            sleep 5
-          done
-
-          CUR_JSON="$(aws eks describe-cluster \
-            --region "${AWS_REGION}" \
-            --name "${CLUSTER_NAME}" \
-            --query 'cluster.resourcesVpcConfig.publicAccessCidrs' \
-            --output json || echo '[]')"
-
-          # Build merged list (dedupe)
-          NEW_CSV="$(python3 -c 'import json,os; c=json.loads(os.environ.get("CUR_JSON") or "[]"); ip=os.environ["CIDR"].strip(); s=list(dict.fromkeys(c+[ip])); print(",".join(s))')"
-          echo "Desired publicAccessCidrs: ${NEW_CSV}"
-
-          # If already present, skip update
-          if echo "${CUR_JSON}" | grep -q "\"${CIDR}\""; then
-            echo "CIDR already present; skipping update-cluster-config."
-          else
-            echo "Calling update-cluster-config..."
-            UPDATE_ID="$(aws eks update-cluster-config \
-              --region "${AWS_REGION}" \
-              --name "${CLUSTER_NAME}" \
-              --resources-vpc-config publicAccessCidrs="${NEW_CSV}" \
-              --query 'update.id' --output text)"
-
-            echo "Waiting for update ${UPDATE_ID} to complete..."
-            for i in $(seq 1 120); do
-              STATUS="$(aws eks describe-update --region "${AWS_REGION}" --name "${CLUSTER_NAME}" --update-id "${UPDATE_ID}" --query 'update.status' --output text)"
-              echo "  attempt ${i}: status=${STATUS}"
-              if [ "${STATUS}" = "Successful" ]; then
-                break
-              elif [ "${STATUS}" = "Failed" ] || [ "${STATUS}" = "Cancelled" ]; then
-                echo "Update ${UPDATE_ID} ended with status ${STATUS}"
-                exit 1
-              fi
-              sleep 5
-            done
-          fi
-
-          # Final reachability check
-          ENDPOINT="$(aws eks describe-cluster --region "${AWS_REGION}" --name "${CLUSTER_NAME}" --query 'cluster.endpoint' --output text)"
-          HOST="$(printf '%s\n' "$ENDPOINT" | sed -E 's#^https?://##; s#/.*$##')"
-          for i in $(seq 1 60); do
-            if timeout 5 bash -lc "echo | openssl s_client -connect ${HOST}:443 -servername ${HOST} >/dev/null 2>&1"; then
-              echo "EKS API reachable on ${HOST}:443"
-              break
-            fi
-            echo "Waiting for EKS API to accept CIDR... (${i}/60)"
-            sleep 5
-          done
-
-      - name: Ensure CI EKS access (pre-plan)
-        env:
-          AWS_REGION: ${{ env.AWS_REGION }}
-          CLUSTER_NAME: ${{ env.CLUSTER_NAME }}
-          # set if your role name differs:
-          GITHUB_CI_ROLE_NAME: nat20-github-ci
-          # or set an explicit ARN via secret to skip lookup:
-          GITHUB_CI_ROLE_ARN: ${{ secrets.GITHUB_CI_ROLE_ARN }}
-        run: |
-          set -euo pipefail
-
-          CI_ARN="${GITHUB_CI_ROLE_ARN:-}"
-          if [ -z "${CI_ARN}" ]; then
-            CI_ARN="$(aws iam get-role --role-name "${GITHUB_CI_ROLE_NAME:-nat20-github-ci}" --query 'Role.Arn' --output text)"
-          fi
-          echo "CI role ARN: ${CI_ARN}"
-
-          # Create access entry if missing
-          if ! aws eks describe-access-entry \
-               --region "${AWS_REGION}" \
-               --cluster-name "${CLUSTER_NAME}" \
-               --principal-arn "${CI_ARN}" >/dev/null 2>&1; then
-            aws eks create-access-entry \
-              --region "${AWS_REGION}" \
-              --cluster-name "${CLUSTER_NAME}" \
-              --principal-arn "${CI_ARN}" \
-              --type STANDARD \
-              --username github-ci
-          fi
-
-          # Ensure ClusterAdmin policy association
-          if [ "$(aws eks list-associated-access-policies \
-                  --region "${AWS_REGION}" \
-                  --cluster-name "${CLUSTER_NAME}" \
-                  --principal-arn "${CI_ARN}" \
-                  --query "associatedAccessPolicies[?policyArn=='arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy'] | length(@)" \
-                  --output text)" != "1" ]; then
-            aws eks associate-access-policy \
-              --region "${AWS_REGION}" \
-              --cluster-name "${CLUSTER_NAME}" \
-              --principal-arn "${CI_ARN}" \
-              --policy-arn arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy \
-              --access-scope type=cluster
-          fi
-
-
-      # -------- Phase B: converge full stack (addons enabled) --------
-      - name: Plan full (addons enabled)
-        env:
-          TF_VAR_install_addons: "true"
-        run: terraform plan -lock-timeout=2m -out=tfplan_full
-
-      - name: Apply full (addons enabled)
-        env:
-          TF_VAR_install_addons: "true"
-        run: terraform apply -input=false -lock-timeout=2m -auto-approve tfplan_full
-
-      - name: Output
-        run: terraform output -json || true
+          TF_VAR_aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          TF_VAR_aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
