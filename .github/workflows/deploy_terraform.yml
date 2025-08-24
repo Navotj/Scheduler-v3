@@ -30,6 +30,7 @@ jobs:
       TF_VAR_app_prefix: ${{ vars.APP_PREFIX }}
       TF_VAR_root_domain: ${{ vars.ROOT_DOMAIN }}
       TF_VAR_ec2_instance_type: ${{ vars.EC2_INSTANCE_TYPE }}
+      TF_VAR_environment:       ${{ vars.ENVIRONMENT }}
 
     steps:
       - name: Checkout repo
@@ -127,7 +128,7 @@ jobs:
       - name: Terraform Plan
         run: |
           set -euo pipefail
-          terraform plan -lock-timeout=2m -out=tfplan_full
+          terraform plan -input=false -lock-timeout=2m -out=tfplan_full
 
       - name: Terraform Apply
         run: |
