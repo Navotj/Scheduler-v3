@@ -7,7 +7,7 @@ on:
       - main
     paths:
       - 'infrastructure/terraform/**'
-      - '.github\workflows\deploy_terraform.yml'
+      - '.github/workflows/deploy_terraform.yml'
 
 defaults:
   run:

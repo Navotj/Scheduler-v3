@@ -54,6 +54,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "tfstate" {
   rule {
     id     = "noncurrent-expiration"
     status = "Enabled"
+    filter {}  # apply to all objects
 
     noncurrent_version_expiration {
       noncurrent_days = 90
@@ -63,6 +64,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "tfstate" {
   rule {
     id     = "abort-mpu"
     status = "Enabled"
+    filter {}  # apply to all objects
 
     abort_incomplete_multipart_upload {
       days_after_initiation = 7
