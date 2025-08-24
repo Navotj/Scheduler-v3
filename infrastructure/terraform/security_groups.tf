@@ -9,7 +9,7 @@ data "aws_vpc" "default" {
 
 # Backend SG (rules managed via aws_security_group_rule to avoid update-order limits)
 resource "aws_security_group" "backend" {
-  name        = "${var.app_prefix}-sg-backend"
+  name_prefix = "${var.app_prefix}-sg-backend-"
   description = "Backend SG CloudFront ingress and minimal egress"
   vpc_id      = data.aws_vpc.default.id
 
@@ -18,6 +18,10 @@ resource "aws_security_group" "backend" {
   egress  = []
 
   revoke_rules_on_delete = true
+
+  lifecycle {
+    create_before_destroy = true
+  }
 
   tags = {
     Name = "${var.app_prefix}-sg-backend"
@@ -105,7 +109,7 @@ resource "aws_security_group_rule" "backend_egress_ntp" {
 
 # Database SG (deny-all egress; only backend may connect on 27017)
 resource "aws_security_group" "database" {
-  name        = "${var.app_prefix}-sg-database"
+  name_prefix = "${var.app_prefix}-sg-database-"
   description = "Database SG: only backend may connect on 27017"
   vpc_id      = data.aws_vpc.default.id
 
@@ -114,6 +118,10 @@ resource "aws_security_group" "database" {
   egress  = []
 
   revoke_rules_on_delete = true
+
+  lifecycle {
+    create_before_destroy = true
+  }
 
   tags = {
     Name = "${var.app_prefix}-sg-database"
