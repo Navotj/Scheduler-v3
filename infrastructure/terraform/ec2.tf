@@ -47,7 +47,7 @@ resource "aws_instance" "database" {
     http_tokens = "required" # IMDSv2
   }
 
-  user_data = file("${path.module}/scripts/user_data_database.sh")
+  #user_data = file("${path.module}/scripts/user_data_database.sh")
 
   tags = {
     Name = "${var.app_prefix}-database"
