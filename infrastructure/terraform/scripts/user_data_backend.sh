@@ -1,6 +1,9 @@
 #!/bin/bash
 set -euxo pipefail
 
+systemctl enable amazon-ssm-agent
+systemctl start amazon-ssm-agent
+
 # Wait for the attached data volume to appear (up to ~3 minutes)
 DEV_CANDIDATES=("/dev/xvdf" "/dev/nvme1n1")
 DEV_FOUND=""
