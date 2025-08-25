@@ -30,9 +30,6 @@ jobs:
       TF_VAR_app_prefix: ${{ vars.APP_PREFIX }}
       TF_VAR_root_domain: ${{ vars.ROOT_DOMAIN }}
       TF_VAR_ec2_instance_type: ${{ vars.EC2_INSTANCE_TYPE }}
-      TF_VAR_environment:       ${{ vars.ENVIRONMENT }}
-      TF_VAR_cloudfront_origin_prefix_list_id: ${{ vars.CF_ORIGIN_PREFIX_LIST_ID }}
-      TF_VAR_aws_region: ${{ vars.AWS_REGION }}
 
     steps:
       - name: Checkout repo
@@ -61,53 +58,118 @@ jobs:
             -backend-config="use_lockfile=true" \
             -backend-config="encrypt=true"
 
+      # ---------------------------
+      # Diagnose current CloudFront state (useful logs)
+      # ---------------------------
+      - name: Diagnose CloudFront presence (by alias and by state)
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ROOT_DOMAIN="${{ vars.ROOT_DOMAIN }}"
+          FRONTEND_HOSTNAME="$(terraform output -raw frontend_hostname 2>/dev/null || true)"
+          if [[ -z "${FRONTEND_HOSTNAME}" || "${FRONTEND_HOSTNAME}" == "None" ]]; then
+            FRONTEND_HOSTNAME="www.${ROOT_DOMAIN}"
+          fi
+          echo "Expected alias (frontend_hostname): ${FRONTEND_HOSTNAME}"
+
+          CF_ID_STATE=""
+          if terraform state list | grep -q '^aws_cloudfront_distribution.frontend$'; then
+            CF_ID_STATE="$(terraform state show aws_cloudfront_distribution.frontend | awk '/^id +=/ {print $3; exit}')"
+          fi
+          echo "ID in Terraform state (if any): ${CF_ID_STATE:-<none>}"
+
+          CF_ID_ALIAS="$(aws cloudfront list-distributions --query "DistributionList.Items[?Aliases && Aliases.Items && contains(Aliases.Items, \`${FRONTEND_HOSTNAME}\`)].Id" --output text 2>/dev/null || true)"
+          [[ "${CF_ID_ALIAS}" == "None" ]] && CF_ID_ALIAS=""
+          echo "ID found in AWS by alias: ${CF_ID_ALIAS:-<none>}"
+
+      # ---------------------------
+      # Heal must run BEFORE planning so a create is planned
+      # Heals both cases:
+      # 1) State has an ID but AWS no longer has that distribution
+      # 2) No distribution exists in AWS for the expected alias
+      # ---------------------------
+      - name: Heal CloudFront state if deleted or out-of-sync
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ROOT_DOMAIN="${{ vars.ROOT_DOMAIN }}"
+          FRONTEND_HOSTNAME="$(terraform output -raw frontend_hostname 2>/dev/null || true)"
+          if [[ -z "${FRONTEND_HOSTNAME}" || "${FRONTEND_HOSTNAME}" == "None" ]]; then
+            FRONTEND_HOSTNAME="www.${ROOT_DOMAIN}"
+          fi
+
+          CF_ID_STATE=""
+          if terraform state list | grep -q '^aws_cloudfront_distribution.frontend$'; then
+            CF_ID_STATE="$(terraform state show aws_cloudfront_distribution.frontend | awk '/^id +=/ {print $3; exit}')"
+          fi
+
+          CF_ID_ALIAS="$(aws cloudfront list-distributions --query "DistributionList.Items[?Aliases && Aliases.Items && contains(Aliases.Items, \`${FRONTEND_HOSTNAME}\`)].Id" --output text 2>/dev/null || true)"
+          [[ "${CF_ID_ALIAS}" == "None" ]] && CF_ID_ALIAS=""
+
+          # If state has an ID but AWS does not, drop it from state to force recreate
+          if [[ -n "${CF_ID_STATE}" ]]; then
+            if ! aws cloudfront get-distribution --id "${CF_ID_STATE}" >/dev/null 2>&1; then
+              echo "State references ${CF_ID_STATE} but AWS does not; removing from state."
+              terraform state rm aws_cloudfront_distribution.frontend
+            fi
+          fi
+
+          # If AWS has no distribution for the expected alias, and the resource is NOT in state,
+          # Terraform should plan a create. Nothing to remove here; just log it.
+          if [[ -z "${CF_ID_ALIAS}" ]]; then
+            echo "No existing CloudFront distribution found in AWS for alias ${FRONTEND_HOSTNAME}."
+          else
+            echo "AWS already has distribution ${CF_ID_ALIAS} for alias ${FRONTEND_HOSTNAME}."
+          fi
+
       - name: Terraform Plan
         run: |
           set -euo pipefail
-          terraform plan -input=false -lock-timeout=2m -out=tfplan_full
+          terraform plan -lock-timeout=2m -out=tfplan_full
 
       - name: Terraform Apply
         run: |
           set -euo pipefail
           terraform apply -auto-approve tfplan_full
 
-      - name: Clear stale Terraform S3 lock
+      - name: Invalidate CloudFront (viewer cache)
         if: always()
         shell: bash
         run: |
           set -euo pipefail
-          BUCKET="${APP_PREFIX}-state-bucket"
-          KEY="state/${APP_PREFIX}.tfstate.tflock"
-
-          if aws s3api head-object --bucket "$BUCKET" --key "$KEY" >/dev/null 2>&1; then
-            echo "Found lockfile: s3://${BUCKET}/${KEY}"
-            aws s3 cp "s3://${BUCKET}/${KEY}" /tmp/tflock.json --quiet
-            ID="$(jq -r '.ID // empty' /tmp/tflock.json)"
-            CREATED="$(jq -r '.Created // empty' /tmp/tflock.json || true)"
-
-            # Compute age (seconds); treat unparsable date as very old
-            NOW="$(date -u +%s)"
-            if CREATED_S="$(date -u -d "${CREATED}" +%s 2>/dev/null)"; then
-              AGE=$(( NOW - CREATED_S ))
-            else
-              AGE=999999
+          CF_ID="$(terraform output -raw cloudfront_distribution_id 2>/dev/null || true)"
+          if [[ -z "${CF_ID}" || "${CF_ID}" == "None" ]]; then
+            ROOT_DOMAIN="${{ vars.ROOT_DOMAIN }}"
+            FRONTEND_HOSTNAME="$(terraform output -raw frontend_hostname 2>/dev/null || true)"
+            if [[ -z "${FRONTEND_HOSTNAME}" || "${FRONTEND_HOSTNAME}" == "None" ]]; then
+              FRONTEND_HOSTNAME="www.${ROOT_DOMAIN}"
             fi
-            echo "Lock ID: ${ID:-<none>} | Created: ${CREATED:-unknown} | Age: ${AGE}s"
+            CF_ID="$(
+              aws cloudfront list-distributions \
+                --query "DistributionList.Items[?Aliases && Aliases.Items && contains(Aliases.Items, \`${FRONTEND_HOSTNAME}\`)].Id" \
+                --output text 2>/dev/null || true
+            )"
+            [[ "${CF_ID}" == "None" ]] && CF_ID=""
+          fi
 
-            # Only clear if stale (>15m) to avoid clobbering a legit concurrent run
-            if [[ -n "${ID}" && ${AGE} -gt 900 ]]; then
-              echo "Stale lock; forcing unlock via Terraform."
-              terraform force-unlock -force "${ID}" || true
+          if [[ -z "${CF_ID}" ]]; then
+            echo "Could not resolve CloudFront distribution ID; skipping invalidation."
+            exit 0
+          fi
 
-              # If still present, remove the object as a last resort
-              if aws s3api head-object --bucket "$BUCKET" --key "$KEY" >/dev/null 2>&1; then
-                echo "Lockfile still present; deleting object."
-                aws s3api delete-object --bucket "$BUCKET" --key "$KEY"
-              fi
-            else
-              echo "Lock present and recent; aborting to avoid contention."
-              exit 1
+          echo "Invalidating CloudFront cache for distribution ${CF_ID}"
+          aws cloudfront create-invalidation --distribution-id "${CF_ID}" --paths "/*" >/dev/null
+          echo "Invalidation submitted."
+
+      - name: Force-unlock Terraform state if needed
+        if: ${{ always() }}
+        run: |
+          set -euo pipefail
+          if [[ -f .terraform.tfstate.lock.info ]]; then
+            LOCK_ID="$(jq -r '.ID' .terraform.tfstate.lock.info || true)"
+            if [[ -n "${LOCK_ID}" && "${LOCK_ID}" != "null" ]]; then
+              terraform force-unlock -force "${LOCK_ID}" || true
             fi
-          else
-            echo "No S3 lockfile present."
           fi

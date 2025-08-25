@@ -66,6 +66,53 @@ resource "aws_s3_bucket_lifecycle_configuration" "frontend" {
   }
 }
 
+
+# Strict OAC-only read policy (no ListBucket needed)
+data "aws_iam_policy_document" "frontend_bucket_policy" {
+  statement {
+    sid = "AllowCloudFrontOACRead"
+    effect = "Allow"
+
+    principals {
+      type        = "Service"
+      identifiers = ["cloudfront.amazonaws.com"]
+    }
+
+    actions = [
+      "s3:GetObject"
+    ]
+
+    resources = [
+      "${aws_s3_bucket.frontend.arn}/*"
+    ]
+
+    condition {
+      test     = "StringEquals"
+      variable = "AWS:SourceArn"
+      values   = [aws_cloudfront_distribution.frontend.arn]
+    }
+  }
+
+  # Optional: deny unencrypted uploads (defensive; no uploads expected from web)
+  statement {
+    sid     = "DenyUnencryptedObjectUploads"
+    effect  = "Deny"
+    actions = ["s3:PutObject"]
+    resources = [
+      "${aws_s3_bucket.frontend.arn}/*"
+    ]
+    condition {
+      test     = "StringNotEquals"
+      variable = "s3:x-amz-server-side-encryption"
+      values   = ["AES256"]
+    }
+    principals {
+      type        = "*"
+      identifiers = ["*"]
+    }
+  }
+}
+
 resource "aws_s3_bucket_policy" "frontend" {
   bucket = aws_s3_bucket.frontend.id
   policy = data.aws_iam_policy_document.frontend_bucket_policy.json

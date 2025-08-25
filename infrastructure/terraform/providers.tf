@@ -3,9 +3,9 @@ provider "aws" {
   default_tags {
     tags = {
       App         = var.app_prefix
-      Environment = var.environment
       ManagedBy   = "terraform"
       Terraform   = "true"
+      Environment = "prod"
     }
   }
 }
@@ -18,9 +18,9 @@ provider "aws" {
   default_tags {
     tags = {
       App         = var.app_prefix
-      Environment = var.environment
       ManagedBy   = "terraform"
       Terraform   = "true"
+      Environment = "prod"
     }
   }
 }
