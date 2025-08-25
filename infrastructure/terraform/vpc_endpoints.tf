@@ -79,3 +79,31 @@ resource "aws_vpc_endpoint" "ssmmessages" {
     Name = "${var.app_prefix}-vpce-ssmmessages"
   }
 }
+
+# Interface VPC Endpoint: CloudWatch Logs (needed if Session Manager logging to CloudWatch is enabled; safe to include)
+resource "aws_vpc_endpoint" "logs" {
+  vpc_id              = data.aws_vpc.default.id
+  service_name        = "com.amazonaws.eu-central-1.logs"
+  vpc_endpoint_type   = "Interface"
+  subnet_ids          = data.aws_subnets.default_vpc_subnets.ids
+  security_group_ids  = [aws_security_group.ssm_endpoints.id]
+  private_dns_enabled = true
+
+  tags = {
+    Name = "${var.app_prefix}-vpce-logs"
+  }
+}
+
+# Interface VPC Endpoint: S3 (use Interface so DB SG with VPC-only egress can reach it)
+resource "aws_vpc_endpoint" "s3_interface" {
+  vpc_id              = data.aws_vpc.default.id
+  service_name        = "com.amazonaws.eu-central-1.s3"
+  vpc_endpoint_type   = "Interface"
+  subnet_ids          = data.aws_subnets.default_vpc_subnets.ids
+  security_group_ids  = [aws_security_group.ssm_endpoints.id]
+  private_dns_enabled = true
+
+  tags = {
+    Name = "${var.app_prefix}-vpce-s3"
+  }
+}
