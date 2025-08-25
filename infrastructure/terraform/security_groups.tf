@@ -3,22 +3,14 @@ data "aws_vpc" "default" {
   default = true
 }
 
-# Managed prefix list for S3 (for Gateway endpoint egress)
-data "aws_prefix_list" "s3" {
-  name = "com.amazonaws.eu-central-1.s3"
-}
-
-# ---------------------------------
-# Security Groups (cycle-free setup)
-# ---------------------------------
-
-# Backend SG (rules managed via aws_security_group_rule to avoid update-order limits)
+# Backend SG
+# - Ingress: CloudFront only on 80/443 via AWS-managed prefix list ID (variable).
+# - Egress: HTTPS to VPC CIDR (to reach Interface Endpoints), DNS, and NTP.
 resource "aws_security_group" "backend" {
   name        = "${var.app_prefix}-sg-backend"
-  description = "Backend SG CloudFront ingress and minimal egress"
+  description = "Backend SG for API and SSM via interface endpoints"
   vpc_id      = data.aws_vpc.default.id
 
-  # Remove default allow-all rules so we can add only what we need below
   ingress = []
   egress  = []
 
@@ -29,7 +21,6 @@ resource "aws_security_group" "backend" {
   }
 }
 
-# Ingress from CloudFront only (HTTP/HTTPS) using AWS-managed prefix list ID
 resource "aws_security_group_rule" "backend_ingress_http" {
   type              = "ingress"
   description       = "CloudFront to backend HTTP"
@@ -50,71 +41,54 @@ resource "aws_security_group_rule" "backend_ingress_https" {
   security_group_id = aws_security_group.backend.id
 }
 
-# Egress to MongoDB within VPC (restrict to VPC CIDR to avoid SG-to-SG cycle)
-resource "aws_security_group_rule" "backend_egress_mongo" {
+resource "aws_security_group_rule" "backend_egress_https_vpc" {
   type              = "egress"
-  description       = "Backend to MongoDB within VPC"
-  from_port         = 27017
-  to_port           = 27017
+  description       = "Backend to VPC Interface Endpoints HTTPS"
+  from_port         = 443
+  to_port           = 443
   protocol          = "tcp"
   cidr_blocks       = [data.aws_vpc.default.cidr_block]
   security_group_id = aws_security_group.backend.id
 }
 
-# Minimal Internet egress for SSM/S3/updates (HTTPS)
-resource "aws_security_group_rule" "backend_egress_https" {
-  type                = "egress"
-  description         = "HTTPS egress for system and SSM"
-  from_port           = 443
-  to_port             = 443
-  protocol            = "tcp"
-  cidr_blocks         = ["0.0.0.0/0"]
-  ipv6_cidr_blocks    = ["::/0"]
-  security_group_id   = aws_security_group.backend.id
-}
-
-# DNS (UDP/TCP 53)
 resource "aws_security_group_rule" "backend_egress_dns_udp" {
-  type                = "egress"
-  description         = "DNS UDP"
-  from_port           = 53
-  to_port             = 53
-  protocol            = "udp"
-  cidr_blocks         = ["0.0.0.0/0"]
-  ipv6_cidr_blocks    = ["::/0"]
-  security_group_id   = aws_security_group.backend.id
+  type              = "egress"
+  description       = "Backend DNS UDP"
+  from_port         = 53
+  to_port           = 53
+  protocol          = "udp"
+  cidr_blocks       = ["0.0.0.0/0"]
+  security_group_id = aws_security_group.backend.id
 }
 
 resource "aws_security_group_rule" "backend_egress_dns_tcp" {
-  type                = "egress"
-  description         = "DNS TCP"
-  from_port           = 53
-  to_port             = 53
-  protocol            = "tcp"
-  cidr_blocks         = ["0.0.0.0/0"]
-  ipv6_cidr_blocks    = ["::/0"]
-  security_group_id   = aws_security_group.backend.id
+  type              = "egress"
+  description       = "Backend DNS TCP"
+  from_port         = 53
+  to_port           = 53
+  protocol          = "tcp"
+  cidr_blocks       = ["0.0.0.0/0"]
+  security_group_id = aws_security_group.backend.id
 }
 
-# NTP (UDP 123)
 resource "aws_security_group_rule" "backend_egress_ntp" {
-  type                = "egress"
-  description         = "NTP UDP"
-  from_port           = 123
-  to_port             = 123
-  protocol            = "udp"
-  cidr_blocks         = ["0.0.0.0/0"]
-  ipv6_cidr_blocks    = ["::/0"]
-  security_group_id   = aws_security_group.backend.id
+  type              = "egress"
+  description       = "Backend NTP UDP to 169.254.169.123"
+  from_port         = 123
+  to_port           = 123
+  protocol          = "udp"
+  cidr_blocks       = ["169.254.169.123/32"]
+  security_group_id = aws_security_group.backend.id
 }
 
-# Database SG (deny-all egress; only backend may connect on 27017)
+# Database SG
+# - Ingress: only from backend on 27017.
+# - Egress: HTTPS to VPC CIDR (Interface Endpoints), DNS, and NTP.
 resource "aws_security_group" "database" {
   name        = "${var.app_prefix}-sg-database"
-  description = "Database SG: only backend may connect on 27017"
+  description = "Database SG: only backend may connect; SSM via interface endpoints"
   vpc_id      = data.aws_vpc.default.id
 
-  # Explicitly no default rules
   ingress = []
   egress  = []
 
@@ -125,7 +99,6 @@ resource "aws_security_group" "database" {
   }
 }
 
-# Allow DB ingress from Backend SG (separate resource to avoid SG <-> SG cycles)
 resource "aws_security_group_rule" "db_from_backend" {
   type                     = "ingress"
   description              = "Backend to MongoDB"
@@ -136,10 +109,9 @@ resource "aws_security_group_rule" "db_from_backend" {
   source_security_group_id = aws_security_group.backend.id
 }
 
-# Egress from Database SG for Interface endpoints within VPC (HTTPS to VPC CIDR)
 resource "aws_security_group_rule" "database_egress_https_vpc" {
   type              = "egress"
-  description       = "DB to VPC Interface endpoints HTTPS"
+  description       = "DB to VPC Interface Endpoints HTTPS"
   from_port         = 443
   to_port           = 443
   protocol          = "tcp"
@@ -147,18 +119,6 @@ resource "aws_security_group_rule" "database_egress_https_vpc" {
   security_group_id = aws_security_group.database.id
 }
 
-# Egress from Database SG to S3 via Gateway endpoint (HTTPS using S3 managed prefix list)
-resource "aws_security_group_rule" "database_egress_https_s3" {
-  type              = "egress"
-  description       = "DB to S3 via Gateway endpoint HTTPS"
-  from_port         = 443
-  to_port           = 443
-  protocol          = "tcp"
-  prefix_list_ids   = [data.aws_prefix_list.s3.id]
-  security_group_id = aws_security_group.database.id
-}
-
-# DNS for DB (needed for private DNS and S3 resolution)
 resource "aws_security_group_rule" "database_egress_dns_udp" {
   type              = "egress"
   description       = "DB DNS UDP"
@@ -166,7 +126,6 @@ resource "aws_security_group_rule" "database_egress_dns_udp" {
   to_port           = 53
   protocol          = "udp"
   cidr_blocks       = ["0.0.0.0/0"]
-  ipv6_cidr_blocks  = ["::/0"]
   security_group_id = aws_security_group.database.id
 }
 
@@ -177,18 +136,15 @@ resource "aws_security_group_rule" "database_egress_dns_tcp" {
   to_port           = 53
   protocol          = "tcp"
   cidr_blocks       = ["0.0.0.0/0"]
-  ipv6_cidr_blocks  = ["::/0"]
   security_group_id = aws_security_group.database.id
 }
 
-# NTP for DB
 resource "aws_security_group_rule" "database_egress_ntp" {
   type              = "egress"
-  description       = "DB NTP UDP"
+  description       = "DB NTP UDP to 169.254.169.123"
   from_port         = 123
   to_port           = 123
   protocol          = "udp"
-  cidr_blocks       = ["0.0.0.0/0"]
-  ipv6_cidr_blocks  = ["::/0"]
+  cidr_blocks       = ["169.254.169.123/32"]
   security_group_id = aws_security_group.database.id
 }

@@ -1,6 +1,7 @@
-# NOTE: Reuse existing data.aws_vpc.default from security_groups.tf
+# Minimal private SSM connectivity (no internet, no NAT)
+# Reuses data.aws_vpc.default declared in security_groups.tf
 
-# All subnets in the default VPC (attach endpoints across these)
+# Subnets in the default VPC (attach endpoints across these)
 data "aws_subnets" "default_vpc_subnets" {
   filter {
     name   = "vpc-id"
@@ -30,7 +31,6 @@ resource "aws_security_group" "ssm_endpoints" {
     security_groups = [aws_security_group.database.id]
   }
 
-  # No egress needed on endpoint ENIs
   egress = []
 
   tags = {
@@ -41,7 +41,7 @@ resource "aws_security_group" "ssm_endpoints" {
 # Interface VPC Endpoint: SSM
 resource "aws_vpc_endpoint" "ssm" {
   vpc_id              = data.aws_vpc.default.id
-  service_name        = "com.amazonaws.eu-central-1.ssm"
+  service_name        = "com.amazonaws.${var.aws_region}.ssm"
   vpc_endpoint_type   = "Interface"
   subnet_ids          = data.aws_subnets.default_vpc_subnets.ids
   security_group_ids  = [aws_security_group.ssm_endpoints.id]
@@ -55,7 +55,7 @@ resource "aws_vpc_endpoint" "ssm" {
 # Interface VPC Endpoint: EC2 Messages
 resource "aws_vpc_endpoint" "ec2messages" {
   vpc_id              = data.aws_vpc.default.id
-  service_name        = "com.amazonaws.eu-central-1.ec2messages"
+  service_name        = "com.amazonaws.${var.aws_region}.ec2messages"
   vpc_endpoint_type   = "Interface"
   subnet_ids          = data.aws_subnets.default_vpc_subnets.ids
   security_group_ids  = [aws_security_group.ssm_endpoints.id]
@@ -69,7 +69,7 @@ resource "aws_vpc_endpoint" "ec2messages" {
 # Interface VPC Endpoint: SSM Messages
 resource "aws_vpc_endpoint" "ssmmessages" {
   vpc_id              = data.aws_vpc.default.id
-  service_name        = "com.amazonaws.eu-central-1.ssmmessages"
+  service_name        = "com.amazonaws.${var.aws_region}.ssmmessages"
   vpc_endpoint_type   = "Interface"
   subnet_ids          = data.aws_subnets.default_vpc_subnets.ids
   security_group_ids  = [aws_security_group.ssm_endpoints.id]
@@ -77,39 +77,5 @@ resource "aws_vpc_endpoint" "ssmmessages" {
 
   tags = {
     Name = "${var.app_prefix}-vpce-ssmmessages"
-  }
-}
-
-# Interface VPC Endpoint: CloudWatch Logs
-resource "aws_vpc_endpoint" "logs" {
-  vpc_id              = data.aws_vpc.default.id
-  service_name        = "com.amazonaws.eu-central-1.logs"
-  vpc_endpoint_type   = "Interface"
-  subnet_ids          = data.aws_subnets.default_vpc_subnets.ids
-  security_group_ids  = [aws_security_group.ssm_endpoints.id]
-  private_dns_enabled = true
-
-  tags = {
-    Name = "${var.app_prefix}-vpce-logs"
-  }
-}
-
-# Route tables of the default VPC (needed for S3 Gateway endpoint)
-data "aws_route_tables" "default_vpc_route_tables" {
-  filter {
-    name   = "vpc-id"
-    values = [data.aws_vpc.default.id]
-  }
-}
-
-# Gateway VPC Endpoint: S3
-resource "aws_vpc_endpoint" "s3_gateway" {
-  vpc_id            = data.aws_vpc.default.id
-  service_name      = "com.amazonaws.eu-central-1.s3"
-  vpc_endpoint_type = "Gateway"
-  route_table_ids   = data.aws_route_tables.default_vpc_route_tables.ids
-
-  tags = {
-    Name = "${var.app_prefix}-vpce-s3-gateway"
   }
 }
