@@ -8,7 +8,7 @@ data "aws_ami" "al2023" {
   }
 }
 
-# Backend EC2
+# Backend EC2 (no extra EBS for /opt/app)
 resource "aws_instance" "backend" {
   ami                         = data.aws_ami.al2023.id
   instance_type               = var.ec2_instance_type
@@ -25,6 +25,12 @@ resource "aws_instance" "backend" {
   tags = {
     Name = "${var.app_prefix}-backend"
   }
+
+  depends_on = [
+    aws_vpc_endpoint.ssm,
+    aws_vpc_endpoint.ec2messages,
+    aws_vpc_endpoint.ssmmessages
+  ]
 }
 
 # Database EC2 (IMDSv2 hardened)
@@ -39,9 +45,17 @@ resource "aws_instance" "database" {
     http_tokens = "required" # IMDSv2
   }
 
+  #user_data = file("${path.module}/scripts/user_data_database.sh")
+
   tags = {
     Name = "${var.app_prefix}-database"
   }
+
+  depends_on = [
+    aws_vpc_endpoint.ssm,
+    aws_vpc_endpoint.ec2messages,
+    aws_vpc_endpoint.ssmmessages
+  ]
 }
 
 # Dedicated 10 GiB gp3 volume for database data

@@ -1,6 +1,9 @@
 #!/bin/bash
 set -euxo pipefail
 
+# Why is linux2023 ass?
+sudo systemctl restart amazon-ssm-agent
+
 # Quality of life
 echo "alias ll='ls -alF'" >> /home/ec2-user/.bashrc || true
 
