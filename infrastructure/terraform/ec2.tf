@@ -22,7 +22,7 @@ resource "aws_instance" "backend" {
   user_data = file("${path.module}/scripts/user_data_backend.sh")
 
   tags = {
-    Name = "backend"
+    Name = "${var.app_prefix}-backend"
   }
 }
 
@@ -50,6 +50,6 @@ resource "aws_instance" "database" {
   vpc_security_group_ids = [aws_security_group.database.id]
 
   tags = {
-    Name = "database"
+    Name = "${var.app_prefix}-database"
   }
 }
