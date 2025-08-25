@@ -32,6 +32,7 @@ jobs:
       TF_VAR_ec2_instance_type: ${{ vars.EC2_INSTANCE_TYPE }}
       TF_VAR_environment:       ${{ vars.ENVIRONMENT }}
       TF_VAR_cloudfront_origin_prefix_list_id: ${{ vars.CF_ORIGIN_PREFIX_LIST_ID }}
+      TF_VAR_aws_region: ${{ vars.AWS_REGION }}
 
     steps:
       - name: Checkout repo
