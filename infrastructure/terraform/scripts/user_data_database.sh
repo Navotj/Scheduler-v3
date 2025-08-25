@@ -2,14 +2,11 @@
 set -euo pipefail
 exec > >(tee /var/log/user-data.log | logger -t user-data -s 2>/dev/console) 2>&1
 
-# Ensure time sync (helps SSM auth)
 systemctl enable chronyd || true
 systemctl restart chronyd || true
 
-# Detect region from IMDS
 REGION="$(curl -s http://169.254.169.254/latest/dynamic/instance-identity/document | sed -n 's/.*"region"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
 
-# If agent exists, just enable/restart; else install from S3 via Gateway endpoint
 if command -v amazon-ssm-agent >/dev/null 2>&1 || rpm -q amazon-ssm-agent >/dev/null 2>&1; then
   systemctl enable amazon-ssm-agent
   systemctl restart amazon-ssm-agent

@@ -1,14 +1,22 @@
+# replace file
 data "aws_ami" "al2023" {
   most_recent = true
   owners      = ["137112412989"]
-
   filter {
     name   = "name"
     values = ["al2023-ami-*-kernel-6.12-x86_64"]
   }
 }
 
-# Instances are private (no public IP). SSM works via Interface Endpoints.
+# Subnets from the managed default VPC
+data "aws_subnets" "default_vpc_subnets" {
+  filter {
+    name   = "vpc-id"
+    values = [aws_default_vpc.default.id]
+  }
+}
+
+# Backend (no public IP)
 resource "aws_instance" "backend" {
   ami                         = data.aws_ami.al2023.id
   instance_type               = var.ec2_instance_type
@@ -23,17 +31,17 @@ resource "aws_instance" "backend" {
 
   user_data = file("${path.module}/scripts/user_data_backend.sh")
 
-  tags = {
-    Name = "${var.app_prefix}-backend"
-  }
+  tags = { Name = "${var.app_prefix}-backend" }
 
   depends_on = [
     aws_vpc_endpoint.ssm,
     aws_vpc_endpoint.ec2messages,
-    aws_vpc_endpoint.ssmmessages
+    aws_vpc_endpoint.ssmmessages,
+    aws_vpc_endpoint.s3_gateway
   ]
 }
 
+# Database (no public IP) + 10 GiB volume
 resource "aws_instance" "database" {
   ami                         = data.aws_ami.al2023.id
   instance_type               = var.ec2_instance_type
@@ -46,28 +54,23 @@ resource "aws_instance" "database" {
     http_tokens = "required"
   }
 
-  # user_data = file("${path.module}/scripts/user_data_database.sh")
+  user_data = file("${path.module}/scripts/user_data_database.sh")
 
-  tags = {
-    Name = "${var.app_prefix}-database"
-  }
+  tags = { Name = "${var.app_prefix}-database" }
 
   depends_on = [
     aws_vpc_endpoint.ssm,
     aws_vpc_endpoint.ec2messages,
-    aws_vpc_endpoint.ssmmessages
+    aws_vpc_endpoint.ssmmessages,
+    aws_vpc_endpoint.s3_gateway
   ]
 }
 
-# 10 GiB gp3 volume for database data
 resource "aws_ebs_volume" "database_data" {
   availability_zone = aws_instance.database.availability_zone
   size              = 10
   type              = "gp3"
-
-  tags = {
-    Name = "${var.app_prefix}-database-data"
-  }
+  tags = { Name = "${var.app_prefix}-database-data" }
 }
 
 resource "aws_volume_attachment" "database_data_attach" {
