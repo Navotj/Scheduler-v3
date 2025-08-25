@@ -1,82 +1,122 @@
 ##############################
-# Backend Security Groups
-# - Separate SGs for ingress and egress to keep rule counts low.
-# - Ingress SG: allow TCP/3000 from anywhere (API calls).
-# - Egress SG: allow TCP/27017 to the database SG, plus minimal outbound for SSM/dnf (HTTPS 443) and DNS (53).
-# - No assumptions about VPC: vpc_id is derived from the existing database SG to avoid guessing.
+# Security Groups (minimal)
 ##############################
 
-# Ingress-only SG for backend API (no egress)
+# Backend: ingress on 3000 from inside VPC only. No egress here.
 resource "aws_security_group" "backend_ingress" {
-  name                   = "${var.app_prefix}-backend-ingress"
-  description            = "Backend ingress: allow TCP/3000 for API calls"
-  vpc_id                 = aws_security_group.database.vpc_id
-  revoke_rules_on_delete = true
+  name        = "${var.app_prefix}-backend-ingress"
+  description = "Backend ingress: TCP 3000 from VPC; no egress"
+  vpc_id      = aws_vpc.main.id
 
-  # Allow API calls on port 3000 from anywhere (tighten later if needed).
   ingress {
-    description = "API calls"
+    description = "API on 3000 from VPC"
     from_port   = 3000
     to_port     = 3000
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = [aws_vpc.main.cidr_block]
   }
 
-  # Explicitly no egress rules here (prevents default allow-all).
   egress = []
 
-  tags = {
-    Name = "${var.app_prefix}-backend-ingress"
-  }
+  tags = { Name = "${var.app_prefix}-backend-ingress" }
 }
 
-# Egress-only SG for backend instance
+# Backend: egress to Mongo 27017 within VPC, plus HTTPS and DNS for SSM/dnf.
 resource "aws_security_group" "backend_egress" {
-  name                   = "${var.app_prefix}-backend-egress"
-  description            = "Backend egress: MongoDB 27017 to DB SG; HTTPS 443 for SSM/dnf; DNS 53"
-  vpc_id                 = aws_security_group.database.vpc_id
-  revoke_rules_on_delete = true
+  name        = "${var.app_prefix}-backend-egress"
+  description = "Backend egress: Mongo 27017 to VPC; HTTPS and DNS"
+  vpc_id      = aws_vpc.main.id
 
-  # Explicitly no ingress rules here.
-  ingress = []
-
-  # MongoDB to database SG on 27017
   egress {
-    description     = "MongoDB to database SG"
-    from_port       = 27017
-    to_port         = 27017
-    protocol        = "tcp"
-    security_groups = [aws_security_group.database.id]
+    description = "Mongo to VPC"
+    from_port   = 27017
+    to_port     = 27017
+    protocol    = "tcp"
+    cidr_blocks = [aws_vpc.main.cidr_block]
   }
 
-  # HTTPS for SSM/S3/dnf (keep simple and minimal)
   egress {
-    description = "HTTPS for SSM/S3/dnf"
+    description = "HTTPS outbound"
     from_port   = 443
     to_port     = 443
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  # DNS (UDP)
   egress {
-    description = "DNS (UDP)"
+    description = "DNS UDP outbound"
     from_port   = 53
     to_port     = 53
     protocol    = "udp"
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  # DNS (TCP)
   egress {
-    description = "DNS (TCP)"
+    description = "DNS TCP outbound"
     from_port   = 53
     to_port     = 53
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  tags = {
-    Name = "${var.app_prefix}-backend-egress"
+  ingress = []
+
+  tags = { Name = "${var.app_prefix}-backend-egress" }
+}
+
+# Database: ingress only from backend SG on 27017. No egress here.
+resource "aws_security_group" "database_ingress" {
+  name        = "${var.app_prefix}-database-ingress"
+  description = "Database ingress: allow 27017 only from backend SG; no egress"
+  vpc_id      = aws_vpc.main.id
+
+  egress = []
+
+  tags = { Name = "${var.app_prefix}-database-ingress" }
+}
+
+# Database: egress for HTTPS and DNS for SSM/dnf.
+resource "aws_security_group" "database_egress" {
+  name        = "${var.app_prefix}-database-egress"
+  description = "Database egress: HTTPS and DNS"
+  vpc_id      = aws_vpc.main.id
+
+  egress {
+    description = "HTTPS outbound"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
   }
+
+  egress {
+    description = "DNS UDP outbound"
+    from_port   = 53
+    to_port     = 53
+    protocol    = "udp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    description = "DNS TCP outbound"
+    from_port   = 53
+    to_port     = 53
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress = []
+
+  tags = { Name = "${var.app_prefix}-database-egress" }
+}
+
+# Link: allow backend_egress SG to reach database_ingress SG on 27017.
+resource "aws_security_group_rule" "database_ingress_from_backend" {
+  type                     = "ingress"
+  description              = "Mongo 27017 from backend egress SG"
+  from_port                = 27017
+  to_port                  = 27017
+  protocol                 = "tcp"
+  security_group_id        = aws_security_group.database_ingress.id
+  source_security_group_id = aws_security_group.backend_egress.id
 }

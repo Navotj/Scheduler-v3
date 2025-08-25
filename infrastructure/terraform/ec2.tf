@@ -10,8 +10,10 @@ data "aws_ami" "al2023" {
 resource "aws_instance" "backend" {
   ami                         = data.aws_ami.al2023.id
   instance_type               = var.ec2_instance_type
-  associate_public_ip_address = false
+  iam_instance_profile        = aws_iam_instance_profile.backend_profile.name
+  subnet_id                   = aws_subnet.private_a.id
   vpc_security_group_ids      = [aws_security_group.backend_ingress.id, aws_security_group.backend_egress.id]
+  associate_public_ip_address = false
 
   metadata_options {
     http_tokens = "required"
@@ -25,6 +27,9 @@ resource "aws_instance" "backend" {
 resource "aws_instance" "database" {
   ami                         = data.aws_ami.al2023.id
   instance_type               = var.ec2_instance_type
+  iam_instance_profile        = aws_iam_instance_profile.database_profile.name
+  subnet_id                   = aws_subnet.private_a.id
+  vpc_security_group_ids      = [aws_security_group.database_ingress.id, aws_security_group.database_egress.id]
   associate_public_ip_address = false
 
   metadata_options {
@@ -36,10 +41,12 @@ resource "aws_instance" "database" {
   tags = { Name = "${var.app_prefix}-database" }
 }
 
+
 resource "aws_ebs_volume" "database_data" {
   availability_zone = aws_instance.database.availability_zone
   size              = 10
   type              = "gp3"
+  encrypted         = true
   tags = { Name = "${var.app_prefix}-database-data" }
 }
 
