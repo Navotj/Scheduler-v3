@@ -3,12 +3,14 @@ data "aws_vpc" "default" {
   default = true
 }
 
-# Backend SG
-# - Ingress: CloudFront only on 80/443 via AWS-managed prefix list ID (variable).
-# - Egress: HTTPS to VPC CIDR (to reach Interface Endpoints), DNS, and NTP.
+# ---------------------------------
+# Security Groups (cycle-free setup)
+# ---------------------------------
+
+# Backend SG (rules managed via aws_security_group_rule)
 resource "aws_security_group" "backend" {
   name        = "${var.app_prefix}-sg-backend"
-  description = "Backend SG for API and SSM via interface endpoints"
+  description = "Backend SG CloudFront ingress and minimal egress"
   vpc_id      = data.aws_vpc.default.id
 
   ingress = []
@@ -21,16 +23,7 @@ resource "aws_security_group" "backend" {
   }
 }
 
-resource "aws_security_group_rule" "backend_ingress_http" {
-  type              = "ingress"
-  description       = "CloudFront to backend HTTP"
-  from_port         = 80
-  to_port           = 80
-  protocol          = "tcp"
-  prefix_list_ids   = [var.cloudfront_origin_prefix_list_id]
-  security_group_id = aws_security_group.backend.id
-}
-
+# Ingress from CloudFront only (HTTPS) using AWS-managed prefix list ID
 resource "aws_security_group_rule" "backend_ingress_https" {
   type              = "ingress"
   description       = "CloudFront to backend HTTPS"
@@ -41,6 +34,18 @@ resource "aws_security_group_rule" "backend_ingress_https" {
   security_group_id = aws_security_group.backend.id
 }
 
+# Egress to MongoDB within VPC (restrict to VPC CIDR to avoid SG-to-SG cycle)
+resource "aws_security_group_rule" "backend_egress_mongo" {
+  type              = "egress"
+  description       = "Backend to MongoDB within VPC"
+  from_port         = 27017
+  to_port           = 27017
+  protocol          = "tcp"
+  cidr_blocks       = [data.aws_vpc.default.cidr_block]
+  security_group_id = aws_security_group.backend.id
+}
+
+# Minimal egress for SSM via interface endpoints (HTTPS to VPC CIDR)
 resource "aws_security_group_rule" "backend_egress_https_vpc" {
   type              = "egress"
   description       = "Backend to VPC Interface Endpoints HTTPS"
@@ -51,6 +56,7 @@ resource "aws_security_group_rule" "backend_egress_https_vpc" {
   security_group_id = aws_security_group.backend.id
 }
 
+# DNS (UDP/TCP 53) for private DNS resolution
 resource "aws_security_group_rule" "backend_egress_dns_udp" {
   type              = "egress"
   description       = "Backend DNS UDP"
@@ -71,6 +77,7 @@ resource "aws_security_group_rule" "backend_egress_dns_tcp" {
   security_group_id = aws_security_group.backend.id
 }
 
+# NTP (UDP 123) to Amazon Time Sync Service
 resource "aws_security_group_rule" "backend_egress_ntp" {
   type              = "egress"
   description       = "Backend NTP UDP to 169.254.169.123"
@@ -81,12 +88,10 @@ resource "aws_security_group_rule" "backend_egress_ntp" {
   security_group_id = aws_security_group.backend.id
 }
 
-# Database SG
-# - Ingress: only from backend on 27017.
-# - Egress: HTTPS to VPC CIDR (Interface Endpoints), DNS, and NTP.
+# Database SG (deny-all egress; only backend may connect on 27017)
 resource "aws_security_group" "database" {
   name        = "${var.app_prefix}-sg-database"
-  description = "Database SG: only backend may connect; SSM via interface endpoints"
+  description = "Database SG: only backend may connect on 27017"
   vpc_id      = data.aws_vpc.default.id
 
   ingress = []
@@ -99,6 +104,7 @@ resource "aws_security_group" "database" {
   }
 }
 
+# Allow DB ingress from Backend SG
 resource "aws_security_group_rule" "db_from_backend" {
   type                     = "ingress"
   description              = "Backend to MongoDB"
@@ -109,6 +115,7 @@ resource "aws_security_group_rule" "db_from_backend" {
   source_security_group_id = aws_security_group.backend.id
 }
 
+# Egress from Database SG for SSM via Interface Endpoints (HTTPS within VPC)
 resource "aws_security_group_rule" "database_egress_https_vpc" {
   type              = "egress"
   description       = "DB to VPC Interface Endpoints HTTPS"
@@ -119,6 +126,7 @@ resource "aws_security_group_rule" "database_egress_https_vpc" {
   security_group_id = aws_security_group.database.id
 }
 
+# DNS for DB (needed for private DNS on endpoints)
 resource "aws_security_group_rule" "database_egress_dns_udp" {
   type              = "egress"
   description       = "DB DNS UDP"
@@ -139,6 +147,7 @@ resource "aws_security_group_rule" "database_egress_dns_tcp" {
   security_group_id = aws_security_group.database.id
 }
 
+# NTP for DB
 resource "aws_security_group_rule" "database_egress_ntp" {
   type              = "egress"
   description       = "DB NTP UDP to 169.254.169.123"
@@ -147,15 +156,4 @@ resource "aws_security_group_rule" "database_egress_ntp" {
   protocol          = "udp"
   cidr_blocks       = ["169.254.169.123/32"]
   security_group_id = aws_security_group.database.id
-}
-
-# add resource "aws_security_group_rule" "backend_egress_mongo"
-resource "aws_security_group_rule" "backend_egress_mongo" {
-  type              = "egress"
-  description       = "Backend to MongoDB within VPC"
-  from_port         = 27017
-  to_port           = 27017
-  protocol          = "tcp"
-  cidr_blocks       = [data.aws_vpc.default.cidr_block]
-  security_group_id = aws_security_group.backend.id
 }
