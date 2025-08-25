@@ -20,6 +20,12 @@ resource "aws_instance" "backend" {
   }
 
   #user_data = file("${path.module}/scripts/user_data_backend.sh")
+  user_data = <<-EOT
+    #!/bin/bash
+    set -euxo pipefail
+    dnf install -y amazon-ssm-agent || true
+    systemctl enable --now amazon-ssm-agent
+  EOT
 
   tags = { Name = "${var.app_prefix}-backend" }
 }
@@ -37,10 +43,15 @@ resource "aws_instance" "database" {
   }
 
   #user_data = file("${path.module}/scripts/user_data_database.sh")
+  user_data = <<-EOT
+    #!/bin/bash
+    set -euxo pipefail
+    dnf install -y amazon-ssm-agent || true
+    systemctl enable --now amazon-ssm-agent
+  EOT
 
   tags = { Name = "${var.app_prefix}-database" }
 }
-
 
 resource "aws_ebs_volume" "database_data" {
   availability_zone = aws_instance.database.availability_zone
