@@ -148,3 +148,14 @@ resource "aws_security_group_rule" "database_egress_ntp" {
   cidr_blocks       = ["169.254.169.123/32"]
   security_group_id = aws_security_group.database.id
 }
+
+# add resource "aws_security_group_rule" "backend_egress_mongo"
+resource "aws_security_group_rule" "backend_egress_mongo" {
+  type              = "egress"
+  description       = "Backend to MongoDB within VPC"
+  from_port         = 27017
+  to_port           = 27017
+  protocol          = "tcp"
+  cidr_blocks       = [data.aws_vpc.default.cidr_block]
+  security_group_id = aws_security_group.backend.id
+}

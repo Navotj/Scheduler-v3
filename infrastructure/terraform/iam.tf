@@ -26,33 +26,35 @@ resource "aws_iam_role_policy_attachment" "backend_ssm_core" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
-resource "aws_iam_role" "database_role" {
-  name               = "${var.app_prefix}-database-role"
-  assume_role_policy = jsonencode({
+# Optional: backend reads deployment artifacts from S3 (kept as before)
+resource "aws_iam_policy" "backend_artifacts_read" {
+  name        = "${var.app_prefix}-backend-artifacts-read"
+  description = "Allow backend instance to read deployment artifacts from S3"
+  policy      = jsonencode({
     Version = "2012-10-17",
-    Statement = [{
-      Effect    = "Allow",
-      Principal = { Service = "ec2.amazonaws.com" },
-      Action    = "sts:AssumeRole"
-    }]
+    Statement = [
+      {
+        Sid      = "ListBucket",
+        Effect   = "Allow",
+        Action   = ["s3:ListBucket"],
+        Resource = "arn:aws:s3:::${var.app_prefix}-backend-artifacts"
+      },
+      {
+        Sid      = "GetObjects",
+        Effect   = "Allow",
+        Action   = ["s3:GetObject"],
+        Resource = "arn:aws:s3:::${var.app_prefix}-backend-artifacts/*"
+      }
+    ]
   })
-
-  tags = {
-    Name = "${var.app_prefix}-database-role"
-  }
 }
 
-resource "aws_iam_instance_profile" "database_profile" {
-  name = "${var.app_prefix}-database-instance-profile"
-  role = aws_iam_role.database_role.name
+resource "aws_iam_role_policy_attachment" "backend_artifacts_attach" {
+  role       = aws_iam_role.backend_role.name
+  policy_arn = aws_iam_policy.backend_artifacts_read.arn
 }
 
-resource "aws_iam_role_policy_attachment" "database_ssm_core" {
-  role       = aws_iam_role.database_role.name
-  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
-}
-
-# Strict OAC-only read policy document for the frontend bucket
+# Frontend bucket policy document (used by s3.tf aws_s3_bucket_policy.frontend)
 data "aws_iam_policy_document" "frontend_bucket_policy" {
   statement {
     sid    = "AllowCloudFrontOACRead"
@@ -78,6 +80,7 @@ data "aws_iam_policy_document" "frontend_bucket_policy" {
     }
   }
 
+  # Defensive: deny unencrypted object uploads (no uploads expected from web)
   statement {
     sid     = "DenyUnencryptedObjectUploads"
     effect  = "Deny"
@@ -99,4 +102,31 @@ data "aws_iam_policy_document" "frontend_bucket_policy" {
       identifiers = ["*"]
     }
   }
+}
+
+# Database IAM (SSM only)
+resource "aws_iam_role" "database_role" {
+  name               = "${var.app_prefix}-database-role"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [{
+      Effect    = "Allow",
+      Principal = { Service = "ec2.amazonaws.com" },
+      Action    = "sts:AssumeRole"
+    }]
+  })
+
+  tags = {
+    Name = "${var.app_prefix}-database-role"
+  }
+}
+
+resource "aws_iam_instance_profile" "database_profile" {
+  name = "${var.app_prefix}-database-instance-profile"
+  role = aws_iam_role.database_role.name
+}
+
+resource "aws_iam_role_policy_attachment" "database_ssm_core" {
+  role       = aws_iam_role.database_role.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
