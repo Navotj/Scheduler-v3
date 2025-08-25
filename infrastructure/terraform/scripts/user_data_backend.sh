@@ -5,6 +5,8 @@ dnf install -y amazon-ssm-agent
 systemctl enable amazon-ssm-agent
 systemctl start amazon-ssm-agent
 
+echo "alias ll='ls -alF'" >> /home/ec2-user/.bashrc
+
 # Wait for the attached data volume to appear (up to ~3 minutes)
 DEV_CANDIDATES=("/dev/xvdf" "/dev/nvme1n1")
 DEV_FOUND=""

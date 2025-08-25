@@ -7,6 +7,7 @@ on:
     paths:
       - 'backend/**'
       - '.github/workflows/deploy_backend.yml'
+      - 'infrastucture/terraform/scripts/user_data_backend.sh'
 
 concurrency:
   group: deploy-backend-${{ github.ref }}
@@ -146,14 +147,16 @@ jobs:
           ZIP_KEY="${{ steps.pkg.outputs.zip_key }}"
           SVC_KEY="${{ steps.pkg.outputs.svc_key }}"
 
+          # ensure jq for safe JSON escaping
+          if ! command -v jq >/dev/null 2>&1; then
+            sudo apt-get update -y
+            sudo apt-get install -y jq >/dev/null
+          fi
+
           echo "Sending SSM command to ${IID}"
 
-          CMD_ID="$(
-            aws ssm send-command \
-              --instance-ids "${IID}" \
-              --document-name "AWS-RunShellScript" \
-              --comment "Deploy backend build ${{ steps.pkg.outputs.build_id }}" \
-              --parameters commands="$(cat <<EOS
+          # Build the remote script (no Unicode, ASCII only)
+          REMOTE_SCRIPT="$(cat <<EOS
           set -euo pipefail
 
           which unzip >/dev/null 2>&1 || sudo dnf install -y unzip || sudo yum install -y unzip || true
@@ -195,7 +198,17 @@ jobs:
           journalctl -u scheduler.service -n 200 --no-pager || true
           exit 1
           EOS
-          )" \
+          )"
+
+          # JSON-encode parameters for AWS-RunShellScript: {"commands":["<script>"]}
+          PARAMS_JSON="$(jq -Rn --arg s "$REMOTE_SCRIPT" '{commands: [$s]}')"
+
+          CMD_ID="$(
+            aws ssm send-command \
+              --instance-ids "${IID}" \
+              --document-name "AWS-RunShellScript" \
+              --comment "Deploy backend build ${{ steps.pkg.outputs.build_id }}" \
+              --parameters "${PARAMS_JSON}" \
               --query "Command.CommandId" --output text
           )"
 
