@@ -15,7 +15,7 @@ resource "aws_security_group" "ssm_endpoints" {
   vpc_id      = data.aws_vpc.default.id
 
   ingress {
-    description     = "Backend → endpoints :443"
+    description     = "Backend to endpoints 443"
     from_port       = 443
     to_port         = 443
     protocol        = "tcp"
@@ -23,7 +23,7 @@ resource "aws_security_group" "ssm_endpoints" {
   }
 
   ingress {
-    description     = "Database → endpoints :443"
+    description     = "Database to endpoints 443"
     from_port       = 443
     to_port         = 443
     protocol        = "tcp"
