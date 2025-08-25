@@ -1,6 +1,7 @@
 #!/bin/bash
 set -euxo pipefail
 
+dnf install -y amazon-ssm-agent
 systemctl enable amazon-ssm-agent
 systemctl start amazon-ssm-agent
 
