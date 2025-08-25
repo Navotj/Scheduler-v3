@@ -3,6 +3,11 @@ variable "app_prefix" {
   type        = string
 }
 
+variable "aws_region" {
+  description = "AWS region for endpoints, e.g., eu-central-1"
+  type        = string
+}
+
 variable "environment" {
   description = "Environment for workload"
   type        = string
