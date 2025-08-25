@@ -153,44 +153,37 @@ jobs:
               --instance-ids "${IID}" \
               --document-name "AWS-RunShellScript" \
               --comment "Deploy backend build ${{ steps.pkg.outputs.build_id }}" \
-              --parameters commands="$(cat <<'EOS'
+              --parameters commands="$(cat <<EOS
           set -euo pipefail
 
-          # basics
           which unzip >/dev/null 2>&1 || sudo dnf install -y unzip || sudo yum install -y unzip || true
           which aws   >/dev/null 2>&1 || { echo "aws cli not found on instance"; exit 1; }
 
-          BUCKET="{{BUCKET}}"
-          ZIP_KEY="{{ZIP_KEY}}"
-          SVC_KEY="{{SVC_KEY}}"
+          BUCKET="${BUCKET}"
+          ZIP_KEY="${ZIP_KEY}"
+          SVC_KEY="${SVC_KEY}"
 
-          # Prepare target dir (mounted by user-data to /opt/app if extra volume exists)
           sudo mkdir -p /opt/app
           sudo chown ec2-user:ec2-user /opt/app
           sudo chmod 755 /opt/app
 
-          # Stop existing service if present
           if systemctl list-unit-files | grep -q '^scheduler.service'; then
             sudo systemctl stop scheduler.service || true
           fi
 
-          # Fetch artifacts
-          tmpdir="$(mktemp -d)"
-          aws s3 cp "s3://${BUCKET}/${ZIP_KEY}" "${tmpdir}/app.zip" --only-show-errors
-          aws s3 cp "s3://${BUCKET}/${SVC_KEY}" "${tmpdir}/scheduler.service" --only-show-errors
+          tmpdir="\$(mktemp -d)"
+          aws s3 cp "s3://${BUCKET}/${ZIP_KEY}" "\${tmpdir}/app.zip" --only-show-errors
+          aws s3 cp "s3://${BUCKET}/${SVC_KEY}" "\${tmpdir}/scheduler.service" --only-show-errors
 
-          # Deploy app (contents into /opt/app)
-          sudo unzip -o "${tmpdir}/app.zip" -d /opt/app >/dev/null
+          sudo unzip -o "\${tmpdir}/app.zip" -d /opt/app >/dev/null
           sudo chown -R ec2-user:ec2-user /opt/app
 
-          # Install/refresh systemd unit
-          sudo install -m 0644 "${tmpdir}/scheduler.service" /etc/systemd/system/scheduler.service
+          sudo install -m 0644 "\${tmpdir}/scheduler.service" /etc/systemd/system/scheduler.service
           sudo systemctl daemon-reload
           sudo systemctl enable scheduler.service
           sudo systemctl start scheduler.service
 
-          # Health check (fail if not active after 20s)
-          for i in $(seq 1 20); do
+          for i in \$(seq 1 20); do
             if systemctl is-active --quiet scheduler.service; then
               systemctl --no-pager --full status scheduler.service || true
               exit 0
@@ -202,21 +195,20 @@ jobs:
           journalctl -u scheduler.service -n 200 --no-pager || true
           exit 1
           EOS
-          | sed -e "s/{{BUCKET}}/${BUCKET}/g" -e "s|{{ZIP_KEY}}|${ZIP_KEY}|g" -e "s|{{SVC_KEY}}|${SVC_KEY}|g"
           )" \
               --query "Command.CommandId" --output text
           )"
 
           [[ -n "${CMD_ID}" ]] || { echo "Failed to send SSM command"; exit 1; }
 
-          # Wait for command completion
+          echo "Waiting for SSM command to complete..."
           aws ssm wait command-executed --command-id "${CMD_ID}" --instance-id "${IID}"
 
-          # Fetch final invocation status
           STATUS="$(aws ssm list-command-invocations --command-id "${CMD_ID}" --details \
                     --query 'CommandInvocations[0].Status' --output text)"
           echo "SSM command status: ${STATUS}"
           [[ "${STATUS}" == "Success" ]]
+
 
       - name: done
         if: success()
