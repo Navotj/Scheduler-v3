@@ -32,7 +32,7 @@ resource "aws_instance" "backend" {
     aws_vpc_endpoint.ec2messages,
     aws_vpc_endpoint.ssmmessages,
     aws_vpc_endpoint.logs,
-    aws_vpc_endpoint.s3_interface
+    aws_vpc_endpoint.s3_gateway
   ]
 }
 
@@ -60,7 +60,7 @@ resource "aws_instance" "database" {
     aws_vpc_endpoint.ec2messages,
     aws_vpc_endpoint.ssmmessages,
     aws_vpc_endpoint.logs,
-    aws_vpc_endpoint.s3_interface
+    aws_vpc_endpoint.s3_gateway
   ]
 }
 

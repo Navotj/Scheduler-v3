@@ -3,6 +3,11 @@ data "aws_vpc" "default" {
   default = true
 }
 
+# Managed prefix list for S3 (for Gateway endpoint egress)
+data "aws_prefix_list" "s3" {
+  name = "com.amazonaws.eu-central-1.s3"
+}
+
 # ---------------------------------
 # Security Groups (cycle-free setup)
 # ---------------------------------
@@ -120,7 +125,7 @@ resource "aws_security_group" "database" {
   }
 }
 
-# Allow DB ingress from Backend SG (separate resource to avoid SG ↔ SG cycles)
+# Allow DB ingress from Backend SG (separate resource to avoid SG <-> SG cycles)
 resource "aws_security_group_rule" "db_from_backend" {
   type                     = "ingress"
   description              = "Backend to MongoDB"
@@ -131,10 +136,10 @@ resource "aws_security_group_rule" "db_from_backend" {
   source_security_group_id = aws_security_group.backend.id
 }
 
-# Egress from Database SG for SSM via Interface Endpoints (HTTPS within VPC)
+# Egress from Database SG for Interface endpoints within VPC (HTTPS to VPC CIDR)
 resource "aws_security_group_rule" "database_egress_https_vpc" {
   type              = "egress"
-  description       = "DB to VPC (SSM interface endpoints) HTTPS"
+  description       = "DB to VPC Interface endpoints HTTPS"
   from_port         = 443
   to_port           = 443
   protocol          = "tcp"
@@ -142,7 +147,18 @@ resource "aws_security_group_rule" "database_egress_https_vpc" {
   security_group_id = aws_security_group.database.id
 }
 
-# DNS for DB (needed for private DNS on endpoints)
+# Egress from Database SG to S3 via Gateway endpoint (HTTPS using S3 managed prefix list)
+resource "aws_security_group_rule" "database_egress_https_s3" {
+  type              = "egress"
+  description       = "DB to S3 via Gateway endpoint HTTPS"
+  from_port         = 443
+  to_port           = 443
+  protocol          = "tcp"
+  prefix_list_ids   = [data.aws_prefix_list.s3.id]
+  security_group_id = aws_security_group.database.id
+}
+
+# DNS for DB (needed for private DNS and S3 resolution)
 resource "aws_security_group_rule" "database_egress_dns_udp" {
   type              = "egress"
   description       = "DB DNS UDP"
@@ -165,7 +181,7 @@ resource "aws_security_group_rule" "database_egress_dns_tcp" {
   security_group_id = aws_security_group.database.id
 }
 
-# (Optional but recommended) NTP for DB
+# NTP for DB
 resource "aws_security_group_rule" "database_egress_ntp" {
   type              = "egress"
   description       = "DB NTP UDP"

@@ -94,16 +94,22 @@ resource "aws_vpc_endpoint" "logs" {
   }
 }
 
-# Interface VPC Endpoint: S3
-resource "aws_vpc_endpoint" "s3_interface" {
-  vpc_id              = data.aws_vpc.default.id
-  service_name        = "com.amazonaws.eu-central-1.s3"
-  vpc_endpoint_type   = "Interface"
-  subnet_ids          = data.aws_subnets.default_vpc_subnets.ids
-  security_group_ids  = [aws_security_group.ssm_endpoints.id]
-  private_dns_enabled = true
+# Route tables of the default VPC (needed for S3 Gateway endpoint)
+data "aws_route_tables" "default_vpc_route_tables" {
+  filter {
+    name   = "vpc-id"
+    values = [data.aws_vpc.default.id]
+  }
+}
+
+# Gateway VPC Endpoint: S3
+resource "aws_vpc_endpoint" "s3_gateway" {
+  vpc_id            = data.aws_vpc.default.id
+  service_name      = "com.amazonaws.eu-central-1.s3"
+  vpc_endpoint_type = "Gateway"
+  route_table_ids   = data.aws_route_tables.default_vpc_route_tables.ids
 
   tags = {
-    Name = "${var.app_prefix}-vpce-s3"
+    Name = "${var.app_prefix}-vpce-s3-gateway"
   }
 }
