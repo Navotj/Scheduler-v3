@@ -8,14 +8,6 @@ data "aws_ami" "al2023" {
   }
 }
 
-# Subnets from the managed default VPC
-data "aws_subnets" "default_vpc_subnets" {
-  filter {
-    name   = "vpc-id"
-    values = [aws_default_vpc.default.id]
-  }
-}
-
 # Backend (no public IP)
 resource "aws_instance" "backend" {
   ami                         = data.aws_ami.al2023.id
