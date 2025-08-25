@@ -8,11 +8,12 @@ data "aws_ami" "al2023" {
   }
 }
 
-# Backend EC2 (no extra EBS for /opt/app)
+# Backend EC2
 resource "aws_instance" "backend" {
   ami                         = data.aws_ami.al2023.id
   instance_type               = var.ec2_instance_type
   iam_instance_profile        = aws_iam_instance_profile.backend_profile.name
+  subnet_id                   = element(data.aws_subnets.default_vpc_subnets.ids, 0)
   vpc_security_group_ids      = [aws_security_group.backend.id]
   associate_public_ip_address = false
 
@@ -33,11 +34,12 @@ resource "aws_instance" "backend" {
   ]
 }
 
-# Database EC2 (IMDSv2 hardened)
+# Database EC2
 resource "aws_instance" "database" {
   ami                         = data.aws_ami.al2023.id
   instance_type               = var.ec2_instance_type
   iam_instance_profile        = aws_iam_instance_profile.database_profile.name
+  subnet_id                   = element(data.aws_subnets.default_vpc_subnets.ids, 0)
   vpc_security_group_ids      = [aws_security_group.database.id]
   associate_public_ip_address = false
 
@@ -45,7 +47,7 @@ resource "aws_instance" "database" {
     http_tokens = "required" # IMDSv2
   }
 
-  #user_data = file("${path.module}/scripts/user_data_database.sh")
+  user_data = file("${path.module}/scripts/user_data_database.sh")
 
   tags = {
     Name = "${var.app_prefix}-database"
