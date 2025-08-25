@@ -123,11 +123,3 @@ resource "aws_iam_role_policy_attachment" "database_ssm_core" {
   role       = aws_iam_role.database_role.name
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
-
-resource "aws_iam_service_linked_role" "ssm" {
-  aws_service_name = "ssm.amazonaws.com"
-}
-
-resource "aws_iam_service_linked_role" "ec2messages" {
-  aws_service_name = "ec2messages.amazonaws.com"
-}
