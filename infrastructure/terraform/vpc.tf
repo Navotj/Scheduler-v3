@@ -1,76 +1,81 @@
-# All SSM-related VPC endpoints disabled to use NAT path for SSM/dnf.
-# Keep this file so you can re-enable later by removing the count lines.
+##############################
+# VPC (minimal, single-AZ)
+##############################
 
-data "aws_region" "current" {}
-
-# SG for interface endpoints (disabled)
-resource "aws_security_group" "vpce_ssm" {
-  count       = 0
-  name        = "${var.app_prefix}-vpce-ssm"
-  description = "Security group for SSM VPC endpoints"
-  vpc_id      = aws_vpc.main.id
-
-  ingress {
-    description = "Allow HTTPS from VPC to endpoints"
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = [aws_vpc.main.cidr_block]
-  }
-
-  egress {
-    description = "Allow HTTPS egress to AWS services"
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  tags = { Name = "${var.app_prefix}-vpce-ssm" }
+data "aws_availability_zones" "available" {
+  state = "available"
 }
 
-# Interface endpoint: SSM (disabled)
-resource "aws_vpc_endpoint" "ssm" {
-  count               = 0
-  vpc_id              = aws_vpc.main.id
-  service_name        = "com.amazonaws.${data.aws_region.current.name}.ssm"
-  vpc_endpoint_type   = "Interface"
-  private_dns_enabled = true
-  subnet_ids          = [aws_subnet.private_a.id]
-  security_group_ids  = [aws_security_group.vpce_ssm[0].id]
-  tags                = { Name = "${var.app_prefix}-vpce-ssm" }
+locals {
+  az0 = data.aws_availability_zones.available.names[0]
 }
 
-# Interface endpoint: EC2 Messages (disabled)
-resource "aws_vpc_endpoint" "ec2messages" {
-  count               = 0
-  vpc_id              = aws_vpc.main.id
-  service_name        = "com.amazonaws.${data.aws_region.current.name}.ec2messages"
-  vpc_endpoint_type   = "Interface"
-  private_dns_enabled = true
-  subnet_ids          = [aws_subnet.private_a.id]
-  security_group_ids  = [aws_security_group.vpce_ssm[0].id]
-  tags                = { Name = "${var.app_prefix}-vpce-ec2messages" }
+resource "aws_vpc" "main" {
+  cidr_block           = "10.0.0.0/16"
+  enable_dns_support   = true
+  enable_dns_hostnames = true
+  tags = { Name = "${var.app_prefix}-vpc" }
 }
 
-# Interface endpoint: SSM Messages (disabled)
-resource "aws_vpc_endpoint" "ssmmessages" {
-  count               = 0
-  vpc_id              = aws_vpc.main.id
-  service_name        = "com.amazonaws.${data.aws_region.current.name}.ssmmessages"
-  vpc_endpoint_type   = "Interface"
-  private_dns_enabled = true
-  subnet_ids          = [aws_subnet.private_a.id]
-  security_group_ids  = [aws_security_group.vpce_ssm[0].id]
-  tags                = { Name = "${var.app_prefix}-vpce-ssmmessages" }
+resource "aws_internet_gateway" "igw" {
+  vpc_id = aws_vpc.main.id
+  tags   = { Name = "${var.app_prefix}-igw" }
 }
 
-# S3 Gateway endpoint (disabled)
-resource "aws_vpc_endpoint" "s3_gateway" {
-  count             = 0
+resource "aws_subnet" "public_a" {
+  vpc_id                  = aws_vpc.main.id
+  cidr_block              = "10.0.0.0/24"
+  availability_zone       = local.az0
+  map_public_ip_on_launch = false
+  tags                    = { Name = "${var.app_prefix}-public-a" }
+}
+
+resource "aws_subnet" "private_a" {
   vpc_id            = aws_vpc.main.id
-  service_name      = "com.amazonaws.${data.aws_region.current.name}.s3"
-  vpc_endpoint_type = "Gateway"
-  route_table_ids   = [aws_route_table.private.id]
-  tags              = { Name = "${var.app_prefix}-vpce-s3" }
+  cidr_block        = "10.0.1.0/24"
+  availability_zone = local.az0
+  tags              = { Name = "${var.app_prefix}-private-a" }
+}
+
+resource "aws_eip" "nat" {
+  domain = "vpc"
+  tags   = { Name = "${var.app_prefix}-nat-eip" }
+}
+
+resource "aws_nat_gateway" "nat" {
+  allocation_id = aws_eip.nat.id
+  subnet_id     = aws_subnet.public_a.id
+  tags          = { Name = "${var.app_prefix}-nat" }
+}
+
+resource "aws_route_table" "public" {
+  vpc_id = aws_vpc.main.id
+  tags   = { Name = "${var.app_prefix}-public-rt" }
+}
+
+resource "aws_route" "public_to_internet" {
+  route_table_id         = aws_route_table.public.id
+  destination_cidr_block = "0.0.0.0/0"
+  gateway_id             = aws_internet_gateway.igw.id
+}
+
+resource "aws_route_table_association" "public_assoc" {
+  subnet_id      = aws_subnet.public_a.id
+  route_table_id = aws_route_table.public.id
+}
+
+resource "aws_route_table" "private" {
+  vpc_id = aws_vpc.main.id
+  tags   = { Name = "${var.app_prefix}-private-rt" }
+}
+
+resource "aws_route" "private_to_nat" {
+  route_table_id         = aws_route_table.private.id
+  destination_cidr_block = "0.0.0.0/0"
+  nat_gateway_id         = aws_nat_gateway.nat.id
+}
+
+resource "aws_route_table_association" "private_assoc" {
+  subnet_id      = aws_subnet.private_a.id
+  route_table_id = aws_route_table.private.id
 }
