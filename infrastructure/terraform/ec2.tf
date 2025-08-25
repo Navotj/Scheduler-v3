@@ -47,6 +47,7 @@ resource "aws_volume_attachment" "backend_app_attach" {
 resource "aws_instance" "database" {
   ami                    = data.aws_ami.al2023.id
   instance_type          = var.ec2_instance_type
+  iam_instance_profile   = aws_iam_instance_profile.database_profile.name
   vpc_security_group_ids = [aws_security_group.database.id]
 
   tags = {

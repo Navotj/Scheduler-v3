@@ -36,13 +36,13 @@ resource "aws_iam_policy" "backend_artifacts_read" {
         Sid      = "ListBucket"
         Effect   = "Allow"
         Action   = ["s3:ListBucket"]
-        Resource = "arn:aws:s3:::${var.app_prefix}-artifacts"
+        Resource = "arn:aws:s3:::${var.app_prefix}-backend-artifacts"
       },
       {
         Sid      = "GetObjects"
         Effect   = "Allow"
         Action   = ["s3:GetObject"]
-        Resource = "arn:aws:s3:::${var.app_prefix}-artifacts/*"
+        Resource = "arn:aws:s3:::${var.app_prefix}-backend-artifacts/*"
       }
     ]
   })
@@ -98,4 +98,28 @@ data "aws_iam_policy_document" "frontend_bucket_policy" {
       identifiers = ["*"]
     }
   }
+}
+
+# Database IAM (SSM only, no S3 access needed)
+resource "aws_iam_role" "database_role" {
+  name               = "${var.app_prefix}-database-role"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "ec2.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+  tags = { Name = "${var.app_prefix}-database-role" }
+}
+
+resource "aws_iam_instance_profile" "database_profile" {
+  name = "${var.app_prefix}-database-instance-profile"
+  role = aws_iam_role.database_role.name
+}
+
+resource "aws_iam_role_policy_attachment" "database_ssm_core" {
+  role       = aws_iam_role.database_role.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
