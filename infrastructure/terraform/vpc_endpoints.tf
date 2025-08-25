@@ -1,10 +1,4 @@
-# Region helper (used to build endpoint service names)
-data "aws_region" "current" {}
-
-# Reuse your default VPC
-data "aws_vpc" "default" {
-  default = true
-}
+# NOTE: Reuse existing data.aws_vpc.default from security_groups.tf
 
 # All subnets in the default VPC (attach endpoints across these)
 data "aws_subnets" "default_vpc_subnets" {
@@ -14,30 +8,29 @@ data "aws_subnets" "default_vpc_subnets" {
   }
 }
 
-# Security group for the Interface Endpoints' ENIs: allow HTTPS from backend/database SGs
+# Security group for Interface Endpoints: allow HTTPS from backend/database SGs only
 resource "aws_security_group" "ssm_endpoints" {
   name        = "${var.app_prefix}-sg-ssm-endpoints"
   description = "Allow HTTPS from backend/database to SSM interface endpoints"
   vpc_id      = data.aws_vpc.default.id
 
-  # Only allow inbound 443 from your app SGs
   ingress {
-    description      = "Backend → endpoints :443"
-    from_port        = 443
-    to_port          = 443
-    protocol         = "tcp"
-    security_groups  = [aws_security_group.backend.id]
+    description     = "Backend → endpoints :443"
+    from_port       = 443
+    to_port         = 443
+    protocol        = "tcp"
+    security_groups = [aws_security_group.backend.id]
   }
 
   ingress {
-    description      = "Database → endpoints :443"
-    from_port        = 443
-    to_port          = 443
-    protocol         = "tcp"
-    security_groups  = [aws_security_group.database.id]
+    description     = "Database → endpoints :443"
+    from_port       = 443
+    to_port         = 443
+    protocol        = "tcp"
+    security_groups = [aws_security_group.database.id]
   }
 
-  # No egress needed on the endpoint ENIs
+  # No egress needed on endpoint ENIs
   egress = []
 
   tags = {
@@ -45,10 +38,10 @@ resource "aws_security_group" "ssm_endpoints" {
   }
 }
 
-# SSM endpoint
+# Interface VPC Endpoint: SSM
 resource "aws_vpc_endpoint" "ssm" {
   vpc_id              = data.aws_vpc.default.id
-  service_name        = "com.amazonaws.${data.aws_region.current.name}.ssm"
+  service_name        = "com.amazonaws.eu-central-1.ssm"
   vpc_endpoint_type   = "Interface"
   subnet_ids          = data.aws_subnets.default_vpc_subnets.ids
   security_group_ids  = [aws_security_group.ssm_endpoints.id]
@@ -59,10 +52,10 @@ resource "aws_vpc_endpoint" "ssm" {
   }
 }
 
-# EC2 messages endpoint
+# Interface VPC Endpoint: EC2 Messages
 resource "aws_vpc_endpoint" "ec2messages" {
   vpc_id              = data.aws_vpc.default.id
-  service_name        = "com.amazonaws.${data.aws_region.current.name}.ec2messages"
+  service_name        = "com.amazonaws.eu-central-1.ec2messages"
   vpc_endpoint_type   = "Interface"
   subnet_ids          = data.aws_subnets.default_vpc_subnets.ids
   security_group_ids  = [aws_security_group.ssm_endpoints.id]
@@ -73,10 +66,10 @@ resource "aws_vpc_endpoint" "ec2messages" {
   }
 }
 
-# SSM messages endpoint
+# Interface VPC Endpoint: SSM Messages
 resource "aws_vpc_endpoint" "ssmmessages" {
   vpc_id              = data.aws_vpc.default.id
-  service_name        = "com.amazonaws.${data.aws_region.current.name}.ssmmessages"
+  service_name        = "com.amazonaws.eu-central-1.ssmmessages"
   vpc_endpoint_type   = "Interface"
   subnet_ids          = data.aws_subnets.default_vpc_subnets.ids
   security_group_ids  = [aws_security_group.ssm_endpoints.id]
