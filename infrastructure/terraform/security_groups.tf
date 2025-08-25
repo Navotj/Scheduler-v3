@@ -130,3 +130,51 @@ resource "aws_security_group_rule" "db_from_backend" {
   security_group_id        = aws_security_group.database.id
   source_security_group_id = aws_security_group.backend.id
 }
+
+# replace function (add_database_egress_rules)
+
+# Egress from Database SG for SSM via Interface Endpoints (HTTPS within VPC)
+resource "aws_security_group_rule" "database_egress_https_vpc" {
+  type              = "egress"
+  description       = "DB to VPC (SSM interface endpoints) HTTPS"
+  from_port         = 443
+  to_port           = 443
+  protocol          = "tcp"
+  cidr_blocks       = [data.aws_vpc.default.cidr_block]
+  security_group_id = aws_security_group.database.id
+}
+
+# DNS for DB (needed for private DNS on endpoints)
+resource "aws_security_group_rule" "database_egress_dns_udp" {
+  type              = "egress"
+  description       = "DB DNS UDP"
+  from_port         = 53
+  to_port           = 53
+  protocol          = "udp"
+  cidr_blocks       = ["0.0.0.0/0"]
+  ipv6_cidr_blocks  = ["::/0"]
+  security_group_id = aws_security_group.database.id
+}
+
+resource "aws_security_group_rule" "database_egress_dns_tcp" {
+  type              = "egress"
+  description       = "DB DNS TCP"
+  from_port         = 53
+  to_port           = 53
+  protocol          = "tcp"
+  cidr_blocks       = ["0.0.0.0/0"]
+  ipv6_cidr_blocks  = ["::/0"]
+  security_group_id = aws_security_group.database.id
+}
+
+# (Optional but recommended) NTP for DB
+resource "aws_security_group_rule" "database_egress_ntp" {
+  type              = "egress"
+  description       = "DB NTP UDP"
+  from_port         = 123
+  to_port           = 123
+  protocol          = "udp"
+  cidr_blocks       = ["0.0.0.0/0"]
+  ipv6_cidr_blocks  = ["::/0"]
+  security_group_id = aws_security_group.database.id
+}
