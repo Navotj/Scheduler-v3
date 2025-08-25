@@ -131,8 +131,6 @@ resource "aws_security_group_rule" "db_from_backend" {
   source_security_group_id = aws_security_group.backend.id
 }
 
-# replace function (add_database_egress_rules)
-
 # Egress from Database SG for SSM via Interface Endpoints (HTTPS within VPC)
 resource "aws_security_group_rule" "database_egress_https_vpc" {
   type              = "egress"

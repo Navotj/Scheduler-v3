@@ -63,6 +63,7 @@ resource "aws_instance" "database" {
     aws_vpc_endpoint.s3_interface
   ]
 }
+
 # Dedicated 10 GiB gp3 volume for database data
 resource "aws_ebs_volume" "database_data" {
   availability_zone = aws_instance.database.availability_zone
@@ -79,4 +80,3 @@ resource "aws_volume_attachment" "database_data_attach" {
   volume_id   = aws_ebs_volume.database_data.id
   instance_id = aws_instance.database.id
 }
-

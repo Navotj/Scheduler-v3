@@ -53,11 +53,10 @@ resource "aws_iam_role_policy_attachment" "backend_artifacts_attach" {
   policy_arn = aws_iam_policy.backend_artifacts_read.arn
 }
 
-
 # Strict OAC-only read policy (no ListBucket needed)
 data "aws_iam_policy_document" "frontend_bucket_policy" {
   statement {
-    sid = "AllowCloudFrontOACRead"
+    sid    = "AllowCloudFrontOACRead"
     effect = "Allow"
 
     principals {
@@ -82,9 +81,9 @@ data "aws_iam_policy_document" "frontend_bucket_policy" {
 
   # Optional: deny unencrypted uploads (defensive; no uploads expected from web)
   statement {
-    sid     = "DenyUnencryptedObjectUploads"
-    effect  = "Deny"
-    actions = ["s3:PutObject"]
+    sid       = "DenyUnencryptedObjectUploads"
+    effect    = "Deny"
+    actions   = ["s3:PutObject"]
     resources = [
       "${aws_s3_bucket.frontend.arn}/*"
     ]
