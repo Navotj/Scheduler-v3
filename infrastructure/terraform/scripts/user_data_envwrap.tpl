@@ -1,4 +1,3 @@
-# replace function (user_data_envwrap.tpl)
 #!/usr/bin/env bash
 # Mirror ALL output to both a file and the EC2 console buffer so get-console-output can see it.
 exec > >(tee -a /var/log/user-data.log /dev/console) 2>&1
