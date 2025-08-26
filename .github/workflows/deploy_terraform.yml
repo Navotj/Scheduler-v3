@@ -35,6 +35,7 @@ jobs:
       DATABASE_PASSWORD: ${{ secrets.database_password }}
       TF_VAR_database_user: ${{ secrets.database_user }}
       TF_VAR_database_password: ${{ secrets.database_password }}
+      TF_VAR_database_host: ${{ vars.DATABASE_HOST }}
 
       TF_IN_AUTOMATION: true
 

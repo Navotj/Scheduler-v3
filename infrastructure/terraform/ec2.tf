@@ -23,7 +23,7 @@ resource "aws_instance" "backend" {
     database_user            = var.database_user
     database_password        = var.database_password
     database_name            = "appdb"
-    database_host            = aws_instance.database.private_ip
+    database_host            = var.database_host
     script                   = file("${path.module}/scripts/user_data_backend.sh")
   })
 
@@ -35,6 +35,7 @@ resource "aws_instance" "database" {
   instance_type               = var.ec2_instance_type
   iam_instance_profile        = aws_iam_instance_profile.database_profile.name
   subnet_id                   = aws_subnet.private_a.id
+  private_ip                  = var.database_host
   vpc_security_group_ids      = [aws_security_group.database_ingress.id, aws_security_group.database_egress.id]
   associate_public_ip_address = false
   user_data_replace_on_change = true
@@ -47,6 +48,7 @@ resource "aws_instance" "database" {
     database_user            = var.database_user
     database_password        = var.database_password
     database_name            = "appdb"
+    database_host            = ""
     script                   = file("${path.module}/scripts/user_data_database.sh")
   })
 
