@@ -1,16 +1,41 @@
+# replace function (user_data_envwrap.tpl)
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Injected by Terraform from GitHub Actions secrets
+log() { echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] $*"; }
+
+# ---------- Injected DB env ----------
 export DATABASE_USER="${database_user}"
 export DATABASE_PASSWORD="${database_password}"
 export DATABASE_NAME="${database_name}"
 
-# Write the provided setup script to disk and execute it
+# ---------- Force SSM agent to register (database instance) ----------
+log "Detect region via IMDSv2"
+TOKEN="$(curl -sS -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 60")"
+REGION="$(curl -sS -H "X-aws-ec2-metadata-token: ${TOKEN}" http://169.254.169.254/latest/dynamic/instance-identity/document | awk -F\" '/region/ {print $4}')"
+log "Region: ${REGION}"
+
+log "Refresh dnf metadata"
+dnf -y makecache
+
+log "Install/reinstall amazon-ssm-agent"
+dnf -y reinstall amazon-ssm-agent || dnf -y install amazon-ssm-agent
+
+log "Pin SSM agent to region and clear any stale registration"
+install -d -m 0755 /etc/amazon/ssm
+printf '{"Agent":{"Region":"%s"}}\n' "${REGION}" > /etc/amazon/ssm/amazon-ssm-agent.json
+systemctl stop amazon-ssm-agent || true
+rm -rf /var/lib/amazon/ssm/*
+systemctl enable --now amazon-ssm-agent
+
+# ---------- Run database bootstrap ----------
 install -d -m 0755 /opt/bootstrap
 cat > /opt/bootstrap/user_data_database.sh <<'EOS'
 ${script}
 EOS
 chmod 0755 /opt/bootstrap/user_data_database.sh
 
+log "Executing database bootstrap script"
 /opt/bootstrap/user_data_database.sh
+
+log "Database user-data completed"
