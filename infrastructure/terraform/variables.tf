@@ -37,3 +37,9 @@ variable "serial_console_password" {
   sensitive   = true
   default     = ""
 }
+
+variable "database_host" {
+  description = "Fixed ip for database"
+  type        = string
+  sensitive   = true
+}
