@@ -1,3 +1,4 @@
+# replace file (deploy_backend.yml)
 name: Deploy Backend
 
 on:
@@ -62,9 +63,8 @@ jobs:
           [[ -d "backend/app" ]] || { echo "missing: backend/app"; exit 1; }
           [[ -f "backend/scheduler.service" ]] || { echo "missing: backend/scheduler.service"; exit 1; }
 
-          # Artifact bucket follows our convention
+          # Define artifact bucket (separate from frontend bucket)
           ARTIFACT_BUCKET="${APP_PREFIX}-artifacts"
-          aws s3 ls "s3://${ARTIFACT_BUCKET}" >/dev/null
           echo "ARTIFACT_BUCKET=${ARTIFACT_BUCKET}" >> "$GITHUB_ENV"
 
           # Optional: warn if no instances currently match the SSM target (doesn't hard-fail)
@@ -76,6 +76,46 @@ jobs:
           else
             echo "Found SSM instances: ${MATCHING_INSTANCES}"
           fi
+
+      - name: ensure artifact bucket exists (create if missing)
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${ARTIFACT_BUCKET:?missing}"
+          : "${AWS_REGION:?missing}"
+
+          if aws s3api head-bucket --bucket "${ARTIFACT_BUCKET}" 2>/dev/null; then
+            echo "Bucket ${ARTIFACT_BUCKET} exists"
+          else
+            echo "Creating bucket ${ARTIFACT_BUCKET} in ${AWS_REGION}"
+            if [[ "${AWS_REGION}" == "us-east-1" ]]; then
+              aws s3api create-bucket --bucket "${ARTIFACT_BUCKET}"
+            else
+              aws s3api create-bucket --bucket "${ARTIFACT_BUCKET}" \
+                --create-bucket-configuration LocationConstraint="${AWS_REGION}"
+            fi
+          fi
+
+          # Harden minimal settings so uploads work and are encrypted
+          aws s3api put-bucket-encryption --bucket "${ARTIFACT_BUCKET}" --server-side-encryption-configuration '{
+            "Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]
+          }'
+
+          # Block public access
+          aws s3api put-public-access-block --bucket "${ARTIFACT_BUCKET}" --public-access-block-configuration '{
+            "BlockPublicAcls": true,
+            "IgnorePublicAcls": true,
+            "BlockPublicPolicy": true,
+            "RestrictPublicBuckets": true
+          }'
+
+          # Prefer bucket-owner enforced ownership to avoid ACL issues (no-op if not supported)
+          aws s3api put-bucket-ownership-controls --bucket "${ARTIFACT_BUCKET}" --ownership-controls '{
+            "Rules":[{"ObjectOwnership":"BucketOwnerEnforced"}]
+          }' || true
+
+          # Enable versioning (optional but helpful)
+          aws s3api put-bucket-versioning --bucket "${ARTIFACT_BUCKET}" --versioning-configuration Status=Enabled
 
       - name: package backend (app + service)
         shell: bash
