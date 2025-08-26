@@ -116,20 +116,19 @@ jobs:
           # Enable versioning (optional but helpful)
           aws s3api put-bucket-versioning --bucket "${ARTIFACT_BUCKET}" --versioning-configuration Status=Enabled
 
-      - name: debug paths
-        run: |
-            pwd
-            ls -R
-
+        # replace step (package backend (app + service))
       - name: package backend (app + service)
+        working-directory: ${{ github.workspace }}
         shell: bash
         run: |
-          set -euo pipefail
-          # Create a tarball with paths: app/… and scheduler.service at the archive root
+            set -euo pipefail
+            test -d backend/app
+            test -f backend/scheduler.service
             tar -czf backend_release.tgz \
             --owner=0 --group=0 \
-            app scheduler.service
-          ls -lh backend_release.tgz
+            -C backend app scheduler.service
+            ls -lh backend_release.tgz
+
 
       - name: upload artifact to s3 (SSE required)
         shell: bash
