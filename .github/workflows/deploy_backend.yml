@@ -141,53 +141,54 @@ jobs:
       - name: deploy on instances via ssm (tag-targeted)
         shell: bash
         run: |
-          set -euo pipefail
-          read -r -d '' CMD <<'EOS'
-          set -euo pipefail
-          echo "[deploy] starting"
-          : "${ARTIFACT_BUCKET:?missing}"
-          : "${OBJECT_KEY:?missing}"
-          ARTIFACT_S3="s3://${ARTIFACT_BUCKET}/${OBJECT_KEY}"
-          WORKDIR="/opt/app"
-          TMP_TGZ="/tmp/backend_release.tgz"
-          UNIT_SRC="/tmp/scheduler.service"
-          UNIT_DST="/etc/systemd/system/scheduler.service"
+            set -euo pipefail
+            read -r -d '' CMD <<EOF
+            set -euo pipefail
+            echo "[deploy] starting"
+            ARTIFACT_BUCKET="${ARTIFACT_BUCKET}"
+            OBJECT_KEY="${OBJECT_KEY}"
+            : "\${ARTIFACT_BUCKET:?missing}"
+            : "\${OBJECT_KEY:?missing}"
+            ARTIFACT_S3="s3://\${ARTIFACT_BUCKET}/\${OBJECT_KEY}"
+            WORKDIR="/opt/app"
+            TMP_TGZ="/tmp/backend_release.tgz"
+            UNIT_SRC="/tmp/scheduler.service"
+            UNIT_DST="/etc/systemd/system/scheduler.service"
 
-          echo "[deploy] ensure workdir ${WORKDIR}"
-          install -d -m 0755 "${WORKDIR}"
-          chown ec2-user:ec2-user "${WORKDIR}" || true
+            echo "[deploy] ensure workdir \${WORKDIR}"
+            install -d -m 0755 "\${WORKDIR}"
+            chown ec2-user:ec2-user "\${WORKDIR}" || true
 
-          echo "[deploy] download ${ARTIFACT_S3}"
-          aws s3 cp "${ARTIFACT_S3}" "${TMP_TGZ}"
+            echo "[deploy] download \${ARTIFACT_S3}"
+            aws s3 cp "\${ARTIFACT_S3}" "\${TMP_TGZ}"
 
-          echo "[deploy] extract"
-          rm -rf /tmp/app "${UNIT_SRC}" || true
-          tar -xzf "${TMP_TGZ}" -C /tmp
+            echo "[deploy] extract"
+            rm -rf /tmp/app "\${UNIT_SRC}" || true
+            tar -xzf "\${TMP_TGZ}" -C /tmp
 
-          echo "[deploy] rsync app -> ${WORKDIR}"
-          rsync -a --delete /tmp/app/ "${WORKDIR}/"
-          chown -R ec2-user:ec2-user "${WORKDIR}"
+            echo "[deploy] rsync app -> \${WORKDIR}"
+            rsync -a --delete /tmp/app/ "\${WORKDIR}/"
+            chown -R ec2-user:ec2-user "\${WORKDIR}"
 
-          echo "[deploy] install systemd unit"
-          install -D -m 0644 "${UNIT_SRC}" "${UNIT_DST}"
+            echo "[deploy] install systemd unit"
+            install -D -m 0644 "\${UNIT_SRC}" "\${UNIT_DST}"
 
-          echo "[deploy] daemon-reload + enable --now"
-          systemctl daemon-reload
-          systemctl enable --now scheduler.service
+            echo "[deploy] daemon-reload + enable --now"
+            systemctl daemon-reload
+            systemctl enable --now scheduler.service
 
-          echo "[deploy] status"
-          systemctl --no-pager --full status scheduler.service || true
-          echo "[deploy] done"
-          EOS
+            echo "[deploy] status"
+            systemctl --no-pager --full status scheduler.service || true
+            echo "[deploy] done"
+            EOF
 
-          aws ssm send-command \
+            aws ssm send-command \
             --document-name "AWS-RunShellScript" \
             --comment "Deploy backend from artifacts" \
             --targets "Key=${BACKEND_SSM_TARGET_KEY},Values=${BACKEND_SSM_TARGET_VALUE}" \
             --parameters "commands=${CMD}" \
-                         "executionTimeout=600" \
-                         "workingDirectory=/" \
-                         "envVariables=[{name=ARTIFACT_BUCKET,value=${ARTIFACT_BUCKET}},{name=OBJECT_KEY,value=${OBJECT_KEY}}]" \
+                        "executionTimeout=600" \
+                        "workingDirectory=/" \
             --max-concurrency "1" \
             --max-errors "0" \
             --region "${AWS_REGION}" \
