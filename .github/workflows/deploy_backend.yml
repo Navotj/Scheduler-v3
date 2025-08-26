@@ -116,6 +116,11 @@ jobs:
           # Enable versioning (optional but helpful)
           aws s3api put-bucket-versioning --bucket "${ARTIFACT_BUCKET}" --versioning-configuration Status=Enabled
 
+      - name: debug paths
+        run: |
+            pwd
+            ls -R
+
       - name: package backend (app + service)
         shell: bash
         run: |
