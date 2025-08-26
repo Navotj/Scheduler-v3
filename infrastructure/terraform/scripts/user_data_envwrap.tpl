@@ -1,8 +1,7 @@
-# replace function (user_data_envwrap.tpl)
 #!/usr/bin/env bash
-# Log everything for postmortem (view in EC2 -> Monitor and troubleshoot -> Get system log)
-exec > >(tee -a /var/log/user-data.log) 2>&1
-set -euo pipefail
+# Send all stdout+stderr to both user-data.log and the EC2 console
+exec > >(tee -a /var/log/user-data.log /dev/console) 2>&1
+set -euxo pipefail
 
 log() { echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] $*"; }
 
