@@ -145,7 +145,13 @@ jobs:
 
           CMD=$(cat <<'EOS'
           set -euo pipefail
-          echo "[deploy] starting"
+          echo "[deploy] ---------- BEGIN ----------"
+          date -u +"[deploy] UTC: %Y-%m-%dT%H:%M:%SZ"
+          uname -a || true
+          whoami || true
+          id || true
+          echo "[deploy] ENV: ARTIFACT_BUCKET=${ARTIFACT_BUCKET:-<unset>} OBJECT_KEY=${OBJECT_KEY:-<unset>}"
+
           : "${ARTIFACT_BUCKET:?missing}"
           : "${OBJECT_KEY:?missing}"
           ARTIFACT_S3="s3://${ARTIFACT_BUCKET}/${OBJECT_KEY}"
@@ -154,33 +160,70 @@ jobs:
           UNIT_SRC="/tmp/scheduler.service"
           UNIT_DST="/etc/systemd/system/scheduler.service"
 
+          echo "[deploy] ensure workdir: ${WORKDIR}"
           install -d -m 0755 "${WORKDIR}"
           chown ec2-user:ec2-user "${WORKDIR}" || true
+          ls -ld "${WORKDIR}" || true
 
-          aws s3 cp "${ARTIFACT_S3}" "${TMP_TGZ}"
+          echo "[deploy] check aws cli"
+          if ! command -v aws >/dev/null 2>&1; then
+            echo "[deploy] aws cli not found; trying dnf install"
+            dnf -y install awscli || { echo "[deploy] dnf install awscli failed"; exit 21; }
+          fi
+          aws --version || { echo "[deploy] aws --version failed"; exit 22; }
+          echo "[deploy] sts caller identity (for role/creds)"
+          aws sts get-caller-identity || { echo "[deploy] sts failed"; exit 23; }
 
+          echo "[deploy] s3 ls bucket root"
+          aws s3 ls "s3://${ARTIFACT_BUCKET}/" || { echo "[deploy] s3 ls bucket failed"; exit 24; }
+          echo "[deploy] s3 ls object"
+          aws s3 ls "s3://${ARTIFACT_BUCKET}/${OBJECT_KEY}" || { echo "[deploy] s3 ls object failed"; exit 25; }
+
+          echo "[deploy] download: ${ARTIFACT_S3} -> ${TMP_TGZ}"
+          if ! aws s3 cp "${ARTIFACT_S3}" "${TMP_TGZ}"; then
+            echo "[deploy] aws s3 cp FAILED (rc=$?)"
+            exit 26
+          fi
+          ls -lh "${TMP_TGZ}" || true
+
+          echo "[deploy] list archive contents"
+          tar -tzf "${TMP_TGZ}" || { echo "[deploy] tar -tzf failed"; exit 27; }
+
+          echo "[deploy] extract to /tmp"
           rm -rf /tmp/app "${UNIT_SRC}" || true
           tar -xzf "${TMP_TGZ}" -C /tmp
+          echo "[deploy] /tmp listing:"
+          ls -la /tmp | sed 's/^/[tmp] /'
+          echo "[deploy] /tmp/app listing:"
+          ls -la /tmp/app | sed 's/^/[app] /' || true
+          echo "[deploy] unit file exists? ${UNIT_SRC}"
+          ls -la "${UNIT_SRC}" || { echo "[deploy] unit file missing"; exit 28; }
 
-          echo "[deploy] contents after extract:"
-          ls -la /tmp
-          ls -la /tmp/app || true
-
-          # Replace rsync with portable copy (no dependency)
+          echo "[deploy] sync app -> ${WORKDIR}"
           shopt -s dotglob
-          rm -rf "${WORKDIR:?}/"*
           mkdir -p "${WORKDIR}"
-          cp -a /tmp/app/* "${WORKDIR}/" || true
+          rm -rf "${WORKDIR:?}/"* || true
+          cp -a /tmp/app/* "${WORKDIR}/" || { echo "[deploy] copy to workdir failed"; exit 29; }
           shopt -u dotglob
-          chown -R ec2-user:ec2-user "${WORKDIR}"
-
-          install -D -m 0644 "${UNIT_SRC}" "${UNIT_DST}"
-          systemctl daemon-reload
-          systemctl enable --now scheduler.service
-
+          chown -R ec2-user:ec2-user "${WORKDIR}" || true
           echo "[deploy] workdir listing:"
-          ls -la "${WORKDIR}"
+          ls -la "${WORKDIR}" | sed 's/^/[workdir] /'
+
+          echo "[deploy] install systemd unit"
+          install -D -m 0644 "${UNIT_SRC}" "${UNIT_DST}"
+          echo "[deploy] unit installed at ${UNIT_DST}"
+          head -n 50 "${UNIT_DST}" | sed 's/^/[unit] /' || true
+
+          echo "[deploy] systemd reload + enable --now"
+          systemctl daemon-reload
+          systemctl enable --now scheduler.service || { echo "[deploy] systemctl enable/start failed"; systemctl status scheduler.service || true; exit 30; }
+          echo "[deploy] service status:"
           systemctl --no-pager --full status scheduler.service || true
+
+          echo "[deploy] journal tail:"
+          journalctl -u scheduler.service -n 120 --no-pager || true
+
+          echo "[deploy] ---------- END ----------"
           EOS
           )
 
@@ -189,16 +232,18 @@ jobs:
           cat > /tmp/params.json <<JSON
           {
             "commands": [
-              "echo $B64 | base64 -d > /tmp/deploy.sh",
+              "set -euo pipefail",
+              "echo '${B64}' | base64 -d > /tmp/deploy.sh",
               "chmod +x /tmp/deploy.sh",
               "ARTIFACT_BUCKET=${ARTIFACT_BUCKET} OBJECT_KEY=${OBJECT_KEY} bash /tmp/deploy.sh"
             ],
-            "executionTimeout": ["600"],
+            "executionTimeout": ["900"],
             "workingDirectory": ["/"]
           }
           JSON
 
-          aws ssm send-command \
+          echo "[runner] sending SSM command"
+          CID=$(aws ssm send-command \
             --document-name "AWS-RunShellScript" \
             --comment "Deploy backend from artifacts" \
             --targets "Key=${BACKEND_SSM_TARGET_KEY},Values=${BACKEND_SSM_TARGET_VALUE}" \
@@ -207,7 +252,54 @@ jobs:
             --max-errors "0" \
             --region "${AWS_REGION}" \
             --query "Command.CommandId" \
-            --output text
+            --output text)
+
+          echo "[runner] command id: ${CID}"
+
+          echo "[runner] waiting for command to finish and printing output"
+          ATTEMPTS=120
+          SLEEP=5
+          for i in $(seq 1 ${ATTEMPTS}); do
+            STATUS=$(aws ssm list-command-invocations \
+              --command-id "${CID}" \
+              --details \
+              --region "${AWS_REGION}" \
+              --query 'CommandInvocations[0].Status' \
+              --output text 2>/dev/null || echo "Unknown")
+            echo "[runner] poll ${i}/${ATTEMPTS}: status=${STATUS}"
+            case "${STATUS}" in
+              Success|Cancelled|TimedOut|Failed)
+                break
+                ;;
+              *)
+                sleep "${SLEEP}"
+                ;;
+            esac
+          done
+
+          echo "[runner] fetching detailed invocation output (JSON)"
+          aws ssm list-command-invocations \
+            --command-id "${CID}" \
+            --details \
+            --region "${AWS_REGION}" \
+            --output json > /tmp/ssm_result.json || true
+          cat /tmp/ssm_result.json || true
+
+          # Also try to extract the first plugin's stdout/stderr in text
+          echo "[runner] stdout:"
+          aws ssm list-command-invocations \
+            --command-id "${CID}" \
+            --details \
+            --region "${AWS_REGION}" \
+            --query 'CommandInvocations[0].CommandPlugins[0].Output' \
+            --output text || true
+          echo "[runner] stderr:"
+          aws ssm list-command-invocations \
+            --command-id "${CID}" \
+            --details \
+            --region "${AWS_REGION}" \
+            --query 'CommandInvocations[0].CommandPlugins[0].StandardErrorContent' \
+            --output text || true
 
       - name: show last 80 journal lines (all matching instances)
         if: always()
