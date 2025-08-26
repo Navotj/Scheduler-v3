@@ -162,12 +162,24 @@ jobs:
           rm -rf /tmp/app "${UNIT_SRC}" || true
           tar -xzf "${TMP_TGZ}" -C /tmp
 
-          rsync -a --delete /tmp/app/ "${WORKDIR}/"
+          echo "[deploy] contents after extract:"
+          ls -la /tmp
+          ls -la /tmp/app || true
+
+          # Replace rsync with portable copy (no dependency)
+          shopt -s dotglob
+          rm -rf "${WORKDIR:?}/"*
+          mkdir -p "${WORKDIR}"
+          cp -a /tmp/app/* "${WORKDIR}/" || true
+          shopt -u dotglob
           chown -R ec2-user:ec2-user "${WORKDIR}"
 
           install -D -m 0644 "${UNIT_SRC}" "${UNIT_DST}"
           systemctl daemon-reload
           systemctl enable --now scheduler.service
+
+          echo "[deploy] workdir listing:"
+          ls -la "${WORKDIR}"
           systemctl --no-pager --full status scheduler.service || true
           EOS
           )
