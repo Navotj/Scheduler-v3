@@ -22,17 +22,6 @@ dnf -y makecache
 log "Install shadow-utils and jq (idempotent)"
 dnf -y install shadow-utils jq || true
 
-# --- begin insert: enable EPEL 9 and install fish ---
-log "Enable EPEL 9 and install fish"
-if ! command -v fish >/dev/null 2>&1; then
-  dnf -y install dnf-plugins-core || true
-  dnf -y install https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm
-  # Some deps live in CRB on RHEL-like; ignore if repo name not present on AL2023
-  dnf config-manager --set-enabled crb || true
-  dnf -y --refresh install fish
-fi
-# --- end insert ---
-
 # ---------- Ensure/refresh SSM agent and registration ----------
 log "Detect region via IMDSv2"
 TOKEN="$(curl -sS -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 60" || true)"
