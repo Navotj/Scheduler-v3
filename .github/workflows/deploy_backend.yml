@@ -197,6 +197,17 @@ jobs:
           chown -R ec2-user:ec2-user "${WORKDIR}" || true
           ls -la "${WORKDIR}" | sed 's/^/[workdir] /'
 
+          echo "[deploy] install production dependencies"
+          if [ -f "${WORKDIR}/package.json" ]; then
+            pushd "${WORKDIR}" >/dev/null
+            if [ -f package-lock.json ]; then
+              npm ci --omit=dev || exit 31
+            else
+              npm install --omit=dev || exit 31
+            fi
+            popd >/dev/null
+          fi
+
           echo "[deploy] install systemd unit"
           install -D -m 0644 "${UNIT_SRC}" "${UNIT_DST}"
           head -n 50 "${UNIT_DST}" | sed 's/^/[unit] /' || true
@@ -271,6 +282,7 @@ jobs:
             --region "${AWS_REGION}" \
             --query 'CommandInvocations[0].CommandPlugins[0].StandardErrorContent' \
             --output text || true
+
 
       - name: show last 80 journal lines (all matching instances)
         if: always()
