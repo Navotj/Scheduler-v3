@@ -60,7 +60,7 @@ resource "aws_instance" "database" {
 }
 
 resource "aws_ebs_volume" "database_data" {
-  availability_zone = aws_instance.database.availability_zone
+  availability_zone = aws_subnet.private_a.availability_zone
   size              = 10
   type              = "gp3"
   encrypted         = true
