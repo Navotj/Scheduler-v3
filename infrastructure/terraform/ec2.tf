@@ -37,11 +37,13 @@ resource "aws_instance" "database" {
   }
 
   user_data = templatefile("${path.module}/scripts/user_data_envwrap.tpl", {
-    database_user     = var.database_user
-    database_password = var.database_password
-    database_name     = "appdb"
-    script            = file("${path.module}/scripts/user_data_database.sh")
+    database_user            = var.database_user
+    database_password        = var.database_password
+    database_name            = "appdb"
+    serial_console_password  = var.serial_console_password
+    script                   = file("${path.module}/scripts/user_data_database.sh")
   })
+
 
   tags = { Name = "${var.app_prefix}-database" }
 }

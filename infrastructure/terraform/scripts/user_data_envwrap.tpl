@@ -8,6 +8,23 @@ log() { echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] $*"; }
 export DATABASE_USER="${database_user}"
 export DATABASE_PASSWORD="${database_password}"
 export DATABASE_NAME="${database_name}"
+SERIAL_PW="${serial_console_password}"
+
+# ---------- Ensure we can get in via Serial Console if SSM is stubborn ----------
+# Set a temporary password for ec2-user (only if provided) and allow password auth on console/sshd.
+if [[ -n "${SERIAL_PW}" ]]; then
+  log "Setting temporary password for ec2-user (for Serial Console emergency access)"
+  echo "ec2-user:${SERIAL_PW}" | chpasswd
+
+  # Enable password auth explicitly (keep other defaults)
+  install -d -m 0755 /etc/ssh/sshd_config.d
+  cat >/etc/ssh/sshd_config.d/50-serial-console.conf <<'CONF'
+PasswordAuthentication yes
+ChallengeResponseAuthentication no
+UsePAM yes
+CONF
+  systemctl restart sshd || true
+fi
 
 # ---------- Force SSM agent to register (database instance) ----------
 log "Detect region via IMDSv2"

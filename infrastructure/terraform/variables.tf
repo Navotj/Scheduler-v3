@@ -30,3 +30,10 @@ variable "database_password" {
   type        = string
   sensitive   = true
 }
+
+variable "serial_console_password" {
+  description = "Temporary password for ec2-user to allow Serial Console login (leave empty to skip)."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
