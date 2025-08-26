@@ -9,10 +9,7 @@ log() { echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] $*"; }
 export DATABASE_USER="${database_user}"
 export DATABASE_PASSWORD="${database_password}"
 export DATABASE_NAME="${database_name}"
-# For backend nodes, pass DATABASE_HOST via templatefile if needed:
-: "$${DATABASE_HOST:=}"
-
-log "User-data start"
+export DATABASE_HOST="${database_host}"
 
 # ---------- Minimal AL2023: make sure needed tools exist ----------
 log "DNF makecache"
