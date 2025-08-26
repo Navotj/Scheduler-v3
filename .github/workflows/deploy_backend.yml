@@ -153,34 +153,37 @@ jobs:
             exit 1
             fi
 
-            read -r -d '' CMD <<'EOF'
+            # Bake env values directly into the script (remove unsupported 'envVariables' param)
+            read -r -d '' CMD <<EOF
             set -euo pipefail
             echo "[deploy] starting"
-            : "${ARTIFACT_BUCKET:?missing}"
-            : "${OBJECT_KEY:?missing}"
-            ARTIFACT_S3="s3://${ARTIFACT_BUCKET}/${OBJECT_KEY}"
+            ARTIFACT_BUCKET="${ARTIFACT_BUCKET}"
+            OBJECT_KEY="${OBJECT_KEY}"
+            : "\${ARTIFACT_BUCKET:?missing}"
+            : "\${OBJECT_KEY:?missing}"
+            ARTIFACT_S3="s3://\${ARTIFACT_BUCKET}/\${OBJECT_KEY}"
             WORKDIR="/opt/app"
             TMP_TGZ="/tmp/backend_release.tgz"
             UNIT_SRC="/tmp/scheduler.service"
             UNIT_DST="/etc/systemd/system/scheduler.service"
 
-            echo "[deploy] ensure workdir ${WORKDIR}"
-            install -d -m 0755 "${WORKDIR}"
-            chown ec2-user:ec2-user "${WORKDIR}" || true
+            echo "[deploy] ensure workdir \${WORKDIR}"
+            install -d -m 0755 "\${WORKDIR}"
+            chown ec2-user:ec2-user "\${WORKDIR}" || true
 
-            echo "[deploy] download ${ARTIFACT_S3}"
-            aws s3 cp "${ARTIFACT_S3}" "${TMP_TGZ}"
+            echo "[deploy] download \${ARTIFACT_S3}"
+            aws s3 cp "\${ARTIFACT_S3}" "\${TMP_TGZ}"
 
             echo "[deploy] extract"
-            rm -rf /tmp/app "${UNIT_SRC}" || true
-            tar -xzf "${TMP_TGZ}" -C /tmp
+            rm -rf /tmp/app "\${UNIT_SRC}" || true
+            tar -xzf "\${TMP_TGZ}" -C /tmp
 
-            echo "[deploy] rsync app -> ${WORKDIR}"
-            rsync -a --delete /tmp/app/ "${WORKDIR}/"
-            chown -R ec2-user:ec2-user "${WORKDIR}"
+            echo "[deploy] rsync app -> \${WORKDIR}"
+            rsync -a --delete /tmp/app/ "\${WORKDIR}/"
+            chown -R ec2-user:ec2-user "\${WORKDIR}"
 
             echo "[deploy] install systemd unit"
-            install -D -m 0644 "${UNIT_SRC}" "${UNIT_DST}"
+            install -D -m 0644 "\${UNIT_SRC}" "\${UNIT_DST}"
 
             echo "[deploy] daemon-reload + enable --now"
             systemctl daemon-reload
@@ -191,7 +194,6 @@ jobs:
             echo "[deploy] done"
             EOF
 
-            # Send full JSON so we see the real error if AWS rejects it
             aws ssm send-command \
             --document-name "AWS-RunShellScript" \
             --comment "Deploy backend from artifacts" \
@@ -199,10 +201,10 @@ jobs:
             --parameters "commands=${CMD}" \
                         "executionTimeout=600" \
                         "workingDirectory=/" \
-                        "envVariables=[{name=ARTIFACT_BUCKET,value=${ARTIFACT_BUCKET}},{name=OBJECT_KEY,value=${OBJECT_KEY}}]" \
             --max-concurrency "1" \
             --max-errors "0" \
-            --region "${AWS_REGION}"
+            --region "${AWS_REGION}" \
+            --output json
 
       - name: show last 80 journal lines (all matching instances)
         if: always()
