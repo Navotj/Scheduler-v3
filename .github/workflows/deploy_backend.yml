@@ -1,4 +1,3 @@
-# replace file (deploy_backend.yml)
 name: Deploy Backend
 
 on:
@@ -122,10 +121,9 @@ jobs:
         run: |
           set -euo pipefail
           # Create a tarball with paths: app/… and scheduler.service at the archive root
-          tar -czf backend_release.tgz \
+            tar -czf backend_release.tgz \
             --owner=0 --group=0 \
-            -C backend app \
-            -C backend scheduler.service
+            app scheduler.service
           ls -lh backend_release.tgz
 
       - name: upload artifact to s3 (SSE required)
