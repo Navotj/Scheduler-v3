@@ -1,0 +1,167 @@
+name: Deploy Backend
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [ "main" ]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/deploy_backend.yml'
+
+concurrency:
+  group: deploy-backend-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  APP_PREFIX: ${{ vars.APP_PREFIX }}
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  # Target all SSM-managed instances with this EC2 tag (stable across recreations)
+  BACKEND_SSM_TARGET_KEY:   tag:Name
+  BACKEND_SSM_TARGET_VALUE: ${{ vars.APP_PREFIX }}-backend
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      AWS_ACCESS_KEY_ID:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@v5
+
+      - name: configure aws credentials (keys only)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ env.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ env.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ env.AWS_REGION }}
+
+      - name: ensure aws cli
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v aws >/dev/null 2>&1; then
+            sudo apt-get update -y
+            sudo apt-get install -y unzip >/dev/null
+            curl -sSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o awscliv2.zip
+            unzip -q awscliv2.zip
+            sudo ./aws/install
+          fi
+          aws --version
+
+      - name: sanity checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "${APP_PREFIX}" ]] || { echo "APP_PREFIX is empty"; exit 1; }
+          [[ -n "${AWS_REGION}"  ]] || { echo "AWS_REGION is empty";  exit 1; }
+          [[ -d "backend/app" ]] || { echo "missing: backend/app"; exit 1; }
+          [[ -f "backend/scheduler.service" ]] || { echo "missing: backend/scheduler.service"; exit 1; }
+
+          # Artifact bucket follows our convention
+          ARTIFACT_BUCKET="${APP_PREFIX}-artifacts"
+          aws s3 ls "s3://${ARTIFACT_BUCKET}" >/dev/null
+          echo "ARTIFACT_BUCKET=${ARTIFACT_BUCKET}" >> "$GITHUB_ENV"
+
+          # Optional: warn if no instances currently match the SSM target (doesn't hard-fail)
+          MATCHING_INSTANCES=$(aws ssm describe-instance-information \
+            --filters "Key=tag:Name,Values=${BACKEND_SSM_TARGET_VALUE}" \
+            --query "InstanceInformationList[].InstanceId" --output text || true)
+          if [[ -z "${MATCHING_INSTANCES}" || "${MATCHING_INSTANCES}" == "None" ]]; then
+            echo "WARN: No SSM-managed instances currently match ${BACKEND_SSM_TARGET_KEY}=${BACKEND_SSM_TARGET_VALUE}" >&2
+          else
+            echo "Found SSM instances: ${MATCHING_INSTANCES}"
+          fi
+
+      - name: package backend (app + service)
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Create a tarball with paths: app/… and scheduler.service at the archive root
+          tar -czf backend_release.tgz \
+            --owner=0 --group=0 \
+            -C backend app \
+            -C backend scheduler.service
+          ls -lh backend_release.tgz
+
+      - name: upload artifact to s3 (SSE required)
+        shell: bash
+        run: |
+          set -euo pipefail
+          OBJECT_KEY="releases/backend_release.tgz"
+          aws s3 cp backend_release.tgz "s3://${ARTIFACT_BUCKET}/${OBJECT_KEY}" --sse AES256 --only-show-errors
+          echo "OBJECT_KEY=${OBJECT_KEY}" >> "$GITHUB_ENV"
+
+      - name: deploy on instances via ssm (tag-targeted)
+        shell: bash
+        run: |
+          set -euo pipefail
+          read -r -d '' CMD <<'EOS'
+          set -euo pipefail
+          echo "[deploy] starting"
+          : "${ARTIFACT_BUCKET:?missing}"
+          : "${OBJECT_KEY:?missing}"
+          ARTIFACT_S3="s3://${ARTIFACT_BUCKET}/${OBJECT_KEY}"
+          WORKDIR="/opt/app"
+          TMP_TGZ="/tmp/backend_release.tgz"
+          UNIT_SRC="/tmp/scheduler.service"
+          UNIT_DST="/etc/systemd/system/scheduler.service"
+
+          echo "[deploy] ensure workdir ${WORKDIR}"
+          install -d -m 0755 "${WORKDIR}"
+          chown ec2-user:ec2-user "${WORKDIR}" || true
+
+          echo "[deploy] download ${ARTIFACT_S3}"
+          aws s3 cp "${ARTIFACT_S3}" "${TMP_TGZ}"
+
+          echo "[deploy] extract"
+          rm -rf /tmp/app "${UNIT_SRC}" || true
+          tar -xzf "${TMP_TGZ}" -C /tmp
+
+          echo "[deploy] rsync app -> ${WORKDIR}"
+          rsync -a --delete /tmp/app/ "${WORKDIR}/"
+          chown -R ec2-user:ec2-user "${WORKDIR}"
+
+          echo "[deploy] install systemd unit"
+          install -D -m 0644 "${UNIT_SRC}" "${UNIT_DST}"
+
+          echo "[deploy] daemon-reload + enable --now"
+          systemctl daemon-reload
+          systemctl enable --now scheduler.service
+
+          echo "[deploy] status"
+          systemctl --no-pager --full status scheduler.service || true
+          echo "[deploy] done"
+          EOS
+
+          aws ssm send-command \
+            --document-name "AWS-RunShellScript" \
+            --comment "Deploy backend from artifacts" \
+            --targets "Key=${BACKEND_SSM_TARGET_KEY},Values=${BACKEND_SSM_TARGET_VALUE}" \
+            --parameters "commands=${CMD}" \
+                         "executionTimeout=600" \
+                         "workingDirectory=/" \
+                         "envVariables=[{name=ARTIFACT_BUCKET,value=${ARTIFACT_BUCKET}},{name=OBJECT_KEY,value=${OBJECT_KEY}}]" \
+            --max-concurrency "1" \
+            --max-errors "0" \
+            --region "${AWS_REGION}" \
+            --output text --query "Command.CommandId"
+
+      - name: show last 80 journal lines (all matching instances)
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          aws ssm send-command \
+            --document-name "AWS-RunShellScript" \
+            --comment "Show scheduler.service logs" \
+            --targets "Key=${BACKEND_SSM_TARGET_KEY},Values=${BACKEND_SSM_TARGET_VALUE}" \
+            --parameters commands="journalctl -u scheduler.service -n 80 --no-pager || true" \
+            --max-concurrency "1" \
+            --max-errors "0" \
+            --region "${AWS_REGION}" \
+            --output text --query "Command.CommandId"
