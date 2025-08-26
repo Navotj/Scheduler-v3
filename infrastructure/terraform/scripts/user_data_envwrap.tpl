@@ -1,5 +1,6 @@
+# replace function (user_data_envwrap.tpl)
 #!/usr/bin/env bash
-# Send all stdout+stderr to both user-data.log and the EC2 console
+# Mirror ALL output to both a file and the EC2 console buffer so get-console-output can see it.
 exec > >(tee -a /var/log/user-data.log /dev/console) 2>&1
 set -euxo pipefail
 
@@ -18,26 +19,20 @@ log "DNF makecache"
 dnf -y makecache
 
 # chpasswd comes from shadow-utils on minimal images; install it (idempotent)
-log "Install shadow-utils (for chpasswd) and core tools"
-dnf -y install shadow-utils curl jq >/dev/null 2>&1 || true
+log "Install shadow-utils, curl, jq"
+dnf -y install shadow-utils curl jq || true
 
 # ---------- Optional: set serial-console password for ec2-user ----------
 if [[ -n "$${SERIAL_PW}" ]]; then
   log "Setting temporary password for ec2-user (Serial Console fallback)"
-  if command -v chpasswd >/dev/null 2>&1; then
-    echo "ec2-user:$${SERIAL_PW}" | chpasswd || log "WARN: chpasswd failed"
-  else
-    log "WARN: chpasswd not found even after install attempt"
-  fi
+  echo "ec2-user:$${SERIAL_PW}" | chpasswd || log "WARN: chpasswd failed"
 
-  # Ensure password auth allowed for emergency (does not open SSH to internet; SGs still gate)
   install -d -m 0755 /etc/ssh/sshd_config.d
   cat >/etc/ssh/sshd_config.d/50-serial-console.conf <<'CONF'
 PasswordAuthentication yes
 ChallengeResponseAuthentication no
 UsePAM yes
 CONF
-  # Don't fail if systemd isn't ready yet
   systemctl restart sshd || true
 fi
 
@@ -53,7 +48,7 @@ else
 fi
 
 log "Install (or reinstall) amazon-ssm-agent"
-dnf -y reinstall amazon-ssm-agent >/dev/null 2>&1 || dnf -y install amazon-ssm-agent
+dnf -y reinstall amazon-ssm-agent || dnf -y install amazon-ssm-agent
 
 log "Pin SSM agent to region and clear any stale registration"
 install -d -m 0755 /etc/amazon/ssm

@@ -143,7 +143,7 @@ jobs:
           set -euo pipefail
           terraform apply -auto-approve tfplan_full
 
-      # --- NEW STEP: dump EC2 console/system log for debugging user-data ---
+# replace function (Fetch EC2 console logs step)
       - name: Fetch EC2 console logs
         if: always()
         run: |
@@ -151,10 +151,21 @@ jobs:
           DB_ID="$(terraform output -raw database_instance_id 2>/dev/null || true)"
           BE_ID="$(terraform output -raw backend_instance_id 2>/dev/null || true)"
 
+          fetch_logs () {
+            local id="$1"
+            echo "===== Console log for ${id} ====="
+            # On Nitro instances you must pass --latest to get the current buffer.
+            # Query only the Output field to actually print the log body.
+            aws ec2 get-console-output --region "${AWS_REGION}" --instance-id "${id}" --latest --query 'Output' --output text || true
+          }
+
           for ID in $DB_ID $BE_ID; do
-            if [[ -n "$ID" && "$ID" != "None" ]]; then
-              echo "===== Console log for $ID ====="
-              aws ec2 get-console-output --region "${AWS_REGION}" --instance-id "$ID" --output text || true
+            if [[ -n "${ID}" && "${ID}" != "None" ]]; then
+              # Retry a few times since logs can take seconds to flush
+              for i in {1..6}; do
+                if fetch_logs "${ID}" | grep -q . ; then break; fi
+                sleep 10
+              done
             fi
           done
 
