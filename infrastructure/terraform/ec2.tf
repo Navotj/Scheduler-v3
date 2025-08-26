@@ -20,12 +20,6 @@ resource "aws_instance" "backend" {
   }
 
   #user_data = file("${path.module}/scripts/user_data_backend.sh")
-  user_data = <<-EOT
-    #!/bin/bash
-    set -euxo pipefail
-    dnf install -y amazon-ssm-agent || true
-    systemctl enable --now amazon-ssm-agent
-  EOT
 
   tags = { Name = "${var.app_prefix}-backend" }
 }
@@ -42,13 +36,12 @@ resource "aws_instance" "database" {
     http_tokens = "required"
   }
 
-  #user_data = file("${path.module}/scripts/user_data_database.sh")
-  user_data = <<-EOT
-    #!/bin/bash
-    set -euxo pipefail
-    dnf install -y amazon-ssm-agent || true
-    systemctl enable --now amazon-ssm-agent
-  EOT
+  user_data = templatefile("${path.module}/scripts/user_data_envwrap.tpl", {
+    database_user     = var.database_user
+    database_password = var.database_password
+    database_name     = "appdb"
+    script            = file("${path.module}/scripts/user_data_database.sh")
+  })
 
   tags = { Name = "${var.app_prefix}-database" }
 }

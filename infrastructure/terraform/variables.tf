@@ -18,3 +18,15 @@ locals {
   api_domain        = "api.${var.root_domain}"
   frontend_hostname = "www.${var.root_domain}"
 }
+
+variable "database_user" {
+  description = "MongoDB application username"
+  type        = string
+  sensitive   = true
+}
+
+variable "database_password" {
+  description = "MongoDB application password"
+  type        = string
+  sensitive   = true
+}

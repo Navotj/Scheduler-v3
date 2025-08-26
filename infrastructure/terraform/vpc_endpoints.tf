@@ -1,5 +1,6 @@
-# replace file (vpc_endpoints.tf)
+##############################
 # SSM connectivity without public internet. Minimal interface endpoints + S3 gateway.
+##############################
 
 data "aws_region" "current" {}
 
@@ -66,4 +67,14 @@ resource "aws_vpc_endpoint" "s3_gateway" {
   vpc_endpoint_type = "Gateway"
   route_table_ids   = [aws_route_table.private.id]
   tags              = { Name = "${var.app_prefix}-vpce-s3" }
+}
+
+# EC2 Instance Connect Endpoint (for SSH via AWS Console to private instances)
+resource "aws_ec2_instance_connect_endpoint" "eic" {
+  subnet_id          = aws_subnet.private_a.id
+  security_group_ids = [aws_security_group.backend_ssh.id]
+
+  tags = {
+    Name = "${var.app_prefix}-eic-endpoint"
+  }
 }
