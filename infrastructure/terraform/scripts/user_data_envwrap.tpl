@@ -12,8 +12,8 @@ export DATABASE_NAME="${database_name}"
 # ---------- Force SSM agent to register (database instance) ----------
 log "Detect region via IMDSv2"
 TOKEN="$(curl -sS -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 60")"
-REGION="$(curl -sS -H "X-aws-ec2-metadata-token: ${TOKEN}" http://169.254.169.254/latest/dynamic/instance-identity/document | awk -F\" '/region/ {print $4}')"
-log "Region: ${REGION}"
+REGION="$(curl -sS -H "X-aws-ec2-metadata-token: $${TOKEN}" http://169.254.169.254/latest/dynamic/instance-identity/document | awk -F\" '/region/ {print $4}')"
+log "Region: $${REGION}"
 
 log "Refresh dnf metadata"
 dnf -y makecache
@@ -23,7 +23,7 @@ dnf -y reinstall amazon-ssm-agent || dnf -y install amazon-ssm-agent
 
 log "Pin SSM agent to region and clear any stale registration"
 install -d -m 0755 /etc/amazon/ssm
-printf '{"Agent":{"Region":"%s"}}\n' "${REGION}" > /etc/amazon/ssm/amazon-ssm-agent.json
+printf '{"Agent":{"Region":"%s"}}\n' "$${REGION}" > /etc/amazon/ssm/amazon-ssm-agent.json
 systemctl stop amazon-ssm-agent || true
 rm -rf /var/lib/amazon/ssm/*
 systemctl enable --now amazon-ssm-agent
