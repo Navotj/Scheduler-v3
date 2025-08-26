@@ -36,6 +36,8 @@ jobs:
       TF_VAR_database_user: ${{ secrets.database_user }}
       TF_VAR_database_password: ${{ secrets.database_password }}
 
+      TF_VAR_serial_console_password: ${{ secrets.SERIAL_CONSOLE_PASSWORD }}
+
       TF_IN_AUTOMATION: true
 
     steps:
