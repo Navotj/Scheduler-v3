@@ -19,7 +19,13 @@ resource "aws_instance" "backend" {
     http_tokens = "required"
   }
 
-  #user_data = file("${path.module}/scripts/user_data_backend.sh")
+  user_data = templatefile("${path.module}/scripts/user_data_envwrap.tpl", {
+    database_user            = var.database_user
+    database_password        = var.database_password
+    database_name            = "appdb"
+    database_host            = aws_instance.database.private_ip
+    script                   = file("${path.module}/scripts/user_data_backend.sh")
+  })
 
   tags = { Name = "${var.app_prefix}-backend" }
 }
@@ -41,9 +47,14 @@ resource "aws_instance" "database" {
     database_user            = var.database_user
     database_password        = var.database_password
     database_name            = "appdb"
-    serial_console_password  = var.serial_console_password
     script                   = file("${path.module}/scripts/user_data_database.sh")
   })
+
+  root_block_device {
+    volume_type           = "gp3"
+    volume_size           = 6
+    delete_on_termination = true
+  }
 
   tags = { Name = "${var.app_prefix}-database" }
 }
@@ -54,6 +65,7 @@ resource "aws_ebs_volume" "database_data" {
   type              = "gp3"
   encrypted         = true
   tags = { Name = "${var.app_prefix}-database-data" }
+  lifecycle { prevent_destroy = true }
 }
 
 resource "aws_volume_attachment" "database_data_attach" {

@@ -1,49 +1,36 @@
 #!/usr/bin/env bash
-# Mirror ALL output to both a file and the EC2 console buffer so get-console-output can see it.
+# Mirror output to both a file and the EC2 console buffer.
 exec > >(tee -a /var/log/user-data.log /dev/console) 2>&1
-set -euxo pipefail
+set -euo pipefail
 
 log() { echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] $*"; }
 
-# ---------- Injected DB env ----------
+# ---------- Injected env (safe: no -x echoing) ----------
 export DATABASE_USER="${database_user}"
 export DATABASE_PASSWORD="${database_password}"
 export DATABASE_NAME="${database_name}"
-SERIAL_PW="${serial_console_password}"
+# For backend nodes, pass DATABASE_HOST via templatefile if needed:
+: "${DATABASE_HOST:=}"
 
-log "User-data start (database node)"
+log "User-data start"
 
 # ---------- Minimal AL2023: make sure needed tools exist ----------
 log "DNF makecache"
 dnf -y makecache
 
-# chpasswd comes from shadow-utils on minimal images; install it (idempotent)
-log "Install shadow-utils, curl, jq"
-dnf -y install shadow-utils curl jq || true
+# Avoid curl-minimal ↔ curl conflict; install only what's needed.
+log "Install shadow-utils and jq (idempotent)"
+dnf -y install shadow-utils jq || true
 
-# ---------- Optional: set serial-console password for ec2-user ----------
-if [[ -n "$${SERIAL_PW}" ]]; then
-  log "Setting temporary password for ec2-user (Serial Console fallback)"
-  echo "ec2-user:$${SERIAL_PW}" | chpasswd || log "WARN: chpasswd failed"
-
-  install -d -m 0755 /etc/ssh/sshd_config.d
-  cat >/etc/ssh/sshd_config.d/50-serial-console.conf <<'CONF'
-PasswordAuthentication yes
-ChallengeResponseAuthentication no
-UsePAM yes
-CONF
-  systemctl restart sshd || true
-fi
-
-# ---------- Force SSM agent to register (database instance) ----------
+# ---------- Ensure/refresh SSM agent and registration ----------
 log "Detect region via IMDSv2"
 TOKEN="$(curl -sS -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 60" || true)"
-REGION="$(curl -sS -H "X-aws-ec2-metadata-token: $${TOKEN}" http://169.254.169.254/latest/dynamic/instance-identity/document 2>/dev/null | jq -r .region || true)"
-if [[ -z "$${REGION}" || "$${REGION}" == "null" ]]; then
+REGION="$(curl -sS -H "X-aws-ec2-metadata-token: ${TOKEN}" http://169.254.169.254/latest/dynamic/instance-identity/document 2>/dev/null | jq -r .region || true)"
+if [[ -z "${REGION}" || "${REGION}" == "null" ]]; then
   REGION="eu-central-1"
-  log "IMDS region lookup failed; defaulting to $${REGION}"
+  log "IMDS region lookup failed; defaulting to ${REGION}"
 else
-  log "Region: $${REGION}"
+  log "Region: ${REGION}"
 fi
 
 log "Install (or reinstall) amazon-ssm-agent"
@@ -51,19 +38,19 @@ dnf -y reinstall amazon-ssm-agent || dnf -y install amazon-ssm-agent
 
 log "Pin SSM agent to region and clear any stale registration"
 install -d -m 0755 /etc/amazon/ssm
-printf '{"Agent":{"Region":"%s"}}\n' "$${REGION}" > /etc/amazon/ssm/amazon-ssm-agent.json
+printf '{"Agent":{"Region":"%s"}}\n' "${REGION}" > /etc/amazon/ssm/amazon-ssm-agent.json
 systemctl stop amazon-ssm-agent || true
 rm -rf /var/lib/amazon/ssm/* || true
 systemctl enable --now amazon-ssm-agent || true
 
-# ---------- Run database bootstrap ----------
+# ---------- Execute role-specific payload ----------
 install -d -m 0755 /opt/bootstrap
-cat > /opt/bootstrap/user_data_database.sh <<'EOS'
+cat > /opt/bootstrap/user_data_payload.sh <<'EOS'
 ${script}
 EOS
-chmod 0755 /opt/bootstrap/user_data_database.sh
+chmod 0755 /opt/bootstrap/user_data_payload.sh
 
-log "Executing database bootstrap script"
-/opt/bootstrap/user_data_database.sh || log "WARN: database bootstrap script exited non-zero"
+log "Executing payload script"
+/opt/bootstrap/user_data_payload.sh || log "WARN: payload script exited non-zero"
 
-log "User-data completed (database node)"
+log "User-data completed"
