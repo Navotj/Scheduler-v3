@@ -31,3 +31,34 @@ resource "aws_iam_instance_profile" "database_profile" {
   name_prefix = "${var.app_prefix}-database-"
   role        = aws_iam_role.ec2_ssm_role.name
 }
+
+resource "aws_iam_role_policy" "backend_artifacts_read" {
+  name = "${var.app_prefix}-backend-artifacts-read"
+  role = aws_iam_role.backend_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [
+      {
+        Sid: "ListArtifactsPrefix",
+        Effect: "Allow",
+        Action: ["s3:ListBucket"],
+        Resource: "arn:aws:s3:::${var.app_prefix}-artifacts",
+        Condition: {
+          StringLike: {
+            "s3:prefix": [
+              "releases/*",
+              "releases/"s
+            ]
+          }
+        }
+      },
+      {
+        Sid: "GetArtifactsObjects",
+        Effect: "Allow",
+        Action: ["s3:GetObject"],
+        Resource: "arn:aws:s3:::${var.app_prefix}-artifacts/*"
+      }
+    ]
+  })
+}
