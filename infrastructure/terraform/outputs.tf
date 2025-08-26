@@ -27,3 +27,13 @@ output "frontend_bucket_name" {
   description = "Name of the private S3 bucket used as the CloudFront origin."
   value       = aws_s3_bucket.frontend.bucket
 }
+
+output "backend_instance_id" {
+  value       = aws_instance.backend.id
+  description = "EC2 ID of backend"
+}
+
+output "database_instance_id" {
+  value       = aws_instance.database.id
+  description = "EC2 ID of database"
+}
