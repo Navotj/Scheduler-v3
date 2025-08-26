@@ -1,3 +1,4 @@
+# replace file (scripts/user_data_database.sh)
 #!/usr/bin/env bash
 set -euo pipefail
 
@@ -6,6 +7,67 @@ set -euo pipefail
 DB_NAME="${DATABASE_NAME:-appdb}"
 
 log() { echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] $*"; }
+
+is_auth_enabled() {
+  # Return 0 if /etc/mongod.conf has security.authorization: "enabled"
+  grep -qE '^\s*security\s*:' /etc/mongod.conf && grep -qE '^\s*authorization\s*:\s*"enabled"' /etc/mongod.conf
+}
+
+ensure_bind_all() {
+  # Ensure net.bindIp: 0.0.0.0 is present; return 0 if changed, 1 if no change
+  local changed=1
+  if grep -qE '^\s*bindIp\s*:' /etc/mongod.conf; then
+    if ! grep -qE '^\s*bindIp\s*:\s*0\.0\.0\.0' /etc/mongod.conf; then
+      sed -i 's/^\(\s*bindIp\s*:\s*\).*/\10.0.0.0/' /etc/mongod.conf
+      changed=0
+    fi
+  else
+    if ! grep -qE '^\s*net\s*:' /etc/mongod.conf; then
+      printf "\nnet:\n  bindIp: 0.0.0.0\n" >> /etc/mongod.conf
+      changed=0
+    else
+      awk '
+        BEGIN{done=0}
+        /^net\s*:/ {print; getline; if($0 !~ /bindIp/){print "  bindIp: 0.0.0.0"; done=1} else {print} next}
+        {print}
+      ' /etc/mongod.conf > /etc/mongod.conf.new && mv /etc/mongod.conf.new /etc/mongod.conf
+      changed=0
+    fi
+  fi
+  return $changed
+}
+
+enable_auth_if_needed() {
+  # Enable security.authorization: "enabled"; return 0 if changed, 1 if no change
+  local changed=1
+  if grep -qE '^\s*authorization\s*:' /etc/mongod.conf; then
+    if ! grep -qE '^\s*authorization\s*:\s*"enabled"' /etc/mongod.conf; then
+      sed -i 's/^\(\s*authorization\s*:\s*\).*/\1"enabled"/' /etc/mongod.conf
+      changed=0
+    fi
+  else
+    if ! grep -qE '^\s*security\s*:' /etc/mongod.conf; then
+      printf "\nsecurity:\n  authorization: \"enabled\"\n" >> /etc/mongod.conf
+      changed=0
+    else
+      awk '
+        BEGIN{added=0}
+        /^security\s*:/ {print; getline; if($0 !~ /authorization/){print "  authorization: \"enabled\""; added=1} else {print} next}
+        {print}
+      ' /etc/mongod.conf > /etc/mongod.conf.new && mv /etc/mongod.conf.new /etc/mongod.conf
+      changed=0
+    fi
+  fi
+  return $changed
+}
+
+mongo_ping_noauth() {
+  mongosh --quiet --eval "db.runCommand({ ping: 1 })" >/dev/null 2>&1
+}
+
+mongo_ping_auth() {
+  mongosh --quiet "mongodb://127.0.0.1:27017/${DB_NAME}" -u "${DATABASE_USER}" -p "${DATABASE_PASSWORD}" --eval "db.runCommand({ ping: 1 })" >/dev/null 2>&1
+}
 
 # ---------- Prepare dedicated data volume at /var/lib/mongo ----------
 # Supports Nitro (/dev/nvme1n1) and Xen-style (/dev/xvdf).
@@ -50,65 +112,78 @@ log "Ensuring data directory exists and is owned by mongod"
 install -d -m 0755 /var/lib/mongo
 chown -R mongod:mongod /var/lib/mongo
 
-log "Enabling and starting mongod (no auth yet)"
-systemctl enable mongod
-systemctl start mongod
+# --------- Start or ensure mongod running ----------
+if ! systemctl is-active --quiet mongod; then
+  log "Enabling and starting mongod"
+  systemctl enable mongod
+  systemctl start mongod
+fi
 
 log "Waiting for mongod to become ready"
 for i in $(seq 1 60); do
-  if mongosh --quiet --eval "db.runCommand({ ping: 1 })" >/dev/null 2>&1; then
-    log "mongod is ready"
+  if mongo_ping_noauth; then
+    log "mongod is ready (no-auth ping ok)"
     break
   fi
   sleep 1
   [[ $i -eq 60 ]] && { log "mongod did not become ready in time"; exit 1; }
 done
 
-log "Creating application database user '${DATABASE_USER}' on database '${DB_NAME}'"
-mongosh --quiet <<MONGO
+# --------- Idempotent user + auth configuration ----------
+if ! is_auth_enabled; then
+  log "Auth NOT enabled yet; creating user unauthenticated, then enabling auth"
+  log "Creating application database user '${DATABASE_USER}' on database '${DB_NAME}'"
+  mongosh --quiet <<MONGO
 use ${DB_NAME}
-db.createUser({
-  user: "${DATABASE_USER}",
-  pwd: "${DATABASE_PASSWORD}",
-  roles: [ { role: "readWrite", db: "${DB_NAME}" } ]
-})
+if (db.getUser("${DATABASE_USER}")) {
+  // user exists; optionally update password only if ROTATE_DB_PASSWORD=1
+  if ("${ROTATE_DB_PASSWORD:-0}" === "1") {
+    db.updateUser("${DATABASE_USER}", { pwd: "${DATABASE_PASSWORD}" });
+    print("Updated existing user password");
+  } else {
+    print("User already exists; skipping password change");
+  }
+} else {
+  db.createUser({
+    user: "${DATABASE_USER}",
+    pwd: "${DATABASE_PASSWORD}",
+    roles: [ { role: "readWrite", db: "${DB_NAME}" } ]
+  });
+  print("Created user");
+}
 MONGO
 
-log "Updating /etc/mongod.conf to enable authorization and listen on all interfaces"
-# Enable authorization
-if grep -qE '^\s*authorization\s*:' /etc/mongod.conf; then
-  sed -i 's/^\(\s*authorization\s*:\s*\).*/\1"enabled"/' /etc/mongod.conf
-else
-  if ! grep -qE '^\s*security\s*:' /etc/mongod.conf; then
-    printf "\nsecurity:\n  authorization: \"enabled\"\n" >> /etc/mongod.conf
+  changed=1
+  enable_auth_if_needed || changed=0
+  ensure_bind_all || changed=0
+  if [[ $changed -eq 0 ]]; then
+    log "Restarting mongod to apply auth/bindIp changes"
+    systemctl restart mongod
   else
-    awk '
-      BEGIN{added=0}
-      /^security\s*:/ {print; getline; if($0 !~ /authorization/){print "  authorization: \"enabled\""; added=1} else {print} next}
-      {print}
-    ' /etc/mongod.conf > /etc/mongod.conf.new && mv /etc/mongod.conf.new /etc/mongod.conf
+    log "No mongod.conf changes required"
+  fi
+else
+  log "Auth already enabled; verifying supplied credentials"
+  if mongo_ping_auth; then
+    log "Credentials valid; user exists. Skipping create."
+    if [[ "${ROTATE_DB_PASSWORD:-0}" == "1" ]]; then
+      log "ROTATE_DB_PASSWORD=1 set; updating user password"
+      mongosh --quiet "mongodb://127.0.0.1:27017/${DB_NAME}" -u "${DATABASE_USER}" -p "${DATABASE_PASSWORD}" --eval '
+        db.updateUser("'${DATABASE_USER}'", { pwd: "'${DATABASE_PASSWORD}'" });
+      ' >/dev/null
+    fi
+  else
+    log "WARNING: Unable to authenticate with provided credentials; leaving users unchanged"
+  fi
+
+  changed=1
+  ensure_bind_all || changed=0
+  if [[ $changed -eq 0 ]]; then
+    log "bindIp updated; restarting mongod"
+    systemctl restart mongod
+  else
+    log "bindIp already correct; no restart needed"
   fi
 fi
-
-# Bind to all interfaces
-if grep -qE '^\s*bindIp\s*:' /etc/mongod.conf; then
-  sed -i 's/^\(\s*bindIp\s*:\s*\).*/\10.0.0.0/' /etc/mongod.conf
-else
-  if ! grep -qE '^\s*net\s*:' /etc/mongod.conf; then
-    printf "\nnet:\n  bindIp: 0.0.0.0\n" >> /etc/mongod.conf
-  else
-    awk '
-      BEGIN{done=0}
-      /^net\s*:/ {print; getline; if($0 !~ /bindIp/){print "  bindIp: 0.0.0.0"; done=1} else {print} next}
-      {print}
-    ' /etc/mongod.conf > /etc/mongod.conf.new && mv /etc/mongod.conf.new /etc/mongod.conf
-  fi
-fi
-
-log "Restarting mongod to apply changes"
-systemctl restart mongod
-
-log "Verifying authentication with application user"
-mongosh --quiet "mongodb://127.0.0.1:27017/${DB_NAME}" -u "${DATABASE_USER}" -p "${DATABASE_PASSWORD}" --eval 'db.runCommand({connectionStatus:1})' >/dev/null
 
 log "MongoDB setup complete"
