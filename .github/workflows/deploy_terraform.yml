@@ -143,6 +143,21 @@ jobs:
           set -euo pipefail
           terraform apply -auto-approve tfplan_full
 
+      # --- NEW STEP: dump EC2 console/system log for debugging user-data ---
+      - name: Fetch EC2 console logs
+        if: always()
+        run: |
+          set -euo pipefail
+          DB_ID="$(terraform output -raw database_instance_id 2>/dev/null || true)"
+          BE_ID="$(terraform output -raw backend_instance_id 2>/dev/null || true)"
+
+          for ID in $DB_ID $BE_ID; do
+            if [[ -n "$ID" && "$ID" != "None" ]]; then
+              echo "===== Console log for $ID ====="
+              aws ec2 get-console-output --region "${AWS_REGION}" --instance-id "$ID" --output text || true
+            fi
+          done
+
       - name: Invalidate CloudFront (viewer cache)
         if: always()
         shell: bash
