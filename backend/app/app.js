@@ -25,7 +25,7 @@ const corsOptions = {
   optionsSuccessStatus: 204
 };
 app.use(cors(corsOptions));
-app.options('*', cors(corsOptions)); // fast preflight responses
+app.options('/(.*)', cors(corsOptions)); // fast preflight responses
 
 app.use(express.json({ limit: '1mb' }));
 app.use(cookieParser());
