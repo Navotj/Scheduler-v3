@@ -10,7 +10,7 @@ export DATABASE_USER="${database_user}"
 export DATABASE_PASSWORD="${database_password}"
 export DATABASE_NAME="${database_name}"
 # For backend nodes, pass DATABASE_HOST via templatefile if needed:
-: "${DATABASE_HOST:=}"
+: "$${DATABASE_HOST:=}"
 
 log "User-data start"
 
@@ -25,12 +25,12 @@ dnf -y install shadow-utils jq || true
 # ---------- Ensure/refresh SSM agent and registration ----------
 log "Detect region via IMDSv2"
 TOKEN="$(curl -sS -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 60" || true)"
-REGION="$(curl -sS -H "X-aws-ec2-metadata-token: ${TOKEN}" http://169.254.169.254/latest/dynamic/instance-identity/document 2>/dev/null | jq -r .region || true)"
-if [[ -z "${REGION}" || "${REGION}" == "null" ]]; then
+REGION="$(curl -sS -H "X-aws-ec2-metadata-token: $${TOKEN}" http://169.254.169.254/latest/dynamic/instance-identity/document 2>/dev/null | jq -r .region || true)"
+if [[ -z "$${REGION}" || "$${REGION}" == "null" ]]; then
   REGION="eu-central-1"
-  log "IMDS region lookup failed; defaulting to ${REGION}"
+  log "IMDS region lookup failed; defaulting to $${REGION}"
 else
-  log "Region: ${REGION}"
+  log "Region: $${REGION}"
 fi
 
 log "Install (or reinstall) amazon-ssm-agent"
@@ -38,7 +38,7 @@ dnf -y reinstall amazon-ssm-agent || dnf -y install amazon-ssm-agent
 
 log "Pin SSM agent to region and clear any stale registration"
 install -d -m 0755 /etc/amazon/ssm
-printf '{"Agent":{"Region":"%s"}}\n' "${REGION}" > /etc/amazon/ssm/amazon-ssm-agent.json
+printf '{"Agent":{"Region":"%s"}}\n' "$${REGION}" > /etc/amazon/ssm/amazon-ssm-agent.json
 systemctl stop amazon-ssm-agent || true
 rm -rf /var/lib/amazon/ssm/* || true
 systemctl enable --now amazon-ssm-agent || true
