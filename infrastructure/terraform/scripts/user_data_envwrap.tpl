@@ -9,7 +9,10 @@ log() { echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] $*"; }
 export DATABASE_USER="${database_user}"
 export DATABASE_PASSWORD="${database_password}"
 export DATABASE_NAME="${database_name}"
+
+%{ if database_host != "" }
 export DATABASE_HOST="${database_host}"
+%{ endif }
 
 # ---------- Minimal AL2023: make sure needed tools exist ----------
 log "DNF makecache"

@@ -1,13 +1,6 @@
-name: Terraform Deploy
-
+name: literally just throwing shit im not using here
 on:
   workflow_dispatch: {}
-  push:
-    branches:
-      - main
-    paths:
-      - 'infrastructure/terraform/**'
-      - '.github/workflows/deploy_terraform.yml'
 
 defaults:
   run:

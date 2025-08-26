@@ -6,7 +6,7 @@ log() { echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] $*"; }
 : "${DATABASE_USER:?DATABASE_USER not set}"
 : "${DATABASE_PASSWORD:?DATABASE_PASSWORD not set}"
 : "${DATABASE_NAME:?DATABASE_NAME not set}"
-: "${DATABASE_HOST:?DATABASE_HOST not set (pass private IP/hostname of MongoDB instance)}}"
+: "${DATABASE_HOST:?DATABASE_HOST not set (pass private IP/hostname of MongoDB instance)}"
 
 APP_DIR="/opt/app"
 
