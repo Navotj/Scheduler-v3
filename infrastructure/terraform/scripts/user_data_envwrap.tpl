@@ -8,13 +8,15 @@ log() { echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] $*"; }
 export DATABASE_USER="${database_user}"
 export DATABASE_PASSWORD="${database_password}"
 export DATABASE_NAME="${database_name}"
+
+# Pass in (optional) serial console password as a runtime var
 SERIAL_PW="${serial_console_password}"
 
 # ---------- Ensure we can get in via Serial Console if SSM is stubborn ----------
 # Set a temporary password for ec2-user (only if provided) and allow password auth on console/sshd.
-if [[ -n "${SERIAL_PW}" ]]; then
+if [[ -n "$${SERIAL_PW}" ]]; then
   log "Setting temporary password for ec2-user (for Serial Console emergency access)"
-  echo "ec2-user:${SERIAL_PW}" | chpasswd
+  echo "ec2-user:$${SERIAL_PW}" | chpasswd
 
   # Enable password auth explicitly (keep other defaults)
   install -d -m 0755 /etc/ssh/sshd_config.d
