@@ -141,76 +141,61 @@ jobs:
       - name: deploy on instances via ssm (tag-targeted)
         shell: bash
         run: |
-            set -euo pipefail
+          set -euo pipefail
 
-            echo "[debug] verifying SSM targets for ${BACKEND_SSM_TARGET_KEY}=${BACKEND_SSM_TARGET_VALUE}"
-            IDS_JSON=$(aws ssm describe-instance-information \
-            --filters "Key=${BACKEND_SSM_TARGET_KEY},Values=${BACKEND_SSM_TARGET_VALUE}")
-            echo "${IDS_JSON}"
-            COUNT=$(echo "${IDS_JSON}" | jq '.InstanceInformationList | length')
-            if [[ "${COUNT}" -eq 0 ]]; then
-            echo "ERROR: No SSM-managed instances match ${BACKEND_SSM_TARGET_KEY}=${BACKEND_SSM_TARGET_VALUE}. Aborting." >&2
-            exit 1
-            fi
+          CMD=$(cat <<'EOS'
+          set -euo pipefail
+          echo "[deploy] starting"
+          : "${ARTIFACT_BUCKET:?missing}"
+          : "${OBJECT_KEY:?missing}"
+          ARTIFACT_S3="s3://${ARTIFACT_BUCKET}/${OBJECT_KEY}"
+          WORKDIR="/opt/app"
+          TMP_TGZ="/tmp/backend_release.tgz"
+          UNIT_SRC="/tmp/scheduler.service"
+          UNIT_DST="/etc/systemd/system/scheduler.service"
 
-            # Build the remote script
-            read -r -d '' CMD <<'EOS'
-            set -euo pipefail
-            echo "[deploy] starting"
-            ARTIFACT_BUCKET="${ARTIFACT_BUCKET}"
-            OBJECT_KEY="${OBJECT_KEY}"
-            : "${ARTIFACT_BUCKET:?missing}"
-            : "${OBJECT_KEY:?missing}"
-            ARTIFACT_S3="s3://${ARTIFACT_BUCKET}/${OBJECT_KEY}"
-            WORKDIR="/opt/app"
-            TMP_TGZ="/tmp/backend_release.tgz"
-            UNIT_SRC="/tmp/scheduler.service"
-            UNIT_DST="/etc/systemd/system/scheduler.service"
+          install -d -m 0755 "${WORKDIR}"
+          chown ec2-user:ec2-user "${WORKDIR}" || true
 
-            echo "[deploy] ensure workdir ${WORKDIR}"
-            install -d -m 0755 "${WORKDIR}"
-            chown ec2-user:ec2-user "${WORKDIR}" || true
+          aws s3 cp "${ARTIFACT_S3}" "${TMP_TGZ}"
 
-            echo "[deploy] download ${ARTIFACT_S3}"
-            aws s3 cp "${ARTIFACT_S3}" "${TMP_TGZ}"
+          rm -rf /tmp/app "${UNIT_SRC}" || true
+          tar -xzf "${TMP_TGZ}" -C /tmp
 
-            echo "[deploy] extract"
-            rm -rf /tmp/app "${UNIT_SRC}" || true
-            tar -xzf "${TMP_TGZ}" -C /tmp
+          rsync -a --delete /tmp/app/ "${WORKDIR}/"
+          chown -R ec2-user:ec2-user "${WORKDIR}"
 
-            echo "[deploy] rsync app -> ${WORKDIR}"
-            rsync -a --delete /tmp/app/ "${WORKDIR}/"
-            chown -R ec2-user:ec2-user "${WORKDIR}"
+          install -D -m 0644 "${UNIT_SRC}" "${UNIT_DST}"
+          systemctl daemon-reload
+          systemctl enable --now scheduler.service
+          systemctl --no-pager --full status scheduler.service || true
+          EOS
+          )
 
-            echo "[deploy] install systemd unit"
-            install -D -m 0644 "${UNIT_SRC}" "${UNIT_DST}"
+          B64=$(printf %s "$CMD" | base64 -w0)
 
-            echo "[deploy] daemon-reload + enable --now"
-            systemctl daemon-reload
-            systemctl enable --now scheduler.service
+          cat > /tmp/params.json <<JSON
+          {
+            "commands": [
+              "echo $B64 | base64 -d > /tmp/deploy.sh",
+              "chmod +x /tmp/deploy.sh",
+              "ARTIFACT_BUCKET=${ARTIFACT_BUCKET} OBJECT_KEY=${OBJECT_KEY} bash /tmp/deploy.sh"
+            ],
+            "executionTimeout": ["600"],
+            "workingDirectory": ["/"]
+          }
+          JSON
 
-            echo "[deploy] status"
-            systemctl --no-pager --full status scheduler.service || true
-            echo "[deploy] done"
-            EOS
-
-            # SSM expects StringList parameters. Create a proper JSON file for --parameters.
-            # Also bake env values into the script so we don't rely on non-existent 'envVariables'.
-            export ARTIFACT_BUCKET OBJECT_KEY
-            PARAMS_JSON="$(mktemp)"
-            # shellcheck disable=SC2002
-            echo "${CMD}" | jq -Rs --arg t "600" --arg wd "/" '{commands:[.], executionTimeout:[$t], workingDirectory:[$wd]}' > "${PARAMS_JSON}"
-
-            echo "[debug] sending command via SSM"
-            aws ssm send-command \
+          aws ssm send-command \
             --document-name "AWS-RunShellScript" \
             --comment "Deploy backend from artifacts" \
             --targets "Key=${BACKEND_SSM_TARGET_KEY},Values=${BACKEND_SSM_TARGET_VALUE}" \
-            --parameters file://"${PARAMS_JSON}" \
+            --parameters file:///tmp/params.json \
             --max-concurrency "1" \
             --max-errors "0" \
             --region "${AWS_REGION}" \
-            --output json
+            --query "Command.CommandId" \
+            --output text
 
       - name: show last 80 journal lines (all matching instances)
         if: always()
