@@ -116,7 +116,6 @@ jobs:
           # Enable versioning (optional but helpful)
           aws s3api put-bucket-versioning --bucket "${ARTIFACT_BUCKET}" --versioning-configuration Status=Enabled
 
-        # replace step (package backend (app + service))
       - name: package backend (app + service)
         working-directory: ${{ github.workspace }}
         shell: bash
@@ -190,12 +189,11 @@ jobs:
           ls -la /tmp/app | sed 's/^/[app] /' || true
           ls -la "${UNIT_SRC}" || exit 28
 
-          echo "[deploy] sync app -> ${WORKDIR}"
-          shopt -s dotglob
-          mkdir -p "${WORKDIR}"
-          rm -rf "${WORKDIR:?}/"* || true
-          cp -a /tmp/app/* "${WORKDIR}/" || exit 29
-          shopt -u dotglob
+          echo "[deploy] sync app -> ${WORKDIR} (preserve dotfiles like .env)"
+          # Delete only non-hidden top-level entries in WORKDIR
+          find "${WORKDIR}" -mindepth 1 -maxdepth 1 ! -name '.*' -exec rm -rf {} +
+          # Copy only non-hidden entries from the artifact
+          find /tmp/app -mindepth 1 -maxdepth 1 ! -name '.*' -exec cp -a {} "${WORKDIR}/" \; || exit 29
           chown -R ec2-user:ec2-user "${WORKDIR}" || true
           ls -la "${WORKDIR}" | sed 's/^/[workdir] /'
 
