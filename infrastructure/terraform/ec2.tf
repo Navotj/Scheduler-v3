@@ -31,6 +31,7 @@ resource "aws_instance" "database" {
   subnet_id                   = aws_subnet.private_a.id
   vpc_security_group_ids      = [aws_security_group.database_ingress.id, aws_security_group.database_egress.id]
   associate_public_ip_address = false
+  user_data_replace_on_change = true
 
   metadata_options {
     http_tokens = "required"
@@ -43,7 +44,6 @@ resource "aws_instance" "database" {
     serial_console_password  = var.serial_console_password
     script                   = file("${path.module}/scripts/user_data_database.sh")
   })
-
 
   tags = { Name = "${var.app_prefix}-database" }
 }
