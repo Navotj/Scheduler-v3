@@ -121,21 +121,36 @@
 /* NOW marker */
 .availability .now-marker {
   position: absolute;
-  pointer-events: none;
-  height: 2px;
-  background: var(--accent, #7c5cff);
   left: 0;
   right: 0;
+  /* top is set by JS in px relative to .grid-content */
+  pointer-events: none;
   display: none;
+  height: 0; /* do not affect layout; draw the line via ::before */
+  z-index: 1;
 }
+
+.availability .now-marker::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 2px;
+  background: var(--accent, #7c5cff);
+}
+
 .availability .now-marker .bubble {
   position: absolute;
-  transform: translateY(-100%);
+  left: 50%;
+  top: 0;
+  transform: translate(-50%, -50%); /* center horizontally and vertically on the line */
   padding: 2px 6px;
   font-size: 10px;
   background: var(--accent, #7c5cff);
   color: #000;
   border-radius: 6px;
+  white-space: nowrap;
 }
 
 /* Controls container (shares total height with grid via .availability-left rows) */

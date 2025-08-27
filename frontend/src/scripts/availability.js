@@ -230,32 +230,39 @@
       gridContent.appendChild(nowMarker);
     }
   }
-  function updateNowMarker() {
-    if (!table) return;
-    ensureNowMarker();
+function updateNowMarker() {
+  if (!table) return;
+  ensureNowMarker();
 
-    // Column for today (0..6 relative to Sunday)
-    const today = new Date();
-    const dayIdx = today.getDay();
-    const hh = today.getHours();
-    const mm = today.getMinutes();
-
-    const rowIndex = hh * 2 + (mm >= 30 ? 1 : 0);
-    const frac = (mm % 30) / 30;
-
-    const targetCell = table.querySelector('td.slot-cell[data-col="'+dayIdx+'"][data-row="'+rowIndex+'"]');
-    const colStartCell = table.querySelector('td.slot-cell[data-col="'+dayIdx+'"][data-row="0"]');
-    if (!targetCell || !colStartCell || !nowMarker) { if (nowMarker) nowMarker.style.display = 'none'; return; }
-
-    const top = targetCell.offsetTop + targetCell.offsetHeight * frac;
-    const left = colStartCell.offsetLeft;
-    const width = colStartCell.offsetWidth;
-
-    nowMarker.style.display = 'block';
-    nowMarker.style.top = top + 'px';
-    nowMarker.style.left = left + 'px';
-    nowMarker.style.width = width + 'px';
+  // If needed, bind a resize handler so zoom/resizes reflow the marker immediately.
+  if (!updateNowMarker._bound) {
+    try { window.addEventListener('resize', updateNowMarker, { passive: true }); } catch {}
+    updateNowMarker._bound = true;
   }
+
+  const tbody = table.tBodies && table.tBodies[0];
+  if (!tbody || !nowMarker || !gridContent) { if (nowMarker) nowMarker.style.display = 'none'; return; }
+
+  // Current local time -> minutes since midnight (fractional for smoothness)
+  const now = new Date();
+  const minutes = now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60;
+
+  // Position relative to the scrollable content box of .grid-content
+  const gridRect = gridContent.getBoundingClientRect();
+  const tbodyRect = tbody.getBoundingClientRect();
+  const tbodyTopInContent = (tbodyRect.top - gridRect.top) + gridContent.scrollTop;
+
+  // Use the tbody's actual scrollHeight to stay aligned with the table at any zoom level
+  const top = tbodyTopInContent + (minutes / (24 * 60)) * tbody.scrollHeight;
+
+  // Full-width line across the table; avoid column-relative math (prevents drift on zoom)
+  nowMarker.style.display = 'block';
+  nowMarker.style.top = top + 'px';
+  nowMarker.style.left = '0';
+  nowMarker.style.right = '0';
+  nowMarker.style.width = '';
+}
+
 
   // --- Controls ---
   function setMode(m) {
