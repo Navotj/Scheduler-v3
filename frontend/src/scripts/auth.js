@@ -163,7 +163,7 @@
 
   // ========= Topbar auth button state =========
   function toggleIcons(isAuthed){
-    const btn = document.getElementById('auth-button');
+    const btn = document.getElementById('auth-btn');
     const scope = (btn && btn.closest('.top-bar')) || document;
     const logins  = scope.querySelectorAll('[data-icon="login"]');
     const logouts = scope.querySelectorAll('[data-icon="logout"]');
@@ -172,7 +172,7 @@
   }
 
   function setAuthState(isAuthed, username){
-    const btn = document.getElementById('auth-button');
+    const btn = document.getElementById('auth-btn');
     if (!btn) return;
     btn.dataset.state = isAuthed ? 'authenticated' : 'anonymous';
     toggleIcons(!!isAuthed);
