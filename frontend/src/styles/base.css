@@ -36,6 +36,7 @@ body{
   font-family:system-ui,-apple-system,"Segoe UI",Roboto,Ubuntu,Cantarell,"Noto Sans","Helvetica Neue",Arial,"Apple Color Emoji","Segoe UI Emoji";
   -webkit-font-smoothing:antialiased;
   -moz-osx-font-smoothing:grayscale;
+  overflow:hidden; /* prevent page scroll; keep layout within viewport height */
 }
 
 a{color:inherit;text-decoration:none}
@@ -45,10 +46,11 @@ h1,h2,h3,p{margin:0}
 :focus-visible{box-shadow:0 0 0 3px var(--ring); border-radius:8px}
 
 .shell{
-  min-height:100dvh;
+  height:100dvh; /* lock overall shell to viewport height */
   display:grid;
   grid-template-rows:var(--topbar-h) 1fr;
   background:linear-gradient(180deg,var(--bg-1) 0%, var(--bg-0) 100%);
+  overflow:hidden; /* contain interior overflow */
 }
 
 /* Topbar */
@@ -63,7 +65,6 @@ h1,h2,h3,p{margin:0}
   border-bottom:var(--topbar-border-w) solid var(--border);
   overflow:visible; /* allow circular bulge */
 }
-
 
 .topnav{display:flex; gap:12px; align-items:center}
 .navbtn{
@@ -110,8 +111,6 @@ h1,h2,h3,p{margin:0}
 
 /* ensure the single SVG centers inside the button */
 .navbtn svg{display:block;margin:auto}
-
-
 
 .brand{
   position:relative;
@@ -163,7 +162,6 @@ h1,h2,h3,p{margin:0}
   filter: drop-shadow(0 0 1px #000); /* super-fine black outline */
 }
 
-
 .d20clock .hands circle{
   fill:var(--fg-0);
 }
@@ -174,15 +172,19 @@ h1,h2,h3,p{margin:0}
   grid-template-columns: var(--rail-w) minmax(0,1fr);
   gap:var(--gap);                 /* tighter gap so main comes close to adspace */
   padding:var(--gap-lg);          /* page padding defines top/right/bottom edges */
+  height:100%;                    /* fill shell’s remaining row exactly */
+  min-height:0;                   /* allow shrinking to allocated grid track */
+  overflow:hidden;                /* contain internal scrolls */
 }
-
 
 .rail{
   background:var(--card);
   border:1px solid var(--border);
   border-radius:var(--radius);
   padding:var(--gap-lg);
-  min-height:calc(100dvh - var(--topbar-h) - 2*var(--gap-lg));
+  height:100%;        /* match layout block-size */
+  min-height:0;       /* avoid overflow from auto min-size */
+  overflow:auto;      /* scroll internally if content exceeds */
 }
 
 .main{
@@ -190,10 +192,11 @@ h1,h2,h3,p{margin:0}
   border:1px solid var(--border);
   border-radius:var(--radius);
   padding:var(--gap-lg);  /* align inner edge with page padding on top/right/bottom */
-  min-height:calc(100dvh - var(--topbar-h) - 2*var(--gap-lg));
-  /* expand fully to layout padding (no max-width constraint) */
+  height:100%;            /* match layout block-size */
+  min-height:0;           /* avoid overflow from auto min-size */
   outline:1px solid rgba(255,255,255,0.03);
   box-shadow:none;
+  overflow:auto;          /* internal scrolling without growing page */
 }
 
 /* rail content */
