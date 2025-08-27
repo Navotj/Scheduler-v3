@@ -15,7 +15,7 @@
     logout:   `${API}/auth/logout`,
   };
 
-  // ========= Minimal modal system (no CSS dependency) =========
+  // ========= Minimal modal system =========
   function ensureModalRoot(){
     let ov = document.getElementById('modal-overlay');
     if (ov) return ov;
@@ -59,7 +59,7 @@
     box.innerHTML = html;
     ov.style.display = 'block';
     ov.removeAttribute('aria-hidden');
-    setTimeout(()=>{ // focus first input
+    setTimeout(()=>{
       const first = box.querySelector('input, button, select, textarea, a[href]');
       if (first) first.focus();
     }, 0);
@@ -149,26 +149,22 @@
 
   function openLoginModal(){
     openModal(loginFormHTML());
-    // hook "Register" button
     const r = document.getElementById('open-register');
     if (r) r.addEventListener('click', ()=> openRegisterModal());
-    // init logic from old app
     if (typeof window.initLoginForm === 'function') window.initLoginForm();
   }
 
   function openRegisterModal(){
     openModal(registerFormHTML());
-    // hook "Sign in" button
     const l = document.getElementById('open-login');
     if (l) l.addEventListener('click', ()=> openLoginModal());
-    // init logic from old app
     if (typeof window.initRegisterForm === 'function') window.initRegisterForm();
   }
 
   // ========= Topbar auth button state =========
   function toggleIcons(btn, isAuthed){
-    const loginIco  = btn.querySelector('svg[data-icon="login"]');
-    const logoutIco = btn.querySelector('svg[data-icon="logout"]');
+    const loginIco  = btn.querySelector('[data-icon="login"]');
+    const logoutIco = btn.querySelector('[data-icon="logout"]');
     if (loginIco)  loginIco.hidden  = !!isAuthed;
     if (logoutIco) logoutIco.hidden = !isAuthed;
   }
@@ -179,11 +175,15 @@
     btn.dataset.state = isAuthed ? 'authenticated' : 'anonymous';
     toggleIcons(btn, !!isAuthed);
 
-    // swap styling & labels
     btn.classList.toggle('navbtn--login', !isAuthed);
     btn.classList.toggle('navbtn--logout', !!isAuthed);
     btn.setAttribute('aria-label', isAuthed ? 'Sign out' : 'Sign in');
     btn.setAttribute('title',      isAuthed ? 'Sign out' : 'Sign in');
+
+    const label = document.getElementById('auth-label');
+    if (label) {
+      label.textContent = isAuthed ? ('logged in as ' + (username || '')) : 'not logged in';
+    }
   }
   window.setAuthState = setAuthState;
 
@@ -195,20 +195,17 @@
         cache:'no-store',
         headers:{ 'Content-Type':'application/json' }
       });
-      // treat any 2xx as success
       if (!res.ok) {
-        // try GET fallback (in case backend wired that way)
         const res2 = await fetch(ENDPOINTS.logout, { credentials:'include', cache:'no-store' });
         if (!res2.ok) throw new Error('logout failed');
       }
     } catch(_e) {
-      // no-op: still clear client state
+      // no-op
     } finally {
       setAuthState(false, null);
     }
   }
 
-  // Click handler
   function wireButton(){
     const btn = document.getElementById('auth-btn');
     if (!btn) return;
@@ -224,7 +221,4 @@
   } else {
     wireButton();
   }
-
-  // If legacy login.js performs an auth check and calls setAuthStateSafe,
-  // this will update our button via window.setAuthState above.
 })();

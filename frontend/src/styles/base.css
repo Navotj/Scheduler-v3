@@ -77,6 +77,9 @@ h1,h2,h3,p{margin:0}
 .navbtn:active{transform:translateY(0)}
 .navbtn svg{width:22px; height:22px}
 
+/* ensure hidden elements are not rendered */
+[hidden]{display:none !important}
+
 /* auth button variants */
 .navbtn--login{
   color:#b7f4c0;
@@ -97,6 +100,17 @@ h1,h2,h3,p{margin:0}
   background:rgba(255,60,60,0.20);
   border-color:rgba(255,60,60,0.50);
 }
+
+/* auth label text */
+.auth-label{
+  margin-left:8px;
+  font-size:14px;
+  color:var(--fg-1);
+}
+
+/* ensure the single SVG centers inside the button */
+.navbtn svg{display:block;margin:auto}
+
 
 
 .brand{
