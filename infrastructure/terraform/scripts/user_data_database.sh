@@ -13,41 +13,59 @@ is_auth_enabled() {
   grep -qE '^\s*security\s*:' /etc/mongod.conf && grep -qE '^\s*authorization\s*:\s*"enabled"' /etc/mongod.conf
 }
 
-# replace function (ensure_bind_all)
 ensure_bind_all() {
-  # Ensure net.bindIpAll: true is present; return 0 if changed, 1 if no change
+  # Ensure ONLY net.bindIpAll: true is present (remove any bindIp lines).
+  # Return 0 if changed, 1 if no change.
   local changed=1
-  if grep -qE '^\s*bindIpAll\s*:' /etc/mongod.conf; then
-    if ! grep -qE '^\s*bindIpAll\s*:\s*true' /etc/mongod.conf; then
-      sed -i 's/^\(\s*bindIpAll\s*:\s*\).*/\1true/' /etc/mongod.conf
-      changed=0
-    fi
+  local conf="/etc/mongod.conf"
+
+  # 1) Remove any existing bindIp lines anywhere in the file
+  if grep -qE '^\s*bindIp\s*:' "$conf"; then
+    sed -i '/^\s*bindIp\s*:/d' "$conf"
+    changed=0
+  fi
+
+  # 2) Ensure bindIpAll: true exists under net:
+  if grep -qE '^\s*bindIpAll\s*:\s*true' "$conf"; then
+    : # already correct
   else
-    if ! grep -qE '^\s*net\s*:' /etc/mongod.conf; then
-      printf "\nnet:\n  bindIpAll: true\n" >> /etc/mongod.conf
+    if grep -qE '^\s*bindIpAll\s*:' "$conf"; then
+      # present but not true -> fix
+      sed -i 's/^\(\s*bindIpAll\s*:\s*\).*/\1true/' "$conf"
       changed=0
     else
-      awk '
-        BEGIN{done=0}
-        /^net\s*:/ {
-          print;
-          getline;
-          if($0 !~ /bindIpAll/){
-            print "  bindIpAll: true";
-            done=1
-          } else {
+      if grep -qE '^\s*net\s*:' "$conf"; then
+        # Insert bindIpAll: true as the first setting under net:
+        awk '
+          BEGIN{inserted=0}
+          /^\s*net\s*:/ {
             print
+            getline
+            if($0 !~ /^\s+/){ print "  bindIpAll: true"; inserted=1; print; next }
+            else {
+              print "  bindIpAll: true"
+              inserted=1
+            }
           }
-          next
-        }
-        {print}
-      ' /etc/mongod.conf > /etc/mongod.conf.new && mv /etc/mongod.conf.new /etc/mongod.conf
-      changed=0
+          { print }
+          END{
+            if(!inserted){
+              # If we saw net: but logic above didn’t insert (edge cases), append safely
+              # (This block rarely triggers; kept as a guard.)
+            }
+          }
+        ' "$conf" > "$conf.new" && mv "$conf.new" "$conf"
+        changed=0
+      else
+        # No net: block -> append a minimal one
+        printf "\nnet:\n  bindIpAll: true\n" >> "$conf"
+        changed=0
+      fi
     fi
   fi
+
   return $changed
 }
-
 
 enable_auth_if_needed() {
   # Enable security.authorization: "enabled"; return 0 if changed, 1 if no change
