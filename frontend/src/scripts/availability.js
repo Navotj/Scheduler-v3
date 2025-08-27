@@ -8,14 +8,19 @@
   let isAuthenticated = true;
   let paintMode = 'add';
   let weekOffset = 0;                   // in weeks relative to current
-  const selected = new Set();           // epoch seconds of selected slots (current week only)
+  const selected = new Set();           // epoch seconds of selected slots (current page’s week)
 
   // DOM refs
   let gridContent, table, nowMarker;
 
   // --- Time helpers ---
   function zonedEpoch(y, m, d, hh, mm, tz) {
-    const dtf = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour12: false, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const dtf = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz,
+      hour12: false,
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit'
+    });
     const parts = dtf.formatToParts(new Date(Date.UTC(y, m - 1, d, hh, mm, 0)));
     const map = {};
     for (const p of parts) map[p.type] = p.value;
@@ -36,12 +41,12 @@
   function getWeekStartYMD(tz) { // Sunday start
     const t = todayYMD(tz);
     const todayMid = zonedEpoch(t.y, t.m, t.d, 0, 0, tz);
-    const wd = new Date(todayMid * 1000).getUTCDay(); // 0..6 (Sun..Sat)
-    const base = addDays(t.y, t.m, t.d, -wd + weekOffset * 7);
+    const wdLocal = new Date(todayMid * 1000).getUTCDay(); // based on the constructed midnight
+    const base = addDays(t.y, t.m, t.d, -wdLocal + weekOffset * 7);
     return base;
   }
 
-  // --- Label ---
+  // --- Labels ---
   function renderWeekLabel(startEpoch, tz) {
     const startDate = new Date(startEpoch * 1000);
     const endDate = new Date((startEpoch + 6 * 86400) * 1000);
@@ -60,8 +65,12 @@
 
   function buildGrid() {
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+    if (!table) return;
+
     table.innerHTML = '';
-    selected.clear(); // re-load from server for this week
+    // Do NOT clear global selections here; keep user edits while paging weeks
+    // Clear selection classes; they will be re-applied for the current week after load
+    table.querySelectorAll && table.querySelectorAll('.selected').forEach(el => el.classList.remove('selected'));
 
     // Header
     const thead = document.createElement('thead');
@@ -151,19 +160,10 @@
 
     table.appendChild(tbody);
 
-    // mouseup anywhere ends drag
-    document.addEventListener('mouseup', () => {
-      if (!isAuthenticated) return;
-      if (isDragging) {
-        applyBoxSelection();
-        clearPreview();
-      }
-      isDragging = false;
-      dragStart = dragEnd = null;
-    }, { once: true });
+    // Load + paint selections for this week
+    loadWeekSelections().then(applySelectedClasses);
 
-    // after grid, load selections for this week and paint
-    loadWeekSelections();
+    // Ensure and place NOW marker
     ensureNowMarker();
     updateNowMarker();
   }
@@ -215,11 +215,11 @@
     });
   }
 
-  // --- Now marker ---
+  // --- NOW marker ---
   function ensureNowMarker() {
     if (nowMarker) return;
     nowMarker = document.getElementById('now-marker');
-    if (!nowMarker) {
+    if (!nowMarker && gridContent) {
       nowMarker = document.createElement('div');
       nowMarker.id = 'now-marker';
       nowMarker.className = 'now-marker';
@@ -231,19 +231,21 @@
     }
   }
   function updateNowMarker() {
+    if (!table) return;
     ensureNowMarker();
-    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
-    const base = getWeekStartYMD(tz);
+
+    // Column for today (0..6 relative to Sunday)
     const today = new Date();
-    const dayIdx = today.getDay(); // 0..6
+    const dayIdx = today.getDay();
     const hh = today.getHours();
     const mm = today.getMinutes();
+
     const rowIndex = hh * 2 + (mm >= 30 ? 1 : 0);
     const frac = (mm % 30) / 30;
 
     const targetCell = table.querySelector('td.slot-cell[data-col="'+dayIdx+'"][data-row="'+rowIndex+'"]');
     const colStartCell = table.querySelector('td.slot-cell[data-col="'+dayIdx+'"][data-row="0"]');
-    if (!targetCell || !colStartCell) { nowMarker.style.display = 'none'; return; }
+    if (!targetCell || !colStartCell || !nowMarker) { if (nowMarker) nowMarker.style.display = 'none'; return; }
 
     const top = targetCell.offsetTop + targetCell.offsetHeight * frac;
     const left = colStartCell.offsetLeft;
@@ -271,11 +273,13 @@
     const end = addDays(base.y, base.m, base.d, 7);
     const endEpoch = zonedEpoch(end.y, end.m, end.d, 0, 0, tz);
 
-    // clear current-week selections
-    for (const t of Array.from(selected)) { if (t >= baseEpoch && t < endEpoch) selected.delete(t); }
+    // Keep only selections outside this week; clear inside-week, re-fill from server
+    for (const t of Array.from(selected)) if (t >= baseEpoch && t < endEpoch) selected.delete(t);
 
     try {
-      const res = await fetch(`${window.API_BASE_URL}/availability/get?from=${baseEpoch}&to=${endEpoch}`, {
+      const api = (typeof window.API_BASE_URL === 'string' && window.API_BASE_URL) ? window.API_BASE_URL : '';
+      if (!api) return; // offline mode: skip fetch, keep local state only
+      const res = await fetch(`${api}/availability/get?from=${baseEpoch}&to=${endEpoch}`, {
         credentials: 'include',
         cache: 'no-cache'
       });
@@ -289,8 +293,9 @@
           }
         }
       }
-    } catch {}
-    applySelectedClasses();
+    } catch {
+      // ignore network errors; user can still edit locally
+    }
   }
 
   function compressToIntervals(sortedEpochs) {
@@ -319,7 +324,9 @@
     const intervals = compressToIntervals(inside);
 
     try {
-      const res = await fetch(`${window.API_BASE_URL}/availability/save`, {
+      const api = (typeof window.API_BASE_URL === 'string' && window.API_BASE_URL) ? window.API_BASE_URL : '';
+      if (!api) { alert('No API configured'); return; }
+      const res = await fetch(`${api}/availability/save`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -358,10 +365,14 @@
     setMode('add');
     attachControls();
     buildGrid();
+    // Keep the NOW marker in sync
     setInterval(updateNowMarker, 60000);
   }
 
   function setAuth(v) { isAuthenticated = !!v; }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
 
   window.schedule = { init, setAuth };
 })();

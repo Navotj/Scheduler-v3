@@ -1,15 +1,142 @@
-.availability .availability-layout { display: grid; grid-template-columns: 4fr 1fr; gap: 16px; align-items: start; width: 100%; margin: 0; padding: 0; }
-.availability .grid { padding: 8px; box-sizing: border-box; }
-.availability .grid-content { position: relative; overflow: auto; width: 100%; background: var(--card, #121315); border: 1px solid var(--border, #1a1c20); border-radius: var(--radius, 10px); }
-.availability .table { width: 100%; border-collapse: separate; border-spacing: 0; table-layout: fixed; font-size: 12px; color: var(--fg-0, #e7eaf2); background: var(--card, #121315); }
-.availability .table thead th { position: sticky; top: 0; z-index: 2; background: var(--bg-1, #0c0d10); border-bottom: 1px solid #2a2f3a; padding: 8px; text-align: left; font-weight: 600; white-space: nowrap; }
-.availability .table th.time-col { width: 76px; text-align: right; color: var(--fg-1, #b6bfd4); background: var(--bg-1, #0c0d10); border-right: 1px solid #2a2f3a; padding: 4px 8px; }
+.availability { }
+
+/* Fill the shell’s main area; no extra padding on the layout wrapper */
+.availability .availability-layout {
+  display: grid;
+  grid-template-columns: 4fr 1fr; /* 80 / 20 */
+  gap: 16px;
+  align-items: start;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+/* Left column wrapper */
+.availability .availability-left {
+  width: 100%;
+}
+
+/* Scrollable grid viewport (scoped; no page-level coupling) */
+.availability .grid {
+  box-sizing: border-box;
+}
+
+/* Give the scroll container a concrete height so the table is visible */
+.availability .grid-content {
+  position: relative;
+  overflow: auto;
+  width: 100%;
+  min-height: 640px; /* ensures the table is visible even before any external layout sizing */
+  background: var(--card, #121315);
+  border: 1px solid var(--border, #1a1c20);
+  border-radius: var(--radius, 10px);
+}
+
+/* Table visuals */
+.availability .table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+  font-size: 12px;
+  color: var(--fg-0, #e7eaf2);
+  background: var(--card, #121315);
+}
+
+/* Sticky header row */
+.availability .table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--bg-1, #0c0d10);
+  border-bottom: 1px solid #2a2f3a;
+  padding: 8px;
+  text-align: left;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* Columns */
+.availability .table th.time-col {
+  width: 76px;
+  text-align: right;
+  color: var(--fg-1, #b6bfd4);
+  background: var(--bg-1, #0c0d10);
+  border-right: 1px solid #2a2f3a;
+  padding: 4px 8px;
+}
 .availability .table th.day { text-align: center; }
-.availability .table tbody th.time-col { position: sticky; left: 0; z-index: 1; }
-.availability .table tbody td.slot-cell, .availability .table thead th.day { border-left: 1px solid var(--border, #1a1c20); }
-.availability .table tbody tr.row-hour td.slot-cell { border-top: 1px solid var(--border, #1a1c20); }
-.availability .table tbody td.slot-cell { height: 18px; line-height: 18px; padding: 0; cursor: default; }
+
+/* Sticky time column */
+.availability .table tbody th.time-col {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+}
+
+/* Cell grid lines */
+.availability .table tbody td.slot-cell,
+.availability .table thead th.day {
+  border-left: 1px solid var(--border, #1a1c20);
+}
+.availability .table tbody tr.row-hour td.slot-cell {
+  border-top: 1px solid var(--border, #1a1c20);
+}
+
+/* Slot sizing */
+.availability .table tbody td.slot-cell {
+  height: 18px;
+  line-height: 18px;
+  padding: 0;
+  cursor: default;
+}
 .availability .time-label.hour { display: inline-block; }
-.availability .now-marker { position: absolute; pointer-events: none; height: 2px; background: var(--accent, #7c5cff); left: 0; right: 0; display: none; }
-.availability .now-marker .bubble { position: absolute; transform: translateY(-100%); padding: 2px 6px; font-size: 10px; background: var(--accent, #7c5cff); color: #000; border-radius: 6px; }
-.availability .signin-tooltip { margin-top: 8px; font-size: 12px; color: var(--fg-1, #b6bfd4); }
+
+/* Selection states */
+.availability .table td.slot-cell.selected { background: rgba(124, 92, 255, 0.25); }
+.availability .table td.slot-cell.preview-add { outline: 2px dashed rgba(124, 92, 255, 0.7); outline-offset: -2px; }
+.availability .table td.slot-cell.preview-sub { outline: 2px dashed rgba(255, 96, 96, 0.8); outline-offset: -2px; }
+.availability .table td.slot-cell.past { opacity: 0.45; }
+
+/* NOW marker */
+.availability .now-marker {
+  position: absolute;
+  pointer-events: none;
+  height: 2px;
+  background: var(--accent, #7c5cff);
+  left: 0;
+  right: 0;
+  display: none;
+}
+.availability .now-marker .bubble {
+  position: absolute;
+  transform: translateY(-100%);
+  padding: 2px 6px;
+  font-size: 10px;
+  background: var(--accent, #7c5cff);
+  color: #000;
+  border-radius: 6px;
+}
+
+/* Controls (simple, unopinionated) */
+.availability .picker-controls {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 12px 16px;
+  align-items: center;
+  margin-top: 12px;
+}
+.availability .week-controls { display: flex; gap: 8px; align-items: center; }
+.availability .mode-controls { display: flex; gap: 8px; }
+.availability .save-controls { display: flex; justify-content: flex-end; }
+.availability .picker-controls button[aria-pressed="true"] {
+  outline: 2px solid var(--accent, #7c5cff);
+  outline-offset: 1px;
+}
+
+/* Sign-in hint */
+.availability .signin-tooltip {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--fg-1, #b6bfd4);
+}
