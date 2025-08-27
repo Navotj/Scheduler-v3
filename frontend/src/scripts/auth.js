@@ -162,25 +162,27 @@
   }
 
   // ========= Topbar auth button state =========
-  function toggleIcons(btn, isAuthed){
-    const loginIco  = btn.querySelector('[data-icon="login"]');
-    const logoutIco = btn.querySelector('[data-icon="logout"]');
-    if (loginIco)  loginIco.hidden  = !!isAuthed;
-    if (logoutIco) logoutIco.hidden = !isAuthed;
+  function toggleIcons(isAuthed){
+    const btn = document.getElementById('auth-button');
+    const scope = (btn && btn.closest('.top-bar')) || document;
+    const logins  = scope.querySelectorAll('[data-icon="login"]');
+    const logouts = scope.querySelectorAll('[data-icon="logout"]');
+    logins.forEach(el => { el.hidden  = !!isAuthed; });
+    logouts.forEach(el => { el.hidden = !isAuthed; });
   }
 
   function setAuthState(isAuthed, username){
-    const btn = document.getElementById('auth-btn');
+    const btn = document.getElementById('auth-button');
     if (!btn) return;
     btn.dataset.state = isAuthed ? 'authenticated' : 'anonymous';
-    toggleIcons(btn, !!isAuthed);
+    toggleIcons(!!isAuthed);
 
     btn.classList.toggle('navbtn--login', !isAuthed);
     btn.classList.toggle('navbtn--logout', !!isAuthed);
     btn.setAttribute('aria-label', isAuthed ? 'Sign out' : 'Sign in');
     btn.setAttribute('title',      isAuthed ? 'Sign out' : 'Sign in');
 
-    const label = document.getElementById('auth-label');
+    const label = document.getElementById('user-label');
     if (label) {
       label.textContent = isAuthed ? ('logged in as ' + (username || '')) : 'not logged in';
     }
