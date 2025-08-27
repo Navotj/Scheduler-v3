@@ -3,7 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const mongoose = require('mongoose');
 const cookieParser = require('cookie-parser');
-require('dotenv').config();
+require('dotenv').config({ path: '/opt/app/.env' });
 
 // Routers
 const authRoutes = require('./routes/auth');                 // /login, /auth/*, /logout, /check
@@ -26,8 +26,18 @@ const corsOptions = {
 };
 app.use(cors(corsOptions));
 
-app.options('*', cors(corsOptions));
-
+// Replaced this line ↓ (Express 5 `*` pattern trips path-to-regexp)
+// app.options('*', cors(corsOptions));
+app.use((req, res, next) => {
+  if (req.method === 'OPTIONS') {
+    res.set('Access-Control-Allow-Origin', req.headers.origin || 'https://www.nat20scheduling.com');
+    res.set('Access-Control-Allow-Credentials', 'true');
+    res.set('Access-Control-Allow-Methods', 'GET,HEAD,OPTIONS,POST,PUT,PATCH,DELETE');
+    res.set('Access-Control-Allow-Headers', 'Content-Type,X-Requested-With');
+    return res.sendStatus(204);
+  }
+  next();
+});
 
 app.use(express.json({ limit: '1mb' }));
 app.use(cookieParser());
@@ -109,7 +119,6 @@ mongoose.connection.on('error',      (err) => console.error('[DB] error:', err))
 mongoose.connect(MONGO_URI, {
   dbName: DB_NAME,
 })
-
 .then(() => console.log('[BOOT] Mongo connection established'))
 .catch((err) => {
   console.error('[BOOT] Failed to connect to MongoDB:', err);
@@ -165,9 +174,7 @@ const server = app.listen(PORT, () => {
   console.log(`[BOOT] Backend listening on port ${PORT}`);
 });
 
-/* ========= HTTP server timeouts (help avoid intermittent 50% timeouts via ALB) =========
-   Keep-Alive must exceed ALB idle timeout (default 60s).
-*/
+/* ========= HTTP server timeouts ========= */
 server.keepAliveTimeout = 65000; // > 60000 (ALB idle)
 server.headersTimeout   = 66000; // a bit higher than keepAliveTimeout
-server.requestTimeout   = 0;     // disable per-request timeout to avoid premature closes
+server.requestTimeout   = 0;     // disable per-request timeout
