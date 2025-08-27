@@ -19,45 +19,34 @@ ensure_bind_all() {
   local changed=1
   local conf="/etc/mongod.conf"
 
-  # 1) Remove any existing bindIp lines anywhere in the file
+  # Remove any bindIp lines (override risk)
   if grep -qE '^\s*bindIp\s*:' "$conf"; then
     sed -i '/^\s*bindIp\s*:/d' "$conf"
     changed=0
   fi
 
-  # 2) Ensure bindIpAll: true exists under net:
+  # Ensure bindIpAll: true exists (under net:)
   if grep -qE '^\s*bindIpAll\s*:\s*true' "$conf"; then
     : # already correct
   else
     if grep -qE '^\s*bindIpAll\s*:' "$conf"; then
-      # present but not true -> fix
       sed -i 's/^\(\s*bindIpAll\s*:\s*\).*/\1true/' "$conf"
       changed=0
     else
       if grep -qE '^\s*net\s*:' "$conf"; then
-        # Insert bindIpAll: true as the first setting under net:
         awk '
           BEGIN{inserted=0}
           /^\s*net\s*:/ {
             print
+            # Insert bindIpAll as first setting after net:
             getline
             if($0 !~ /^\s+/){ print "  bindIpAll: true"; inserted=1; print; next }
-            else {
-              print "  bindIpAll: true"
-              inserted=1
-            }
+            else { print "  bindIpAll: true"; inserted=1 }
           }
           { print }
-          END{
-            if(!inserted){
-              # If we saw net: but logic above didn’t insert (edge cases), append safely
-              # (This block rarely triggers; kept as a guard.)
-            }
-          }
         ' "$conf" > "$conf.new" && mv "$conf.new" "$conf"
         changed=0
       else
-        # No net: block -> append a minimal one
         printf "\nnet:\n  bindIpAll: true\n" >> "$conf"
         changed=0
       fi
@@ -70,24 +59,28 @@ ensure_bind_all() {
 enable_auth_if_needed() {
   # Enable security.authorization: "enabled"; return 0 if changed, 1 if no change
   local changed=1
-  if grep -qE '^\s*authorization\s*:' /etc/mongod.conf; then
-    if ! grep -qE '^\s*authorization\s*:\s*"enabled"' /etc/mongod.conf; then
-      sed -i 's/^\(\s*authorization\s*:\s*\).*/\1"enabled"/' /etc/mongod.conf
+  local conf="/etc/mongod.conf"
+
+  if grep -qE '^\s*authorization\s*:\s*"' "$conf"; then
+    if ! grep -qE '^\s*authorization\s*:\s*"enabled"' "$conf"; then
+      sed -i 's/^\(\s*authorization\s*:\s*\).*/\1"enabled"/' "$conf"
       changed=0
     fi
   else
-    if ! grep -qE '^\s*security\s*:' /etc/mongod.conf; then
-      printf "\nsecurity:\n  authorization: \"enabled\"\n" >> /etc/mongod.conf
+    if grep -qE '^\s*security\s*:' "$conf"; then
+      # Add authorization under existing security:
+      awk '
+        BEGIN{done=0}
+        /^\s*security\s*:/ {print; print "  authorization: \"enabled\""; done=1; next}
+        {print}
+      ' "$conf" > "$conf.new" && mv "$conf.new" "$conf"
       changed=0
     else
-      awk '
-        BEGIN{added=0}
-        /^security\s*:/ {print; getline; if($0 !~ /authorization/){print "  authorization: \"enabled\""; added=1} else {print} next}
-        {print}
-      ' /etc/mongod.conf > /etc/mongod.conf.new && mv /etc/mongod.conf.new /etc/mongod.conf
+      printf "\nsecurity:\n  authorization: \"enabled\"\n" >> "$conf"
       changed=0
     fi
   fi
+
   return $changed
 }
 
@@ -100,6 +93,19 @@ mongo_ping_auth() {
   mongosh --quiet "mongodb://127.0.0.1:27017/admin?authSource=admin" \
     -u "${DATABASE_USER}" -p "${DATABASE_PASSWORD}" \
     --eval "db.runCommand({ ping: 1 })" >/dev/null 2>&1
+}
+
+wait_for_mongo() {
+  # Wait until mongod responds either without auth OR with auth (handles idempotent reruns)
+  for i in $(seq 1 60); do
+    if mongo_ping_noauth || mongo_ping_auth; then
+      log "mongod is ready"
+      return 0
+    fi
+    sleep 1
+  done
+  log "mongod did not become ready in time"
+  return 1
 }
 
 # ---------- Prepare dedicated data volume at /var/lib/mongo ----------
@@ -153,14 +159,7 @@ if ! systemctl is-active --quiet mongod; then
 fi
 
 log "Waiting for mongod to become ready"
-for i in $(seq 1 60); do
-  if mongo_ping_noauth; then
-    log "mongod is ready (no-auth ping ok)"
-    break
-  fi
-  sleep 1
-  [[ $i -eq 60 ]] && { log "mongod did not become ready in time"; exit 1; }
-done
+wait_for_mongo || exit 1
 
 # --------- Idempotent user + auth configuration ----------
 if ! is_auth_enabled; then
@@ -185,12 +184,16 @@ if (db.getUser("${DATABASE_USER}")) {
 }
 MONGO
 
-  changed=1
-  enable_auth_if_needed || changed=0
-  ensure_bind_all || changed=0
-  if [[ $changed -eq 0 ]]; then
-    log "Restarting mongod to apply auth/bindIp changes"
+  # Apply config changes (auth + bind) and restart if any changed
+  need_restart=0
+  if enable_auth_if_needed; then need_restart=1; fi
+  if ensure_bind_all; then need_restart=1; fi
+
+  if [[ ${need_restart} -eq 1 ]]; then
+    log "Restarting mongod to apply auth/bind changes"
     systemctl restart mongod
+    log "Waiting for mongod to become ready after restart"
+    wait_for_mongo || exit 1
   else
     log "No mongod.conf changes required"
   fi
@@ -209,11 +212,15 @@ else
     log "WARNING: Unable to authenticate with provided credentials; leaving users unchanged"
   fi
 
-  changed=1
-  ensure_bind_all || changed=0
-  if [[ $changed -eq 0 ]]; then
+  # Ensure bindAll and restart only if config changed
+  need_restart=0
+  if ensure_bind_all; then need_restart=1; fi
+
+  if [[ ${need_restart} -eq 1 ]]; then
     log "bindIp updated; restarting mongod"
     systemctl restart mongod
+    log "Waiting for mongod to become ready after restart"
+    wait_for_mongo || exit 1
   else
     log "bindIp already correct; no restart needed"
   fi
