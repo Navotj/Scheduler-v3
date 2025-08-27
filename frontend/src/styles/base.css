@@ -1,0 +1,148 @@
+:root{
+  --bg-0:#0b0f15;
+  --bg-1:#0f1420;
+  --card:#141a28;
+  --ring:#8f9cff;
+  --fg-0:#e7eaf2;
+  --fg-1:#b6bfd4;
+  --border:#232a3a;
+  --accent:#7c5cff;
+  --muted:#8a93a8;
+
+  --radius:16px;
+  --radius-sm:12px;
+  --gap:16px;
+  --gap-lg:24px;
+
+  --topbar-h:56px;
+  --rail-w:260px;
+  --main-max:1440px;
+}
+
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;
+  background:var(--bg-0);
+  color:var(--fg-0);
+  font-family:system-ui,-apple-system,"Segoe UI",Roboto,Ubuntu,Cantarell,"Noto Sans","Helvetica Neue",Arial,"Apple Color Emoji","Segoe UI Emoji";
+  -webkit-font-smoothing:antialiased;
+  -moz-osx-font-smoothing:grayscale;
+}
+
+a{color:inherit;text-decoration:none}
+h1,h2,h3,p{margin:0}
+
+:focus{outline:none}
+:focus-visible{box-shadow:0 0 0 3px var(--ring); border-radius:8px}
+
+.shell{
+  min-height:100dvh;
+  display:grid;
+  grid-template-rows:var(--topbar-h) 1fr;
+  background:linear-gradient(180deg,var(--bg-1),var(--bg-0) 40%);
+}
+
+.topbar{
+  position:sticky; top:0; z-index:50;
+  height:var(--topbar-h);
+  display:flex; align-items:center; justify-content:space-between;
+  padding:0 var(--gap-lg);
+  background:rgba(15,20,32,0.7);
+  backdrop-filter:blur(8px);
+  border-bottom:1px solid var(--border);
+}
+
+.topnav{display:flex; gap:12px; align-items:center}
+.navbtn{
+  display:inline-grid; place-items:center;
+  width:40px; height:40px; border-radius:12px;
+  color:var(--fg-0);
+  border:1px solid transparent;
+  transition:transform .12s ease, background .12s ease, border-color .12s ease;
+}
+.navbtn:hover{background:rgba(124,92,255,.1); border-color:var(--border); transform:translateY(-1px)}
+.navbtn:active{transform:translateY(0)}
+.navbtn svg{width:22px; height:22px}
+
+.brand{
+  display:flex; align-items:center; gap:10px; padding:8px;
+  border-radius:999px;
+}
+.d20clock{width:40px;height:40px;color:var(--fg-0)}
+.d20clock .hands line{
+  stroke:var(--accent); stroke-width:1.5; stroke-linecap:round;
+}
+.d20clock .hands circle{
+  fill:var(--fg-0);
+}
+
+/* layout */
+.layout{
+  display:grid;
+  grid-template-columns: var(--rail-w) minmax(0,1fr);
+  gap:var(--gap-lg);
+  padding:var(--gap-lg);
+}
+
+.rail{
+  background:var(--card);
+  border:1px solid var(--border);
+  border-radius:var(--radius);
+  padding:var(--gap-lg);
+  min-height:calc(100dvh - var(--topbar-h) - 2*var(--gap-lg));
+}
+
+.main{
+  background:var(--card);
+  border:1px solid var(--border);
+  border-radius:var(--radius);
+  padding:calc(var(--gap-lg) + 4px);
+  min-height:calc(100dvh - var(--topbar-h) - 2*var(--gap-lg));
+  max-width:var(--main-max);
+  margin:0 auto;
+  outline:1px solid rgba(255,255,255,0.03);
+  box-shadow:0 10px 30px rgba(0,0,0,.25);
+}
+
+/* rail content */
+.support-card{
+  display:grid; gap:10px;
+  background:linear-gradient(180deg,rgba(124,92,255,.08),rgba(124,92,255,0) 60%);
+  border:1px solid var(--border);
+  border-radius:var(--radius-sm);
+  padding:12px;
+}
+.support-card h2{text-transform:lowercase; font-size:14px; color:var(--fg-1); letter-spacing:.4px}
+.support-card p{font-size:13px; color:var(--fg-1)}
+.support-actions{margin-top:4px}
+.btn{
+  display:inline-flex; align-items:center; justify-content:center;
+  height:32px; padding:0 12px; border-radius:10px;
+  border:1px solid var(--border);
+  background:rgba(255,255,255,0.02);
+  transition:background .12s ease,border-color .12s ease,transform .12s ease;
+}
+.btn:hover{background:rgba(124,92,255,.12); border-color:rgba(124,92,255,.5); transform:translateY(-1px)}
+.btn:active{transform:translateY(0)}
+
+/* placeholder content in main */
+.placeholder{display:grid; gap:10px}
+.placeholder h1{font-size:22px; color:var(--fg-0)}
+.placeholder p{color:var(--fg-1)}
+
+/* responsive */
+@media (max-width: 1279px){
+  :root{ --rail-w:220px }
+}
+@media (max-width: 991px){
+  :root{ --rail-w:0px }
+  .layout{ grid-template-columns: 1fr }
+  .rail{ display:none }
+}
+@media (min-width: 1600px){
+  :root{ --rail-w:300px; --main-max:1600px }
+}
+@media (prefers-reduced-motion: reduce){
+  .navbtn{ transition:none }
+}

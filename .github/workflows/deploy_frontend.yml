@@ -59,12 +59,21 @@ jobs:
           [[ -d "frontend" ]] || { echo "missing: frontend"; ls -la infrastructure || true; exit 1; }
           aws s3 ls "s3://${APP_PREFIX}-frontend" >/dev/null
 
+      - name: build static site (bash include resolver)
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash frontend/build/include.sh
+          echo "Built output:"
+          find frontend/site -maxdepth 2 -type f -print | sort
+
+
       - name: sync to s3 (SSE required)
         shell: bash
         run: |
           set -euo pipefail
-          echo "Syncing 'frontend/' -> 's3://${APP_PREFIX}-frontend/' in '${AWS_REGION}'..."
-          aws s3 sync "frontend/" "s3://${APP_PREFIX}-frontend/" \
+          echo "Syncing 'frontend/site/' -> 's3://${APP_PREFIX}-frontend/' in '${AWS_REGION}'..."
+          aws s3 sync "frontend/site/" "s3://${APP_PREFIX}-frontend/" \
             --delete \
             --only-show-errors \
             --exact-timestamps \
