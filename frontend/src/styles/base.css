@@ -237,3 +237,26 @@ h1,h2,h3,p{margin:0}
 @media (prefers-reduced-motion: reduce){
   .navbtn{ transition:none }
 }
+
+#settings-btn {
+  background: transparent !important;
+  border: 1px solid transparent !important;
+  box-shadow: none;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+#settings-btn:hover {
+  background: rgba(124,92,255,.1) !important;
+  border-color: var(--border) !important;
+  transform: translateY(-1px);
+}
+
+#settings-btn:active {
+  transform: translateY(0);
+}
+
+#settings-btn:focus-visible {
+  box-shadow: 0 0 0 3px var(--ring);
+  border-radius: 8px;
+}
