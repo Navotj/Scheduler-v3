@@ -22,7 +22,7 @@ chown ec2-user:ec2-user "${APP_DIR}"
 
 log "Write .env with Mongo connection string"
 cat > "${APP_DIR}/.env" <<ENV
-MONGO_URI=mongodb://${DATABASE_USER}:${DATABASE_PASSWORD}@${DATABASE_HOST}:27017/${DATABASE_NAME}?authSource=${DATABASE_NAME}
+MONGO_URI=mongodb://${DATABASE_USER}:${DATABASE_PASSWORD}@${DATABASE_HOST}:27017/${DATABASE_NAME}?authSource=admin
 ENV
 chmod 0600 "${APP_DIR}/.env"
 chown ec2-user:ec2-user "${APP_DIR}/.env"

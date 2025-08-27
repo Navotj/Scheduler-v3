@@ -66,7 +66,10 @@ mongo_ping_noauth() {
 }
 
 mongo_ping_auth() {
-  mongosh --quiet "mongodb://127.0.0.1:27017/${DB_NAME}" -u "${DATABASE_USER}" -p "${DATABASE_PASSWORD}" --eval "db.runCommand({ ping: 1 })" >/dev/null 2>&1
+  # Authenticate against the admin database explicitly
+  mongosh --quiet "mongodb://127.0.0.1:27017/admin?authSource=admin" \
+    -u "${DATABASE_USER}" -p "${DATABASE_PASSWORD}" \
+    --eval "db.runCommand({ ping: 1 })" >/dev/null 2>&1
 }
 
 # ---------- Prepare dedicated data volume at /var/lib/mongo ----------
@@ -132,16 +135,15 @@ done
 # --------- Idempotent user + auth configuration ----------
 if ! is_auth_enabled; then
   log "Auth NOT enabled yet; creating user unauthenticated, then enabling auth"
-  log "Creating application database user '${DATABASE_USER}' on database '${DB_NAME}'"
+  log "Creating application user '${DATABASE_USER}' in admin with readWrite on '${DB_NAME}'"
   mongosh --quiet <<MONGO
-use ${DB_NAME}
+use admin
 if (db.getUser("${DATABASE_USER}")) {
-  // user exists; optionally update password only if ROTATE_DB_PASSWORD=1
   if ("${ROTATE_DB_PASSWORD:-0}" === "1") {
     db.updateUser("${DATABASE_USER}", { pwd: "${DATABASE_PASSWORD}" });
-    print("Updated existing user password");
+    print("Updated existing user password (admin)");
   } else {
-    print("User already exists; skipping password change");
+    print("User already exists in admin; skipping password change");
   }
 } else {
   db.createUser({
@@ -149,7 +151,7 @@ if (db.getUser("${DATABASE_USER}")) {
     pwd: "${DATABASE_PASSWORD}",
     roles: [ { role: "readWrite", db: "${DB_NAME}" } ]
   });
-  print("Created user");
+  print("Created user in admin with readWrite on ${DB_NAME}");
 }
 MONGO
 
@@ -163,14 +165,15 @@ MONGO
     log "No mongod.conf changes required"
   fi
 else
-  log "Auth already enabled; verifying supplied credentials"
+  log "Auth already enabled; verifying supplied credentials (authSource=admin)"
   if mongo_ping_auth; then
-    log "Credentials valid; user exists. Skipping create."
+    log "Credentials valid; user exists in admin. Skipping create."
     if [[ "${ROTATE_DB_PASSWORD:-0}" == "1" ]]; then
-      log "ROTATE_DB_PASSWORD=1 set; updating user password"
-      mongosh --quiet "mongodb://127.0.0.1:27017/${DB_NAME}" -u "${DATABASE_USER}" -p "${DATABASE_PASSWORD}" --eval '
-        db.updateUser("'${DATABASE_USER}'", { pwd: "'${DATABASE_PASSWORD}'" });
-      ' >/dev/null
+      log "ROTATE_DB_PASSWORD=1 set; updating user password in admin"
+      mongosh --quiet "mongodb://127.0.0.1:27017/admin?authSource=admin" \
+        -u "${DATABASE_USER}" -p "${DATABASE_PASSWORD}" --eval '
+          db.updateUser("'"${DATABASE_USER}"'", { pwd: "'"${DATABASE_PASSWORD}"'" });
+        ' >/dev/null
     fi
   else
     log "WARNING: Unable to authenticate with provided credentials; leaving users unchanged"

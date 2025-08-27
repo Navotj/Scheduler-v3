@@ -1,9 +1,37 @@
+// replace file (app.js)
 // Nat20 Scheduling - Backend server with verbose logging
 const express = require('express');
 const cors = require('cors');
 const mongoose = require('mongoose');
 const cookieParser = require('cookie-parser');
-require('dotenv').config({ path: '/opt/app/.env' });
+
+// replace function (dotenv load + validation)
+(() => {
+  const fs = require('fs');
+  const path = require('path');
+  // Prefer absolute .env created by user-data
+  const envPathPrimary = '/opt/app/.env';
+  const envPathFallback = path.join(process.cwd(), '.env');
+
+  const chosen = fs.existsSync(envPathPrimary) ? envPathPrimary : envPathFallback;
+  const result = require('dotenv').config({ path: chosen });
+
+  // Log which file we used and how many keys we parsed
+  const parsedCount = result.parsed ? Object.keys(result.parsed).length : 0;
+  console.log(`[BOOT][dotenv] file="${chosen}" keys=${parsedCount}`);
+
+  // If zero keys parsed, forcefully fail fast so we don't run with wrong defaults
+  if (parsedCount === 0) {
+    console.error('[BOOT][dotenv] No variables loaded from .env. Ensure the service can read /opt/app/.env and that it has KEY=VALUE lines.');
+    // Optional: dump a tiny hint if the file exists but unreadable
+    try {
+      const st = fs.statSync(envPathPrimary);
+      console.error(`[BOOT][dotenv] /opt/app/.env exists: mode=${(st.mode & 0o777).toString(8)} owner=${st.uid}:${st.gid}`);
+    } catch (_) {}
+    process.exit(1);
+  }
+})();
+
 
 // Routers
 const authRoutes = require('./routes/auth');                 // /login, /auth/*, /logout, /check
@@ -83,31 +111,18 @@ app.use((req, res, next) => {
   next();
 });
 
-/* ========= MongoDB connection ========= */
-const buildMongoUri = () => {
-  // Prefer explicit URI if provided
-  if (process.env.MONGO_URI && process.env.MONGO_URI.trim().length > 0) {
-    return process.env.MONGO_URI.trim();
-  }
-  // Otherwise compose from parts
-  const user = process.env.MONGO_USER ? encodeURIComponent(process.env.MONGO_USER) : '';
-  const pass = process.env.MONGO_PASS ? encodeURIComponent(process.env.MONGO_PASS) : '';
-  const auth = user && pass ? `${user}:${pass}@` : '';
-  const host = (process.env.MONGO_HOST && process.env.MONGO_HOST.trim()) || 'mongo.nat20.svc.cluster.local';
-  const port = process.env.MONGO_PORT || '27017';
-  const dbNameFromEnv = process.env.MONGO_DB || process.env.MONGO_DB_NAME || 'nat20';
-  return `mongodb://${auth}${host}:${port}/${dbNameFromEnv}?authSource=admin`;
-};
-
-const MONGO_URI = buildMongoUri();
-const DB_NAME = process.env.MONGO_DB_NAME || process.env.MONGO_DB || 'nat20';
+/* ========= MongoDB connection =========
+   REQUIRE: MONGO_URI provided in .env; we do NOT compose it here.
+   The URI must include db name (expected "appdb") and authSource=admin for auth in admin.
+*/
+const MONGO_URI = (process.env.MONGO_URI || '').trim();
 
 if (!MONGO_URI) {
-  console.error('[BOOT] FATAL: MONGO_URI is required but not set. Exiting.');
+  console.error('[BOOT] FATAL: MONGO_URI is required but not set in environment (.env). Exiting.');
   process.exit(1);
 }
 
-console.log('[BOOT] Connecting to MongoDB...', { dbName: DB_NAME });
+console.log('[BOOT] Connecting to MongoDB using provided MONGO_URI');
 
 mongoose.connection.on('connecting', () => console.log('[DB] connecting...'));
 mongoose.connection.on('connected',  () => console.log('[DB] connected'));
@@ -116,9 +131,7 @@ mongoose.connection.on('reconnected',() => console.log('[DB] reconnected'));
 mongoose.connection.on('disconnected',() => console.warn('[DB] disconnected'));
 mongoose.connection.on('error',      (err) => console.error('[DB] error:', err));
 
-mongoose.connect(MONGO_URI, {
-  dbName: DB_NAME,
-})
+mongoose.connect(MONGO_URI, {})
 .then(() => console.log('[BOOT] Mongo connection established'))
 .catch((err) => {
   console.error('[BOOT] Failed to connect to MongoDB:', err);
