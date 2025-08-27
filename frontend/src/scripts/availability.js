@@ -43,18 +43,34 @@
 
   // --- Time helpers ---
   function zonedEpoch(y, m, d, hh, mm, tz) {
-    const dtf = new Intl.DateTimeFormat('en-US', {
-      timeZone: tz,
-      hour12: false,
-      year: 'numeric', month: '2-digit', day: '2-digit',
-      hour: '2-digit', minute: '2-digit', second: '2-digit'
-    });
-    const parts = dtf.formatToParts(new Date(Date.UTC(y, m - 1, d, hh, mm, 0)));
-    const map = {};
-    for (const p of parts) map[p.type] = p.value;
-    const asUTC = Date.UTC(+map.year, +map.month - 1, +map.day, +map.hour, +map.minute, +map.second);
-    return Math.floor(asUTC / 1000);
+    // Convert a wall time in IANA tz to a UTC epoch (seconds), DST-safe via offset iteration
+    function wallUTCFromInstant(ms) {
+      const dtf = new Intl.DateTimeFormat('en-US', {
+        timeZone: tz,
+        hour12: false,
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit'
+      });
+      const parts = dtf.formatToParts(new Date(ms));
+      const map = {};
+      for (const p of parts) map[p.type] = p.value;
+      return Date.UTC(+map.year, +map.month - 1, +map.day, +map.hour, +map.minute, +map.second);
+    }
+
+    // Start with the naive UTC of the provided wall components
+    const naive = Date.UTC(y, m - 1, d, hh, mm, 0);
+
+    // First guess: subtract the offset observed at the naive instant
+    const offset1 = wallUTCFromInstant(naive) - naive;
+    let instant = naive - offset1;
+
+    // Refine once: recompute offset at the candidate instant (handles DST edges)
+    const offset2 = wallUTCFromInstant(instant) - instant;
+    instant = naive - offset2;
+
+    return Math.floor(instant / 1000);
   }
+
   function todayYMD(tz) {
     const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
     const map = {};
