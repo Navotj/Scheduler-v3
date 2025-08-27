@@ -164,7 +164,7 @@
   // ========= Topbar auth button state =========
   function toggleIcons(isAuthed){
     const btn = document.getElementById('auth-btn');
-    const scope = (btn && btn.closest('.top-bar')) || document;
+    const scope = (btn && btn.closest('.topbar')) || document;
     const logins  = scope.querySelectorAll('[data-icon="login"]');
     const logouts = scope.querySelectorAll('[data-icon="logout"]');
     logins.forEach(el => { el.hidden  = !!isAuthed; });
@@ -182,7 +182,7 @@
     btn.setAttribute('aria-label', isAuthed ? 'Sign out' : 'Sign in');
     btn.setAttribute('title',      isAuthed ? 'Sign out' : 'Sign in');
 
-    const label = document.getElementById('user-label');
+    const label = document.getElementById('auth-label');
     if (label) {
       label.textContent = isAuthed ? ('logged in as ' + (username || '')) : 'not logged in';
     }
