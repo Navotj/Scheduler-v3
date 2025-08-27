@@ -234,9 +234,11 @@ function updateNowMarker() {
   if (!table) return;
   ensureNowMarker();
 
-  // If needed, bind a resize handler so zoom/resizes reflow the marker immediately.
   if (!updateNowMarker._bound) {
-    try { window.addEventListener('resize', updateNowMarker, { passive: true }); } catch {}
+    try {
+      window.addEventListener('resize', updateNowMarker, { passive: true });
+      if (gridContent) gridContent.addEventListener('scroll', updateNowMarker, { passive: true });
+    } catch {}
     updateNowMarker._bound = true;
   }
 
@@ -247,20 +249,25 @@ function updateNowMarker() {
   const now = new Date();
   const minutes = now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60;
 
-  // Position relative to the scrollable content box of .grid-content
+  // Vertical position relative to the scrollable .grid-content box
   const gridRect = gridContent.getBoundingClientRect();
   const tbodyRect = tbody.getBoundingClientRect();
   const tbodyTopInContent = (tbodyRect.top - gridRect.top) + gridContent.scrollTop;
-
-  // Use the tbody's actual scrollHeight to stay aligned with the table at any zoom level
   const top = tbodyTopInContent + (minutes / (24 * 60)) * tbody.scrollHeight;
 
-  // Full-width line across the table; avoid column-relative math (prevents drift on zoom)
+  // Constrain width to today's column only
+  const dayIdx = now.getDay(); // 0..6
+  const firstCell = table.querySelector('td.slot-cell[data-col="' + dayIdx + '"][data-row="0"]');
+  if (!firstCell) { nowMarker.style.display = 'none'; return; }
+  const colRect = firstCell.getBoundingClientRect();
+  const left = (colRect.left - gridRect.left) + gridContent.scrollLeft;
+  const width = colRect.width;
+
   nowMarker.style.display = 'block';
   nowMarker.style.top = top + 'px';
-  nowMarker.style.left = '0';
-  nowMarker.style.right = '0';
-  nowMarker.style.width = '';
+  nowMarker.style.left = left + 'px';
+  nowMarker.style.right = '';
+  nowMarker.style.width = width + 'px';
 }
 
 
