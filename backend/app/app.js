@@ -25,7 +25,7 @@ const corsOptions = {
   optionsSuccessStatus: 204
 };
 app.use(cors(corsOptions));
-app.options('*', cors(corsOptions)); // fast preflight responses
+app.options('/(.*)', cors(corsOptions)); // fast preflight responses
 
 app.use(express.json({ limit: '1mb' }));
 app.use(cookieParser());
@@ -96,7 +96,6 @@ if (!MONGO_URI) {
 }
 
 console.log('[BOOT] Connecting to MongoDB...', { dbName: DB_NAME });
-mongoose.set('strictQuery', true);
 
 mongoose.connection.on('connecting', () => console.log('[DB] connecting...'));
 mongoose.connection.on('connected',  () => console.log('[DB] connected'));
@@ -107,9 +106,8 @@ mongoose.connection.on('error',      (err) => console.error('[DB] error:', err))
 
 mongoose.connect(MONGO_URI, {
   dbName: DB_NAME,
-  useNewUrlParser: true,
-  useUnifiedTopology: true
 })
+
 .then(() => console.log('[BOOT] Mongo connection established'))
 .catch((err) => {
   console.error('[BOOT] Failed to connect to MongoDB:', err);

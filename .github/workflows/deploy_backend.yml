@@ -116,7 +116,6 @@ jobs:
           # Enable versioning (optional but helpful)
           aws s3api put-bucket-versioning --bucket "${ARTIFACT_BUCKET}" --versioning-configuration Status=Enabled
 
-        # replace step (package backend (app + service))
       - name: package backend (app + service)
         working-directory: ${{ github.workspace }}
         shell: bash
