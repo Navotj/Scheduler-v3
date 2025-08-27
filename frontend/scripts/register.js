@@ -90,7 +90,7 @@ window.initRegisterForm = function () {
 
     try {
       // Use /auth/register so it hits the same router
-      const res = await fetch('${window.API_BASE_URL}/auth/register', {
+      const res = await fetch(`${window.API_BASE_URL}/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',

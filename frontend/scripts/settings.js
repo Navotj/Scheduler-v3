@@ -82,14 +82,14 @@
 
   async function fetchRemote() {
     try {
-      const res = await fetch('/settings', { credentials: 'include', cache: 'no-cache' });
+      const res = await fetch(`${window.API_BASE_URL}/settings`, { credentials: 'include', cache: 'no-cache' });
       if (res.ok) return await res.json();
     } catch {}
     return null;
   }
 
   async function saveRemote(obj) {
-    const res = await fetch('/settings', {
+    const res = await fetch(`${window.API_BASE_URL}/settings`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',

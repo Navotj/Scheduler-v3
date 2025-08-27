@@ -16,7 +16,7 @@ let __addingMe = false;
 
 async function userExists(name) {
   try {
-    const url = `${BASE_URL}/users/exists?username=${encodeURIComponent(name)}`;
+    const url = `${window.API_BASE_URL}/users/exists?username=${encodeURIComponent(name)}`;
     const res = await fetch(url, { credentials: 'include', cache: 'no-cache' });
     if (!res.ok) return false;
     const data = await res.json();
@@ -59,8 +59,8 @@ async function fetchMembersAvail() {
 
   const payload = { from, to, usernames: state.members };
   const tryPaths = [
-    `${BASE_URL}/availability/get_many`,
-    `${BASE_URL}/availability/availability/get_many`
+    `${window.API_BASE_URL}/availability/get_many`,
+    `${window.API_BASE_URL}/availability/availability/get_many`
   ];
 
   let data = { intervals: {} };
