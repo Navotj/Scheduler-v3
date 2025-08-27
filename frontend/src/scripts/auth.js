@@ -23,7 +23,7 @@
     ov.id = 'modal-overlay';
     ov.style.position = 'fixed';
     ov.style.inset = '0';
-    ov.style.background = 'transparent';
+    ov.style.background = 'rgba(0,0,0,0.5)';
     ov.style.display = 'none';
     ov.style.zIndex = '1000';
     ov.setAttribute('aria-hidden','true');
