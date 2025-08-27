@@ -217,80 +217,85 @@
 
     populateTimezones($tz);
 
+    // Ensure Viridis is visibly the default immediately upon opening
+    if ($heatmap) $heatmap.value = 'viridis';
+    if ($heatmapPreview) $heatmapPreview.style.background = gradientCssFor('viridis');
+
     const defaults = { timezone: 'auto', clock: '24', weekStart: 'sun', defaultZoom: 1.0, heatmap: 'viridis' };
 
     (async () => {
-      const remote = await fetchRemote();
-      const local = loadLocal();
-      const s = remote || local || defaults;
+        const remote = await fetchRemote();
+        const local = loadLocal() || {};
+        // Merge with defaults so any missing fields default properly (Viridis for heatmap)
+        const s = Object.assign({}, defaults, local, remote || {});
 
-      const isAuto = !s.timezone || s.timezone === 'auto';
-      $tzModeAuto.checked = isAuto;
-      $tzModeManual.checked = !isAuto;
-      $tz.disabled = isAuto;
-      $tz.value = isAuto ? getSystemTZ() : (s.timezone || getSystemTZ());
-      if ($tz.value === 'auto') $tz.value = getSystemTZ();
+        const isAuto = !s.timezone || s.timezone === 'auto';
+        $tzModeAuto.checked = isAuto;
+        $tzModeManual.checked = !isAuto;
+        $tz.disabled = isAuto;
+        $tz.value = isAuto ? getSystemTZ() : (s.timezone || getSystemTZ());
+        if ($tz.value === 'auto') $tz.value = getSystemTZ();
 
-      (s.clock === '12' ? $clock12 : $clock24).checked = true;
-      (s.weekStart === 'mon' ? $weekMon : $weekSun).checked = true;
+        (s.clock === '12' ? $clock12 : $clock24).checked = true;
+        (s.weekStart === 'mon' ? $weekMon : $weekSun).checked = true;
 
-      const zoom = (typeof s.defaultZoom === 'number') ? s.defaultZoom : 1.0;
-      $defaultZoom.value = String(zoom);
-      $zoomValue.textContent = zoom.toFixed(1);
+        const zoom = (typeof s.defaultZoom === 'number') ? s.defaultZoom : 1.0;
+        $defaultZoom.value = String(zoom);
+        $zoomValue.textContent = zoom.toFixed(1);
 
-      if ($heatmap) {
+        if ($heatmap) {
         const heat = s.heatmap || 'viridis';
         $heatmap.value = heat;
         if ($heatmapPreview) $heatmapPreview.style.background = gradientCssFor(heat);
-      }
+        }
     })();
 
     $defaultZoom.addEventListener('input', () => {
-      const z = Number($defaultZoom.value);
-      $zoomValue.textContent = z.toFixed(1);
+        const z = Number($defaultZoom.value);
+        $zoomValue.textContent = z.toFixed(1);
     });
 
     function updateTzMode() {
-      const manual = $tzModeManual.checked;
-      $tz.disabled = !manual;
-      if (!manual) {
+        const manual = $tzModeManual.checked;
+        $tz.disabled = !manual;
+        if (!manual) {
         const sys = getSystemTZ();
         if (!$tz.querySelector(`option[value="${sys}"]`)) {
-          const opt = document.createElement('option');
-          opt.value = sys;
-          opt.textContent = sys;
-          $tz.appendChild(opt);
+            const opt = document.createElement('option');
+            opt.value = sys;
+            opt.textContent = sys;
+            $tz.appendChild(opt);
         }
         $tz.value = sys;
-      }
+        }
     }
     $tzModeAuto.addEventListener('change', updateTzMode);
     $tzModeManual.addEventListener('change', updateTzMode);
 
     if ($heatmap) {
-      $heatmap.addEventListener('change', () => {
+        $heatmap.addEventListener('change', () => {
         if ($heatmapPreview) $heatmapPreview.style.background = gradientCssFor($heatmap.value);
-      });
+        });
     }
 
     $form.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const obj = {
+        e.preventDefault();
+        const obj = {
         timezone: ($tzModeAuto.checked ? 'auto' : $tz.value),
         clock: ($clock12.checked ? '12' : '24'),
         weekStart: ($weekMon.checked ? 'mon' : 'sun'),
         defaultZoom: Number($defaultZoom.value),
         heatmap: ($heatmap ? $heatmap.value : 'viridis')
-      };
-      try {
+        };
+        try {
         const saved = await saveRemote(obj);
         saveLocal(saved);
         $status.textContent = 'Saved ✓';
         setTimeout(() => { $status.textContent = ''; }, 1500);
-      } catch (_err) {
+        } catch (_err) {
         $status.textContent = 'Save failed';
         setTimeout(() => { $status.textContent = ''; }, 2000);
-      }
+        }
     });
   }
 
