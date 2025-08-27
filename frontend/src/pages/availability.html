@@ -1,34 +1,41 @@
-<style>
-  /* 80/20 two-column layout (no extra visuals) */
-  .availability-layout {
-    display: grid;
-    grid-template-columns: 4fr 1fr; /* 80% / 20% */
-    gap: var(--gap, 16px);
-    align-items: start;
-    width: min(var(--main-max, 1440px), 96vw);
-    margin: 12px auto 32px;
-    padding: 0 12px;
-  }
-</style>
+<!-- @include ../partials/dochead.html -->
+<title>availability</title>
+<link rel="stylesheet" href="/styles/availability.css" />
+</head>
+<body>
+  <div class="shell">
+    <!-- @include ../partials/topbar.html -->
 
-<main class="availability-layout">
-  <!-- Left column (80%): table only -->
-  <section class="availability-left">
-    <div id="grid" class="grid">
-      <div id="grid-content" class="grid-content">
-        <table id="schedule-table" class="table" aria-label="Weekly availability grid"></table>
-        <!-- NOW marker injected by JS -->
-      </div>
+    <div class="layout">
+      <!-- @include ../partials/rail.html -->
+
+      <main id="page" class="main" tabindex="-1" aria-label="Main content">
+        <section class="availability">
+          <div class="availability-layout">
+            <section class="availability-left">
+              <div id="grid" class="grid">
+                <div id="grid-content" class="grid-content">
+                  <table id="schedule-table" class="table" aria-label="Weekly availability grid"></table>
+                  <div id="now-marker" class="now-marker" style="display:none"><span class="bubble">NOW</span></div>
+                </div>
+              </div>
+              <div id="signin-tooltip" class="signin-tooltip" aria-hidden="true">Sign in to edit availability</div>
+            </section>
+
+            <aside class="availability-right" aria-hidden="true"></aside>
+          </div>
+        </section>
+      </main>
     </div>
-    <!-- Tooltip (only used if you later gate edits by auth) -->
-    <div id="signin-tooltip" class="signin-tooltip" aria-hidden="true">Sign in to edit availability</div>
-  </section>
+  </div>
 
-  <!-- Right column (20%): reserved for future controls -->
-  <aside class="availability-right" aria-hidden="true"></aside>
-</main>
-
-<script src="/scripts/availability.js"></script>
-<script>
-  if (window.schedule && window.schedule.init) window.schedule.init();
-</script>
+  <script src="/scripts/config.js" defer></script>
+  <script src="/scripts/clock.js" defer></script>
+  <script src="/scripts/modal.js" defer></script>
+  <script src="/scripts/auth.js" defer></script>
+  <script src="/scripts/login.js" defer></script>
+  <script src="/scripts/register.js" defer></script>
+  <script src="/scripts/settings.js" defer></script>
+  <script src="/scripts/availability.js" defer></script>
+</body>
+</html>
