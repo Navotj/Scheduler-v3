@@ -136,7 +136,6 @@ jobs:
           OBJECT_KEY="releases/backend_release.tgz"
           aws s3 cp backend_release.tgz "s3://${ARTIFACT_BUCKET}/${OBJECT_KEY}" --sse AES256 --only-show-errors
           echo "OBJECT_KEY=${OBJECT_KEY}" >> "$GITHUB_ENV"
-
       - name: deploy on instances via ssm (tag-targeted)
         shell: bash
         run: |
@@ -157,6 +156,7 @@ jobs:
           rm -rf /tmp/app "${UNIT_SRC}" || true
           tar -xzf "${TMP_TGZ}" -C /tmp
 
+          # preserve existing .env, clear everything else in WORKDIR
           rm -f /tmp/app/.env
           find "${WORKDIR}" -mindepth 1 -maxdepth 1 -not -name '.env' -exec rm -rf -- {} +
 
@@ -164,6 +164,15 @@ jobs:
           cp -a /tmp/app/* "${WORKDIR}/" || true
           shopt -u dotglob
           chown -R ec2-user:ec2-user "${WORKDIR}" || true
+
+          # ensure Node/npm exist, then install deps (production only)
+          if ! command -v npm >/dev/null 2>&1; then
+            curl -fsSL https://rpm.nodesource.com/setup_22.x | bash -
+            dnf install -y nodejs
+          fi
+          cd "${WORKDIR}"
+          export NODE_ENV=production
+          npm ci --omit=dev
 
           install -D -m 0644 "${UNIT_SRC}" "${UNIT_DST}"
           systemctl daemon-reload
