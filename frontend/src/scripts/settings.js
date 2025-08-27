@@ -217,7 +217,8 @@
 
     populateTimezones($tz);
 
-    // Ensure Viridis is visibly the default immediately upon opening
+    const HEATMAP_OPTIONS = ['viridis', 'plasma', 'cividis', 'twilight', 'lava'];
+
     if ($heatmap) $heatmap.value = 'viridis';
     if ($heatmapPreview) $heatmapPreview.style.background = gradientCssFor('viridis');
 
@@ -226,7 +227,6 @@
     (async () => {
         const remote = await fetchRemote();
         const local = loadLocal() || {};
-        // Merge with defaults so any missing fields default properly (Viridis for heatmap)
         const s = Object.assign({}, defaults, local, remote || {});
 
         const isAuto = !s.timezone || s.timezone === 'auto';
@@ -244,9 +244,11 @@
         $zoomValue.textContent = zoom.toFixed(1);
 
         if ($heatmap) {
-        const heat = s.heatmap || 'viridis';
+        let heat = (typeof s.heatmap === 'string') ? s.heatmap : 'viridis';
+        if (!HEATMAP_OPTIONS.includes(heat)) heat = 'viridis';
         $heatmap.value = heat;
-        if ($heatmapPreview) $heatmapPreview.style.background = gradientCssFor(heat);
+        if ($heatmap.value !== heat) $heatmap.value = 'viridis';
+        if ($heatmapPreview) $heatmapPreview.style.background = gradientCssFor($heatmap.value || 'viridis');
         }
     })();
 
@@ -274,7 +276,9 @@
 
     if ($heatmap) {
         $heatmap.addEventListener('change', () => {
-        if ($heatmapPreview) $heatmapPreview.style.background = gradientCssFor($heatmap.value);
+        if ($heatmapPreview) $heatmapPreview.style.background = gradientCssFor(
+            HEATMAP_OPTIONS.includes($heatmap.value) ? $heatmap.value : 'viridis'
+        );
         });
     }
 
@@ -285,7 +289,7 @@
         clock: ($clock12.checked ? '12' : '24'),
         weekStart: ($weekMon.checked ? 'mon' : 'sun'),
         defaultZoom: Number($defaultZoom.value),
-        heatmap: ($heatmap ? $heatmap.value : 'viridis')
+        heatmap: ($heatmap && HEATMAP_OPTIONS.includes($heatmap.value)) ? $heatmap.value : 'viridis'
         };
         try {
         const saved = await saveRemote(obj);
