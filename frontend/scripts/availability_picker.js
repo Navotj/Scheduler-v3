@@ -53,7 +53,7 @@
 
   async function fetchRemoteSettings() {
     try {
-      const res = await fetch('/settings', { credentials: 'include', cache: 'no-cache' });
+      const res = await fetch('${window.API_BASE_URL}/settings', { credentials: 'include', cache: 'no-cache' });
       if (res.ok) return await res.json();
     } catch {}
     return null;
@@ -380,7 +380,7 @@
     const inside = Array.from(selected).filter(t => t >= baseEpoch && t < endEpoch).sort((a, b) => a - b);
     const intervals = compressToIntervals(inside);
     try {
-      const res = await fetch('/availability/save', {
+      const res = await fetch('${window.API_BASE_URL}/availability/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -402,7 +402,7 @@
     const endYMD = ymdAddDays(baseYMD, 7);
     const endEpoch = epochFromZoned(endYMD.y, endYMD.m, endYMD.d, 0, 0, tz);
     try {
-      const res = await fetch(`/availability/get?from=${baseEpoch}&to=${endEpoch}`, {
+      const res = await fetch(`${window.API_BASE_URL}/availability/get?from=${baseEpoch}&to=${endEpoch}`, {
         credentials: 'include',
         cache: 'no-cache'
       });

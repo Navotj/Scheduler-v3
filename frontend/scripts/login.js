@@ -171,7 +171,7 @@
         // 1) Login (20s hard cap with abort)
         {
           const { controller, timer } = withAbort(20000);
-          const res = await fetch('/auth/login', {
+          const res = await fetch('${window.API_BASE_URL}/auth/login', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             credentials: 'include',
