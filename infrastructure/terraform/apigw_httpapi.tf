@@ -16,10 +16,10 @@ resource "aws_apigatewayv2_api" "backend_api" {
 }
 
 resource "aws_apigatewayv2_vpc_link" "backend_link" {
-  name                = "${var.app_prefix}-vpc-link"
-  subnet_ids          = [aws_subnet.private_a.id]
-  security_group_ids  = [aws_security_group.apigw_vpc_link.id]
-  tags                = { Name = "${var.app_prefix}-vpc-link" }
+  name               = "${var.app_prefix}-vpc-link"
+  subnet_ids         = [aws_subnet.private_a.id]
+  security_group_ids = [aws_security_group.apigw_vpc_link.id]
+  tags               = { Name = "${var.app_prefix}-vpc-link" }
 }
 
 resource "aws_apigatewayv2_integration" "backend_integration" {
@@ -31,6 +31,13 @@ resource "aws_apigatewayv2_integration" "backend_integration" {
   integration_uri        = aws_lb_listener.backend_nlb_3000.arn
   payload_format_version = "1.0"
   timeout_milliseconds   = 29000
+}
+
+# Route all requests to the backend via the VPC Link/NLB
+resource "aws_apigatewayv2_route" "default" {
+  api_id    = aws_apigatewayv2_api.backend_api.id
+  route_key = "$default"
+  target    = "integrations/${aws_apigatewayv2_integration.backend_integration.id}"
 }
 
 resource "aws_cloudwatch_log_group" "apigw_logs" {
