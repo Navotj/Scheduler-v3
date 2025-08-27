@@ -13,6 +13,34 @@
   // DOM refs
   let gridContent, table, nowMarker;
 
+  // --- Settings bridge (reads settings.js saved state) ---
+  const SETTINGS_KEY = 'nat20_settings';
+  const DEFAULTS = { timezone: 'auto', clock: '24', weekStart: 'sun' };
+
+  function readSettings() {
+    let s = {};
+    try {
+      const raw = localStorage.getItem(SETTINGS_KEY);
+      s = raw ? JSON.parse(raw) : {};
+    } catch {}
+    const sysTZ = (Intl.DateTimeFormat().resolvedOptions().timeZone) || 'UTC';
+    const tz = (s.timezone && s.timezone !== 'auto') ? s.timezone : sysTZ;
+    const clock = (s.clock === '12') ? '12' : '24';
+    const weekStart = (s.weekStart === 'mon') ? 'mon' : 'sun';
+    return { tz, clock, weekStart };
+  }
+
+  let cfg = readSettings();
+
+  // React live to settings changes (settings.js dispatches a StorageEvent)
+  window.addEventListener('storage', (e) => {
+    if (e && e.key === SETTINGS_KEY) {
+      cfg = readSettings();
+      buildGrid();
+      updateNowMarker();
+    }
+  });
+
   // --- Time helpers ---
   function zonedEpoch(y, m, d, hh, mm, tz) {
     const dtf = new Intl.DateTimeFormat('en-US', {
@@ -38,12 +66,28 @@
     t.setUTCDate(t.getUTCDate() + add);
     return { y: t.getUTCFullYear(), m: t.getUTCMonth() + 1, d: t.getUTCDate() };
   }
-  function getWeekStartYMD(tz) { // Sunday start
+  function getWeekStartYMD(tz) {
+    // Respect settings.js: Sunday or Monday start
     const t = todayYMD(tz);
     const todayMid = zonedEpoch(t.y, t.m, t.d, 0, 0, tz);
-    const wdLocal = new Date(todayMid * 1000).getUTCDay(); // based on the constructed midnight
-    const base = addDays(t.y, t.m, t.d, -wdLocal + weekOffset * 7);
+    // 0..6 (Sun..Sat) in the *chosen* timezone
+    const wdLocal = new Date(todayMid * 1000).getUTCDay();
+    // Reindex if Monday is the first day
+    const idx = (cfg.weekStart === 'mon') ? ((wdLocal + 6) % 7) : wdLocal;
+    const base = addDays(t.y, t.m, t.d, -idx + weekOffset * 7);
     return base;
+  }
+
+  function minutesOfDayInTZ(tz) {
+    const now = new Date();
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz, hour12: false,
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit'
+    }).formatToParts(now);
+    const map = {};
+    for (const p of parts) map[p.type] = p.value;
+    return (+map.hour) * 60 + (+map.minute) + (+map.second) / 60;
   }
 
   // --- Labels ---
@@ -60,17 +104,20 @@
 
   // --- Build grid ---
   function formatHourLabel(hour) {
+    if (cfg.clock === '12') {
+      const h12 = (hour % 12) === 0 ? 12 : (hour % 12);
+      const ampm = hour < 12 ? 'AM' : 'PM';
+      return `${h12}:00 ${ampm}`;
+    }
     return String(hour).padStart(2, '0') + ':00';
   }
 
   function buildGrid() {
-    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+    cfg = readSettings(); // refresh once at build time
+    const tz = cfg.tz;
     if (!table) return;
 
     table.innerHTML = '';
-    // Do NOT clear global selections here; keep user edits while paging weeks
-    // Clear selection classes; they will be re-applied for the current week after load
-    table.querySelectorAll && table.querySelectorAll('.selected').forEach(el => el.classList.remove('selected'));
 
     // Header
     const thead = document.createElement('thead');
@@ -230,50 +277,58 @@
       gridContent.appendChild(nowMarker);
     }
   }
-function updateNowMarker() {
-  if (!table) return;
-  ensureNowMarker();
+  function updateNowMarker() {
+    if (!table) return;
+    ensureNowMarker();
 
-  if (!updateNowMarker._bound) {
-    try {
-      window.addEventListener('resize', updateNowMarker, { passive: true });
-      if (gridContent) gridContent.addEventListener('scroll', updateNowMarker, { passive: true });
-    } catch {}
-    updateNowMarker._bound = true;
+    if (!updateNowMarker._bound) {
+      try {
+        window.addEventListener('resize', updateNowMarker, { passive: true });
+        if (gridContent) gridContent.addEventListener('scroll', updateNowMarker, { passive: true });
+      } catch {}
+      updateNowMarker._bound = true;
+    }
+
+    const tbody = table.tBodies && table.tBodies[0];
+    if (!tbody || !nowMarker || !gridContent) { if (nowMarker) nowMarker.style.display = 'none'; return; }
+
+    const tz = cfg.tz;
+
+    // Determine which column today is in, relative to the displayed week's base
+    const base = getWeekStartYMD(tz);
+    const baseEpoch = zonedEpoch(base.y, base.m, base.d, 0, 0, tz);
+    const t = todayYMD(tz);
+    const todayMid = zonedEpoch(t.y, t.m, t.d, 0, 0, tz);
+    const dayOffset = Math.floor((todayMid - baseEpoch) / 86400);
+
+    if (dayOffset < 0 || dayOffset > 6) { nowMarker.style.display = 'none'; return; }
+
+    const totalRows = (HOURS_END - HOURS_START) * SLOTS_PER_HOUR;
+    const firstCell = table.querySelector('td.slot-cell[data-col="' + dayOffset + '"][data-row="0"]');
+    const lastCell  = table.querySelector('td.slot-cell[data-col="' + dayOffset + '"][data-row="' + (totalRows - 1) + '"]');
+    if (!firstCell || !lastCell) { nowMarker.style.display = 'none'; return; }
+
+    function cumTop(el, stop) { let y = 0; while (el && el !== stop) { y += el.offsetTop; el = el.offsetParent; } return y; }
+    function cumLeft(el, stop) { let x = 0; while (el && el !== stop) { x += el.offsetLeft; el = el.offsetParent; } return x; }
+
+    const minutes = minutesOfDayInTZ(tz);
+
+    const topStart = cumTop(firstCell, gridContent);
+    const topEnd = cumTop(lastCell, gridContent) + lastCell.offsetHeight;
+    const dayHeight = topEnd - topStart;
+    const topInContent = topStart + (minutes / (24 * 60)) * dayHeight;
+    const top = topInContent - gridContent.scrollTop;
+
+    const leftInContent = cumLeft(firstCell, gridContent);
+    const width = firstCell.offsetWidth;
+    const left = leftInContent - gridContent.scrollLeft;
+
+    nowMarker.style.display = 'block';
+    nowMarker.style.top = top + 'px';
+    nowMarker.style.left = left + 'px';
+    nowMarker.style.right = '';
+    nowMarker.style.width = width + 'px';
   }
-
-  const tbody = table.tBodies && table.tBodies[0];
-  if (!tbody || !nowMarker || !gridContent) { if (nowMarker) nowMarker.style.display = 'none'; return; }
-
-  const now = new Date();
-  const minutes = now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60;
-  const dayIdx = now.getDay();
-  const totalRows = (HOURS_END - HOURS_START) * SLOTS_PER_HOUR;
-  const firstCell = table.querySelector('td.slot-cell[data-col="' + dayIdx + '"][data-row="0"]');
-  const lastCell  = table.querySelector('td.slot-cell[data-col="' + dayIdx + '"][data-row="' + (totalRows - 1) + '"]');
-  if (!firstCell || !lastCell) { nowMarker.style.display = 'none'; return; }
-
-  function cumTop(el, stop) { let y = 0; while (el && el !== stop) { y += el.offsetTop; el = el.offsetParent; } return y; }
-  function cumLeft(el, stop) { let x = 0; while (el && el !== stop) { x += el.offsetLeft; el = el.offsetParent; } return x; }
-
-  const topStart = cumTop(firstCell, gridContent);
-  const topEnd = cumTop(lastCell, gridContent) + lastCell.offsetHeight;
-  const dayHeight = topEnd - topStart;
-  const topInContent = topStart + (minutes / (24 * 60)) * dayHeight;
-  const top = topInContent - gridContent.scrollTop;
-
-  const leftInContent = cumLeft(firstCell, gridContent);
-  const width = firstCell.offsetWidth;
-  const left = leftInContent - gridContent.scrollLeft;
-
-  nowMarker.style.display = 'block';
-  nowMarker.style.top = top + 'px';
-  nowMarker.style.left = left + 'px';
-  nowMarker.style.right = '';
-  nowMarker.style.width = width + 'px';
-}
-
-
 
   // --- Controls ---
   function setMode(m) {
@@ -285,7 +340,7 @@ function updateNowMarker() {
   }
 
   async function loadWeekSelections() {
-    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+    const tz = cfg.tz;
     const base = getWeekStartYMD(tz);
     const baseEpoch = zonedEpoch(base.y, base.m, base.d, 0, 0, tz);
     const end = addDays(base.y, base.m, base.d, 7);
@@ -332,7 +387,7 @@ function updateNowMarker() {
 
   async function saveWeek() {
     if (!isAuthenticated) return;
-    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+    const tz = cfg.tz;
     const base = getWeekStartYMD(tz);
     const baseEpoch = zonedEpoch(base.y, base.m, base.d, 0, 0, tz);
     const end = addDays(base.y, base.m, base.d, 7);
