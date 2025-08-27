@@ -1,14 +1,15 @@
 .availability {
-  min-height: calc(100dvh - var(--topbar-h) - 2*var(--gap-lg));
+  height: 100%;
 }
 
-/* Fill the shell’s main area; no extra padding on the layout wrapper */
+/* Fill the shellâ€™s main area; no extra padding on the layout wrapper */
 .availability .availability-layout {
   display: grid;
   grid-template-columns: 4fr 1fr; /* 80 / 20 */
   gap: 16px;
   align-items: start;
   width: 100%;
+  height: 100%;
   margin: 0;
   padding: 0;
   min-height: inherit;
@@ -17,12 +18,17 @@
 /* Left column wrapper */
 .availability .availability-left {
   width: 100%;
+  height: 100%;
+  display: grid;
+  grid-template-rows: var(--grid-h, 84%) var(--controls-h, 16%); /* rows sum to 100% */
+  gap: 12px;
 }
 
 /* Scrollable grid viewport (scoped; no page-level coupling) */
 .availability .grid {
   box-sizing: border-box;
   min-height: inherit;
+  height: 100%;
 }
 
 /* Give the scroll container a concrete height so the table is visible */
@@ -30,6 +36,7 @@
   position: relative;
   overflow: auto;
   width: 100%;
+  height: 100%;
   min-height: inherit; /* ensures grid fills the container height */
   background: var(--card, #121315);
   border: 1px solid var(--border, #1a1c20);
@@ -39,6 +46,7 @@
 /* Table visuals */
 .availability .table {
   width: 100%;
+  height: 100%;
   border-collapse: separate;
   border-spacing: 0;
   table-layout: fixed;
@@ -102,7 +110,7 @@
 
 /* Selection states */
 .availability .table td.slot-cell.selected { background: rgba(124, 92, 255, 0.25); }
-.availability .table td.slot-cell.preview-add { outline: 2px dashed rgba(124, 92, 255, 0.7); outline-offset: -2px; }
+.availability .table td.slot-cell.preview-add { outline: 2px dashed rgba(15, 185, 72, 0.7); outline-offset: -2px; }
 .availability .table td.slot-cell.preview-sub { outline: 2px dashed rgba(255, 96, 96, 0.8); outline-offset: -2px; }
 /* Past cells: filled light gray, no global opacity */
 .availability .table td.slot-cell.past { background: rgba(200, 210, 220, 0.14); }
@@ -127,13 +135,22 @@
   border-radius: 6px;
 }
 
+/* Controls container (shares total height with grid via .availability-left rows) */
+.availability .controls-pane {
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+}
+
 /* Controls (simple, unopinionated) */
 .availability .picker-controls {
   display: grid;
   grid-template-columns: auto 1fr auto;
   gap: 12px 16px;
   align-items: center;
-  margin-top: 12px;
+  margin: 0;
 }
 .availability .week-controls { display: flex; gap: 8px; align-items: center; }
 .availability .mode-controls { display: flex; gap: 8px; }

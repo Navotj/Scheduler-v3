@@ -20,22 +20,24 @@
                 </div>
               </div>
 
-              <div class="picker-controls">
-                <div class="week-controls">
-                  <button id="prev-week" type="button" aria-label="Previous week">Prev</button>
-                  <span id="week-label" aria-live="polite"></span>
-                  <button id="next-week" type="button" aria-label="Next week">Next</button>
+              <div class="controls-pane">
+                <div class="picker-controls">
+                  <div class="week-controls">
+                    <button id="prev-week" type="button" aria-label="Previous week">Prev</button>
+                    <span id="week-label" aria-live="polite"></span>
+                    <button id="next-week" type="button" aria-label="Next week">Next</button>
+                  </div>
+                  <div class="mode-controls">
+                    <button id="mode-add" type="button" aria-pressed="true">Add</button>
+                    <button id="mode-subtract" type="button" aria-pressed="false">Subtract</button>
+                  </div>
+                  <div class="save-controls">
+                    <button id="save" type="button">Save</button>
+                  </div>
                 </div>
-                <div class="mode-controls">
-                  <button id="mode-add" type="button" aria-pressed="true">Add</button>
-                  <button id="mode-subtract" type="button" aria-pressed="false">Subtract</button>
-                </div>
-                <div class="save-controls">
-                  <button id="save" type="button">Save</button>
-                </div>
-              </div>
 
-              <div id="signin-tooltip" class="signin-tooltip" aria-hidden="true">Sign in to edit availability</div>
+                <div id="signin-tooltip" class="signin-tooltip" aria-hidden="true">Sign in to edit availability</div>
+              </div>
             </section>
 
             <aside class="availability-right" aria-hidden="true"></aside>
