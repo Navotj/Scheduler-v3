@@ -161,3 +161,28 @@ resource "aws_security_group_rule" "database_allow_ssh" {
   security_group_id        = aws_security_group.database_ingress.id
   source_security_group_id = aws_security_group.backend_ssh.id
 }
+
+resource "aws_apigatewayv2_vpc_link" "backend_link" {
+  name               = "${var.app_prefix}-vpc-link"
+  subnet_ids         = [aws_subnet.private_a.id]
+  security_group_ids = [aws_security_group.apigw_vpclink.id]
+  tags               = { Name = "${var.app_prefix}-vpc-link" }
+}
+
+resource "aws_security_group" "apigw_vpclink" {
+  name        = "${var.app_prefix}-apigw-vpclink"
+  description = "Security group for API Gateway VPC Link ENIs (egress to backend on 3000)"
+  vpc_id      = aws_vpc.main.id
+
+  egress {
+    description = "Egress to backend on 3000"
+    from_port   = 3000
+    to_port     = 3000
+    protocol    = "tcp"
+    cidr_blocks = [aws_subnet.private_a.cidr_block]
+  }
+
+  ingress = []
+
+  tags = { Name = "${var.app_prefix}-apigw-vpclink" }
+}
