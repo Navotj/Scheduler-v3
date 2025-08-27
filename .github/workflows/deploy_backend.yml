@@ -136,6 +136,8 @@ jobs:
           OBJECT_KEY="releases/backend_release.tgz"
           aws s3 cp backend_release.tgz "s3://${ARTIFACT_BUCKET}/${OBJECT_KEY}" --sse AES256 --only-show-errors
           echo "OBJECT_KEY=${OBJECT_KEY}" >> "$GITHUB_ENV"
+
+          # replace function (deploy on instances via ssm (tag-targeted) — embedded CMD heredoc)
       - name: deploy on instances via ssm (tag-targeted)
         shell: bash
         run: |
@@ -165,14 +167,18 @@ jobs:
           shopt -u dotglob
           chown -R ec2-user:ec2-user "${WORKDIR}" || true
 
-          # ensure Node/npm exist, then install deps (production only)
-          if ! command -v npm >/dev/null 2>&1; then
-            curl -fsSL https://rpm.nodesource.com/setup_22.x | bash -
-            dnf install -y nodejs
-          fi
+          # ensure Node.js 22 is installed (do not rely on preinstalled v18)
+          curl -fsSL https://rpm.nodesource.com/setup_22.x | bash -
+          dnf install -y -q nodejs
+
+          # install production deps (works even if lockfile is missing)
           cd "${WORKDIR}"
           export NODE_ENV=production
-          npm ci --omit=dev
+          if [[ -f package-lock.json ]]; then
+            npm ci --omit=dev
+          else
+            npm install --omit=dev
+          fi
 
           install -D -m 0644 "${UNIT_SRC}" "${UNIT_DST}"
           systemctl daemon-reload
