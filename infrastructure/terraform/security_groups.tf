@@ -13,7 +13,7 @@ resource "aws_security_group" "backend_ingress" {
     from_port   = 3000
     to_port     = 3000
     protocol    = "tcp"
-    cidr_blocks = [aws_vpc.main.cidr_block]
+    cidr_blocks = [aws_subnet.private_a.cidr_block]
   }
 
   egress = []
