@@ -10,8 +10,12 @@ read_file() { cat "$1"; }
 resolve_includes() {
   local file="$1"
   local base; base="$(dirname "$file")"
+
+  # Keep the regex in a variable so bash doesn't parse the '<' in <!-- ... -->
+  local INC_RE='<!--[[:space:]]*@include[[:space:]]+([^>]+)[[:space:]]*-->'
+
   while IFS= read -r line || [[ -n "$line" ]]; do
-    if [[ "$line" =~ <!--[[:space:]]*@include[[:space:]]+(.+)[[:space:]]*--> ]]; then
+    if [[ $line =~ $INC_RE ]]; then
       local inc_rel="${BASH_REMATCH[1]}"
       local inc_abs="${base}/${inc_rel}"
       [[ -f "$inc_abs" ]] || { echo "include not found: $inc_abs" >&2; exit 1; }
