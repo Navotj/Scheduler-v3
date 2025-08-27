@@ -16,96 +16,93 @@
       window.dispatchEvent(new StorageEvent('storage', { key: 'nat20_settings', newValue: JSON.stringify(obj) }));
     } catch {}
   }
-    function populateTimezones(select) {
-    // Clear existing options
-    while (select.firstChild) select.removeChild(select.firstChild);
 
+  function fmtOffset(mins) {
+    const sign = mins >= 0 ? '+' : '-';
+    const abs = Math.abs(mins);
+    const hh = String(Math.floor(abs / 60)).padStart(2, '0');
+    const mm = String(abs % 60).padStart(2, '0');
+    return `UTC${sign}${hh}:${mm}`;
+  }
+  function offsetMinutesFor(tz) {
+    const now = new Date();
+    const dtf = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false
+    });
+    const parts = dtf.formatToParts(now);
+    const map = {};
+    for (const { type, value } of parts) map[type] = value;
+    const asUTC = Date.UTC(
+      map.year,
+      Number(map.month) - 1,
+      map.day,
+      map.hour,
+      map.minute,
+      map.second
+    );
+    return Math.round((asUTC - now.getTime()) / 60000);
+  }
+
+  function populateTimezones(select) {
+    while (select.firstChild) select.removeChild(select.firstChild);
     const existing = new Set();
     function addOption(val, label) {
-        if (existing.has(val)) return;
-        const opt = document.createElement('option');
-        opt.value = val;
-        opt.textContent = label || val;
-        select.appendChild(opt);
-        existing.add(val);
+      if (existing.has(val)) return;
+      const opt = document.createElement('option');
+      opt.value = val;
+      opt.textContent = label || val;
+      select.appendChild(opt);
+      existing.add(val);
     }
 
-    const now = new Date();
-
-    function offsetMinutesFor(tz) {
-        const dtf = new Intl.DateTimeFormat('en-US', {
-        timeZone: tz,
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: false
-        });
-        const parts = dtf.formatToParts(now);
-        const map = {};
-        for (const { type, value } of parts) map[type] = value;
-        const asUTC = Date.UTC(
-        map.year,
-        Number(map.month) - 1,
-        map.day,
-        map.hour,
-        map.minute,
-        map.second
-        );
-        // Positive value means ahead of UTC
-        return Math.round((asUTC - now.getTime()) / 60000);
-    }
-
-    function fmtOffset(mins) {
-        const sign = mins >= 0 ? '+' : '-';
-        const abs = Math.abs(mins);
-        const hh = String(Math.floor(abs / 60)).padStart(2, '0');
-        const mm = String(abs % 60).padStart(2, '0');
-        return `UTC${sign}${hh}:${mm}`;
-    }
-
-    // Add "Automatic" first with current system TZ + offset
     const sysTZ = getSystemTZ();
     let sysOff = 0;
     try { sysOff = offsetMinutesFor(sysTZ); } catch {}
     addOption('auto', `Automatic (system) — ${sysTZ} (${fmtOffset(sysOff)})`);
 
-    // Build full list of IANA time zones (no hardcoding), sort by current offset then name
     let tzList = [];
     try {
-        if (typeof Intl.supportedValuesOf === 'function') {
+      if (typeof Intl.supportedValuesOf === 'function') {
         tzList = Intl.supportedValuesOf('timeZone');
-        } else {
+      } else {
         tzList = Array.from(new Set(['UTC', sysTZ]));
-        }
+      }
     } catch {
-        tzList = Array.from(new Set(['UTC', sysTZ]));
+      tzList = Array.from(new Set(['UTC', sysTZ]));
     }
 
     const items = tzList.map((tz) => {
-        let off = 0;
-        try { off = offsetMinutesFor(tz); } catch {}
-        return { tz, off };
+      let off = 0;
+      try { off = offsetMinutesFor(tz); } catch {}
+      return { tz, off };
     });
 
     items.sort((a, b) => (a.off - b.off) || a.tz.localeCompare(b.tz));
 
     for (const { tz, off } of items) {
-        const label = `${fmtOffset(off)} — ${tz.replace(/_/g, ' ')}`;
-        addOption(tz, label);
+      const label = `${fmtOffset(off)} — ${tz.replace(/_/g, ' ')}`;
+      addOption(tz, label);
     }
   }
+
   async function fetchRemote() {
     try {
-      const res = await fetch('/settings', { credentials: 'include', cache: 'no-store' });
+      const url = `${window.API_BASE_URL || ''}/settings`;
+      const res = await fetch(url, { credentials: 'include', cache: 'no-store' });
       if (res.ok) return await res.json();
     } catch {}
     return null;
   }
   async function saveRemote(obj) {
-    const res = await fetch('/settings', {
+    const url = `${window.API_BASE_URL || ''}/settings`;
+    const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
@@ -117,6 +114,7 @@
     }
     return res.json();
   }
+
   function gradientCssFor(name) {
     const maps = {
       viridis:  [[0,'#440154'],[0.25,'#3b528b'],[0.5,'#21918c'],[0.75,'#5ec962'],[1,'#fde725']],
@@ -129,6 +127,7 @@
     const parts = stops.map(([t, c]) => `${c} ${(t*100).toFixed(0)}%`);
     return `linear-gradient(90deg, ${parts.join(', ')})`;
   }
+
   function settingsModalHTML() {
     return `
       <header style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
