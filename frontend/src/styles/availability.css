@@ -20,7 +20,7 @@
   width: 100%;
   height: 100%;
   display: grid;
-  grid-template-rows: var(--grid-h, 84%) var(--controls-h, 16%); /* rows sum to 100% */
+  grid-template-rows: var(--grid-h, 95%) var(--controls-h, 5%); /* rows sum to 100% */
   gap: 12px;
 }
 
@@ -89,14 +89,17 @@
 /* Cell grid lines */
 .availability .table tbody td.slot-cell,
 .availability .table thead th.day {
-  border-left: 1px solid var(--border, #1a1c20);
+  border-left: 1px solid #2a2f3a;
 }
 .availability .table tbody tr.row-hour td.slot-cell {
-  border-top: 2px solid var(--border, #1a1c20); /* thicker hour lines */
+  border-top: 1px solid #2a2f3a;
 }
-/* thin half-hour lines */
+.availability .table tbody tr.row-hour th.time-col {
+  border-top: 1px solid #2a2f3a;
+}
+/* half-hour lines: dashed, same color and thickness */
 .availability .table tbody tr.row-half td.slot-cell {
-  border-top: 1px solid rgba(255,255,255,0.06);
+  border-top: 1px dashed #2a2f3a;
 }
 
 /* Slot sizing */
@@ -109,7 +112,7 @@
 .availability .time-label.hour { display: inline-block; }
 
 /* Selection states */
-.availability .table td.slot-cell.selected { background: rgba(124, 92, 255, 0.25); }
+.availability .table td.slot-cell.selected { background: rgba(15, 185, 72, 0.25); }
 .availability .table td.slot-cell.preview-add { outline: 2px dashed rgba(15, 185, 72, 0.7); outline-offset: -2px; }
 .availability .table td.slot-cell.preview-sub { outline: 2px dashed rgba(255, 96, 96, 0.8); outline-offset: -2px; }
 /* Past cells: filled light gray, no global opacity */
