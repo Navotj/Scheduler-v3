@@ -177,7 +177,7 @@
           <legend style="font-weight:600;margin-bottom:6px">Heatmap colours</legend>
           <select id="heatmap"
             style="width:100%;height:36px;border-radius:8px;border:1px solid var(--border,#1a1c20);background:var(--bg-1,#0c0d10);color:var(--fg-0,#e7eaf2);padding:0 10px">
-            <option value="viridis">Viridis</option>
+            <option value="viridis" selected>Viridis</option>
             <option value="plasma">Plasma</option>
             <option value="cividis">Cividis</option>
             <option value="twilight">Twilight</option>
