@@ -9,6 +9,20 @@
     <a class="navbtn" href="/settings.html" aria-label="Settings" title="Settings">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm7.5-2.1a8 8 0 0 0 0-1.8l2-1.6-2-3.4-2.5 1a7.9 7.9 0 0 0-1.6-0.9l-0.4-2.6H9.9l-0.4 2.6a7.9 7.9 0 0 0-1.6 0.9l-2.5-1-2 3.4 2 1.6a8 8 0 0 0 0 1.8l-2 1.6 2 3.4 2.5-1a7.9 7.9 0 0 0 1.6 0.9l0.4 2.6h4.2l0.4-2.6a7.9 7.9 0 0 0 1.6-0.9l2.5 1 2-3.4-2-1.6Z" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
     </a>
+    <button id="auth-btn" class="navbtn navbtn--login" type="button" aria-label="Sign in" title="Sign in" data-state="anonymous">
+      <!-- login: arrow into box -->
+      <svg data-icon="login" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M16 4h3a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        <path d="M3 12h12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        <path d="M10 7l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <!-- logout: arrow out of box -->
+      <svg data-icon="logout" viewBox="0 0 24 24" aria-hidden="true" hidden>
+        <path d="M16 4h3a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        <path d="M6 12h9" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        <path d="M15 7l-5 5 5 5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </button>
   </nav>
 
   <a class="brand" href="/" aria-label="Home">

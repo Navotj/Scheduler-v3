@@ -23,7 +23,7 @@
   --topbar-border-w: 1px;
 
   /* circle size & drop are relative to --topbar-h */
-  --brand-scale: 1.8;                 /* circle diameter = 1.8 × topbar */
+  --brand-scale: 1.8;                 /* circle diameter = 1.8 Ã— topbar */
   --brand-drop: calc(var(--topbar-h) * 0.12); /* push a bit lower */
 }
 
@@ -77,12 +77,34 @@ h1,h2,h3,p{margin:0}
 .navbtn:active{transform:translateY(0)}
 .navbtn svg{width:22px; height:22px}
 
+/* auth button variants */
+.navbtn--login{
+  color:#b7f4c0;
+  background:rgba(46,160,67,0.10);
+  border-color:rgba(46,160,67,0.30);
+}
+.navbtn--login:hover{
+  background:rgba(46,160,67,0.20);
+  border-color:rgba(46,160,67,0.50);
+}
+
+.navbtn--logout{
+  color:#ffb3b3;
+  background:rgba(255,60,60,0.10);
+  border-color:rgba(255,60,60,0.30);
+}
+.navbtn--logout:hover{
+  background:rgba(255,60,60,0.20);
+  border-color:rgba(255,60,60,0.50);
+}
+
+
 .brand{
   position:relative;
   display:grid;
   place-items:center;
-  width:96px;
-  height:96px;
+  width:82px;
+  height:82px;
   margin-top:20px;            /* lower the circle further */
   padding:0;
   border-radius:999px;
@@ -108,13 +130,13 @@ h1,h2,h3,p{margin:0}
   inset:0;
   border-radius:inherit;
   border:1px solid var(--border);
-  clip-path: inset(69% 0 0 0 round 999px); /* show only bottom half */
+  clip-path: inset(75% 0 0 0 round 999px); /* show only bottom half */
   z-index:2;
 }
 
 .d20clock{
-  width:84px;
-  height:84px;
+  width:70px;
+  height:70px;
   color:var(--fg-0);
   position:relative;
   z-index:3;                  /* ensure svg sits above disc/outline */
@@ -136,9 +158,10 @@ h1,h2,h3,p{margin:0}
 .layout{
   display:grid;
   grid-template-columns: var(--rail-w) minmax(0,1fr);
-  gap:var(--gap-lg);
-  padding:var(--gap-lg);
+  gap:var(--gap);                 /* tighter gap so main comes close to adspace */
+  padding:var(--gap-lg);          /* page padding defines top/right/bottom edges */
 }
+
 
 .rail{
   background:var(--card);
@@ -152,10 +175,9 @@ h1,h2,h3,p{margin:0}
   background:var(--card);
   border:1px solid var(--border);
   border-radius:var(--radius);
-  padding:calc(var(--gap-lg) + 4px);
+  padding:var(--gap-lg);  /* align inner edge with page padding on top/right/bottom */
   min-height:calc(100dvh - var(--topbar-h) - 2*var(--gap-lg));
-  max-width:var(--main-max);
-  margin:0 auto;
+  /* expand fully to layout padding (no max-width constraint) */
   outline:1px solid rgba(255,255,255,0.03);
   box-shadow:none;
 }
