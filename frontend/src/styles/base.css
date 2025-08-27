@@ -88,6 +88,7 @@ h1,h2,h3,p{margin:0}
   border-radius:999px;
   z-index:60;
   isolation:isolate;          /* keep svg above pseudo elements */
+  cursor: default;            /* do not show pointer on hover */
 }
 
 /* Solid circular disc (no transparency) */
