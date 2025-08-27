@@ -16,25 +16,85 @@
       window.dispatchEvent(new StorageEvent('storage', { key: 'nat20_settings', newValue: JSON.stringify(obj) }));
     } catch {}
   }
-  function populateTimezones(select) {
+    function populateTimezones(select) {
+    // Clear existing options
+    while (select.firstChild) select.removeChild(select.firstChild);
+
     const existing = new Set();
     function addOption(val, label) {
-      if (existing.has(val)) return;
-      const opt = document.createElement('option');
-      opt.value = val;
-      opt.textContent = label || val;
-      select.appendChild(opt);
-      existing.add(val);
+        if (existing.has(val)) return;
+        const opt = document.createElement('option');
+        opt.value = val;
+        opt.textContent = label || val;
+        select.appendChild(opt);
+        existing.add(val);
     }
-    addOption('auto', 'Automatic (system)');
+
+    const now = new Date();
+
+    function offsetMinutesFor(tz) {
+        const dtf = new Intl.DateTimeFormat('en-US', {
+        timeZone: tz,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+        });
+        const parts = dtf.formatToParts(now);
+        const map = {};
+        for (const { type, value } of parts) map[type] = value;
+        const asUTC = Date.UTC(
+        map.year,
+        Number(map.month) - 1,
+        map.day,
+        map.hour,
+        map.minute,
+        map.second
+        );
+        // Positive value means ahead of UTC
+        return Math.round((asUTC - now.getTime()) / 60000);
+    }
+
+    function fmtOffset(mins) {
+        const sign = mins >= 0 ? '+' : '-';
+        const abs = Math.abs(mins);
+        const hh = String(Math.floor(abs / 60)).padStart(2, '0');
+        const mm = String(abs % 60).padStart(2, '0');
+        return `UTC${sign}${hh}:${mm}`;
+    }
+
+    // Add "Automatic" first with current system TZ + offset
+    const sysTZ = getSystemTZ();
+    let sysOff = 0;
+    try { sysOff = offsetMinutesFor(sysTZ); } catch {}
+    addOption('auto', `Automatic (system) — ${sysTZ} (${fmtOffset(sysOff)})`);
+
+    // Build full list of IANA time zones (no hardcoding), sort by current offset then name
+    let tzList = [];
     try {
-      if (typeof Intl.supportedValuesOf === 'function') {
-        for (const tz of Intl.supportedValuesOf('timeZone')) addOption(tz);
-      } else {
-        ['UTC','Europe/London','Europe/Paris','Europe/Berlin','Europe/Moscow','Asia/Jerusalem','Asia/Tokyo','Asia/Shanghai','Asia/Kolkata','America/New_York','America/Chicago','America/Denver','America/Los_Angeles','Australia/Sydney'].forEach(tz => addOption(tz));
-      }
+        if (typeof Intl.supportedValuesOf === 'function') {
+        tzList = Intl.supportedValuesOf('timeZone');
+        } else {
+        tzList = Array.from(new Set(['UTC', sysTZ]));
+        }
     } catch {
-      ['UTC', getSystemTZ()].forEach(tz => addOption(tz));
+        tzList = Array.from(new Set(['UTC', sysTZ]));
+    }
+
+    const items = tzList.map((tz) => {
+        let off = 0;
+        try { off = offsetMinutesFor(tz); } catch {}
+        return { tz, off };
+    });
+
+    items.sort((a, b) => (a.off - b.off) || a.tz.localeCompare(b.tz));
+
+    for (const { tz, off } of items) {
+        const label = `${fmtOffset(off)} — ${tz.replace(/_/g, ' ')}`;
+        addOption(tz, label);
     }
   }
   async function fetchRemote() {
