@@ -247,26 +247,24 @@ function updateNowMarker() {
 
   const now = new Date();
   const minutes = now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60;
-  const dayIdx = now.getDay(); // 0..6
-
+  const dayIdx = now.getDay();
   const totalRows = (HOURS_END - HOURS_START) * SLOTS_PER_HOUR;
   const firstCell = table.querySelector('td.slot-cell[data-col="' + dayIdx + '"][data-row="0"]');
   const lastCell  = table.querySelector('td.slot-cell[data-col="' + dayIdx + '"][data-row="' + (totalRows - 1) + '"]');
   if (!firstCell || !lastCell) { nowMarker.style.display = 'none'; return; }
 
-  const gridRect  = gridContent.getBoundingClientRect();
-  const firstRect = firstCell.getBoundingClientRect();
-  const lastRect  = lastCell.getBoundingClientRect();
+  function cumTop(el, stop) { let y = 0; while (el && el !== stop) { y += el.offsetTop; el = el.offsetParent; } return y; }
+  function cumLeft(el, stop) { let x = 0; while (el && el !== stop) { x += el.offsetLeft; el = el.offsetParent; } return x; }
 
-  // Vertical: interpolate between the real top of the first cell and the real bottom of the last cell
-  const topDay    = (firstRect.top   - gridRect.top) + gridContent.scrollTop;
-  const bottomDay = (lastRect.bottom - gridRect.top) + gridContent.scrollTop;
-  const dayHeight = bottomDay - topDay;
-  const top = topDay + (minutes / (24 * 60)) * dayHeight;
+  const topStart = cumTop(firstCell, gridContent);
+  const topEnd = cumTop(lastCell, gridContent) + lastCell.offsetHeight;
+  const dayHeight = topEnd - topStart;
+  const topInContent = topStart + (minutes / (24 * 60)) * dayHeight;
+  const top = topInContent - gridContent.scrollTop;
 
-  // Horizontal: constrain to today's column
-  const left  = (firstRect.left - gridRect.left) + gridContent.scrollLeft;
-  const width = firstRect.width;
+  const leftInContent = cumLeft(firstCell, gridContent);
+  const width = firstCell.offsetWidth;
+  const left = leftInContent - gridContent.scrollLeft;
 
   nowMarker.style.display = 'block';
   nowMarker.style.top = top + 'px';
