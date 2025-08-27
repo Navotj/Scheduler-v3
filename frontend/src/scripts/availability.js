@@ -245,23 +245,28 @@ function updateNowMarker() {
   const tbody = table.tBodies && table.tBodies[0];
   if (!tbody || !nowMarker || !gridContent) { if (nowMarker) nowMarker.style.display = 'none'; return; }
 
-  // Current local time -> minutes since midnight (fractional for smoothness)
   const now = new Date();
   const minutes = now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60;
-
-  // Vertical position relative to the scrollable .grid-content box
-  const gridRect = gridContent.getBoundingClientRect();
-  const tbodyRect = tbody.getBoundingClientRect();
-  const tbodyTopInContent = (tbodyRect.top - gridRect.top) + gridContent.scrollTop;
-  const top = tbodyTopInContent + (minutes / (24 * 60)) * tbody.scrollHeight;
-
-  // Constrain width to today's column only
   const dayIdx = now.getDay(); // 0..6
+
+  const totalRows = (HOURS_END - HOURS_START) * SLOTS_PER_HOUR;
   const firstCell = table.querySelector('td.slot-cell[data-col="' + dayIdx + '"][data-row="0"]');
-  if (!firstCell) { nowMarker.style.display = 'none'; return; }
-  const colRect = firstCell.getBoundingClientRect();
-  const left = (colRect.left - gridRect.left) + gridContent.scrollLeft;
-  const width = colRect.width;
+  const lastCell  = table.querySelector('td.slot-cell[data-col="' + dayIdx + '"][data-row="' + (totalRows - 1) + '"]');
+  if (!firstCell || !lastCell) { nowMarker.style.display = 'none'; return; }
+
+  const gridRect  = gridContent.getBoundingClientRect();
+  const firstRect = firstCell.getBoundingClientRect();
+  const lastRect  = lastCell.getBoundingClientRect();
+
+  // Vertical: interpolate between the real top of the first cell and the real bottom of the last cell
+  const topDay    = (firstRect.top   - gridRect.top) + gridContent.scrollTop;
+  const bottomDay = (lastRect.bottom - gridRect.top) + gridContent.scrollTop;
+  const dayHeight = bottomDay - topDay;
+  const top = topDay + (minutes / (24 * 60)) * dayHeight;
+
+  // Horizontal: constrain to today's column
+  const left  = (firstRect.left - gridRect.left) + gridContent.scrollLeft;
+  const width = firstRect.width;
 
   nowMarker.style.display = 'block';
   nowMarker.style.top = top + 'px';
@@ -269,6 +274,7 @@ function updateNowMarker() {
   nowMarker.style.right = '';
   nowMarker.style.width = width + 'px';
 }
+
 
 
   // --- Controls ---
