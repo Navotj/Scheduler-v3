@@ -13,22 +13,33 @@ is_auth_enabled() {
   grep -qE '^\s*security\s*:' /etc/mongod.conf && grep -qE '^\s*authorization\s*:\s*"enabled"' /etc/mongod.conf
 }
 
+# replace function (ensure_bind_all)
 ensure_bind_all() {
-  # Ensure net.bindIp: 0.0.0.0 is present; return 0 if changed, 1 if no change
+  # Ensure net.bindIpAll: true is present; return 0 if changed, 1 if no change
   local changed=1
-  if grep -qE '^\s*bindIp\s*:' /etc/mongod.conf; then
-    if ! grep -qE '^\s*bindIp\s*:\s*0\.0\.0\.0' /etc/mongod.conf; then
-      sed -i 's/^\(\s*bindIp\s*:\s*\).*/\10.0.0.0/' /etc/mongod.conf
+  if grep -qE '^\s*bindIpAll\s*:' /etc/mongod.conf; then
+    if ! grep -qE '^\s*bindIpAll\s*:\s*true' /etc/mongod.conf; then
+      sed -i 's/^\(\s*bindIpAll\s*:\s*\).*/\1true/' /etc/mongod.conf
       changed=0
     fi
   else
     if ! grep -qE '^\s*net\s*:' /etc/mongod.conf; then
-      printf "\nnet:\n  bindIp: 0.0.0.0\n" >> /etc/mongod.conf
+      printf "\nnet:\n  bindIpAll: true\n" >> /etc/mongod.conf
       changed=0
     else
       awk '
         BEGIN{done=0}
-        /^net\s*:/ {print; getline; if($0 !~ /bindIp/){print "  bindIp: 0.0.0.0"; done=1} else {print} next}
+        /^net\s*:/ {
+          print;
+          getline;
+          if($0 !~ /bindIpAll/){
+            print "  bindIpAll: true";
+            done=1
+          } else {
+            print
+          }
+          next
+        }
         {print}
       ' /etc/mongod.conf > /etc/mongod.conf.new && mv /etc/mongod.conf.new /etc/mongod.conf
       changed=0
@@ -36,6 +47,7 @@ ensure_bind_all() {
   fi
   return $changed
 }
+
 
 enable_auth_if_needed() {
   # Enable security.authorization: "enabled"; return 0 if changed, 1 if no change

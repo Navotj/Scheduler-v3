@@ -1,3 +1,4 @@
+# replace file (scripts/user_data_backend.sh)
 #!/usr/bin/env bash
 set -euo pipefail
 log() { echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] $*"; }
@@ -7,6 +8,7 @@ log() { echo "[$(date -u +'%Y-%m-%dT%H:%M:%SZ')] $*"; }
 : "${DATABASE_PASSWORD:?DATABASE_PASSWORD not set}"
 : "${DATABASE_NAME:?DATABASE_NAME not set}"
 : "${DATABASE_HOST:?DATABASE_HOST not set (pass private IP/hostname of MongoDB instance)}"
+: "${JWT_SECRET:=}"  # allow passing in, otherwise we’ll generate
 
 APP_DIR="/opt/app"
 
@@ -20,9 +22,16 @@ log "Create application directory ${APP_DIR}"
 install -d -m 0755 "${APP_DIR}"
 chown ec2-user:ec2-user "${APP_DIR}"
 
-log "Write .env with Mongo connection string"
+# Generate JWT secret if not provided
+if [[ -z "$JWT_SECRET" ]]; then
+  JWT_SECRET="$(openssl rand -hex 32)"
+  log "Generated random JWT_SECRET"
+fi
+
+log "Write .env with Mongo connection string and JWT secret"
 cat > "${APP_DIR}/.env" <<ENV
 MONGO_URI=mongodb://${DATABASE_USER}:${DATABASE_PASSWORD}@${DATABASE_HOST}:27017/${DATABASE_NAME}?authSource=admin
+JWT_SECRET=${JWT_SECRET}
 ENV
 chmod 0600 "${APP_DIR}/.env"
 chown ec2-user:ec2-user "${APP_DIR}/.env"
