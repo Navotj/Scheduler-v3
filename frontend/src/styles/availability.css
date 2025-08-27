@@ -1,4 +1,6 @@
-.availability { }
+.availability {
+  min-height: calc(100dvh - var(--topbar-h) - 2*var(--gap-lg));
+}
 
 /* Fill the shell’s main area; no extra padding on the layout wrapper */
 .availability .availability-layout {
@@ -7,9 +9,9 @@
   gap: 16px;
   align-items: start;
   width: 100%;
-  height: 100%;
   margin: 0;
   padding: 0;
+  min-height: inherit;
 }
 
 /* Left column wrapper */
@@ -20,6 +22,7 @@
 /* Scrollable grid viewport (scoped; no page-level coupling) */
 .availability .grid {
   box-sizing: border-box;
+  min-height: inherit;
 }
 
 /* Give the scroll container a concrete height so the table is visible */
@@ -27,7 +30,7 @@
   position: relative;
   overflow: auto;
   width: 100%;
-  min-height: 640px; /* ensures the table is visible even before any external layout sizing */
+  min-height: inherit; /* ensures grid fills the container height */
   background: var(--card, #121315);
   border: 1px solid var(--border, #1a1c20);
   border-radius: var(--radius, 10px);
@@ -60,7 +63,7 @@
 /* Columns */
 .availability .table th.time-col {
   width: 76px;
-  text-align: right;
+  text-align: center; /* center times horizontally */
   color: var(--fg-1, #b6bfd4);
   background: var(--bg-1, #0c0d10);
   border-right: 1px solid #2a2f3a;
@@ -81,7 +84,11 @@
   border-left: 1px solid var(--border, #1a1c20);
 }
 .availability .table tbody tr.row-hour td.slot-cell {
-  border-top: 1px solid var(--border, #1a1c20);
+  border-top: 2px solid var(--border, #1a1c20); /* thicker hour lines */
+}
+/* thin half-hour lines */
+.availability .table tbody tr.row-half td.slot-cell {
+  border-top: 1px solid rgba(255,255,255,0.06);
 }
 
 /* Slot sizing */
@@ -97,7 +104,8 @@
 .availability .table td.slot-cell.selected { background: rgba(124, 92, 255, 0.25); }
 .availability .table td.slot-cell.preview-add { outline: 2px dashed rgba(124, 92, 255, 0.7); outline-offset: -2px; }
 .availability .table td.slot-cell.preview-sub { outline: 2px dashed rgba(255, 96, 96, 0.8); outline-offset: -2px; }
-.availability .table td.slot-cell.past { opacity: 0.45; }
+/* Past cells: filled light gray, no global opacity */
+.availability .table td.slot-cell.past { background: rgba(200, 210, 220, 0.14); }
 
 /* NOW marker */
 .availability .now-marker {
