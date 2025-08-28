@@ -84,15 +84,20 @@
     return { y: t.getUTCFullYear(), m: t.getUTCMonth() + 1, d: t.getUTCDate() };
   }
   function getWeekStartYMD(tz) {
-    // Respect settings.js: Sunday or Monday start
+    // Respect settings.js: Sunday or Monday start, computed in the chosen TZ
     const t = todayYMD(tz);
     const todayMid = zonedEpoch(t.y, t.m, t.d, 0, 0, tz);
-    // 0..6 (Sun..Sat) in the *chosen* timezone
-    const wdLocal = new Date(todayMid * 1000).getUTCDay();
-    // Reindex if Monday is the first day
-    const idx = (cfg.weekStart === 'mon') ? ((wdLocal + 6) % 7) : wdLocal;
-    const base = addDays(t.y, t.m, t.d, -idx + weekOffset * 7);
-    return base;
+
+    // Weekday index in the target timezone (0=Sun..6=Sat)
+    const wdName = new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'short' }).format(new Date(todayMid * 1000));
+    const wdLocal = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(wdName);
+
+    // Offset from configured week start
+    const weekStartIdx = (cfg.weekStart === 'mon') ? 1 : 0;
+    const diff = (wdLocal - weekStartIdx + 7) % 7;
+
+    // Move back to the configured week's start, then apply weekOffset
+    return addDays(t.y, t.m, t.d, -diff + weekOffset * 7);
   }
 
   function minutesOfDayInTZ(tz) {
