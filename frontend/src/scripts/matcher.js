@@ -129,14 +129,14 @@
 
     const { baseEpoch } = getWeekStartEpochAndYMD();
     for (let i = 0; i < 7; i++) {
-      const d = new Date((baseEpoch + i * 86400) * 1000);
-      const label = new Intl.DateTimeFormat('en-GB', {
+        const d = new Date((baseEpoch + i * 86400) * 1000);
+        const label = new Intl.DateTimeFormat('en-GB', {
         timeZone: tz, weekday: 'short', day: '2-digit', month: 'short'
-      }).format(d);
-      const th = document.createElement('th');
-      th.textContent = label;
-      th.className = 'day';
-      trh.appendChild(th);
+        }).format(d);
+        const th = document.createElement('th');
+        th.textContent = label;
+        th.className = 'day';
+        trh.appendChild(th);
     }
     thead.appendChild(trh);
     table.appendChild(thead);
@@ -145,19 +145,24 @@
     const totalRows = ROWS_PER_DAY;
 
     for (let r = 0; r < totalRows; r++) {
-      const tr = document.createElement('tr');
+        const tr = document.createElement('tr');
+        const isHalf = (r % 2) === 1;
+        tr.className = isHalf ? 'row-half' : 'row-hour';
 
-      if (r % 2 === 0) {
+        if (!isHalf) {
         const minutes = (HOURS_START * 60) + r * (60 / SLOTS_PER_HOUR);
         const hh = Math.floor(minutes / 60);
         const th = document.createElement('th');
         th.className = 'time-col hour';
         th.rowSpan = 2;
-        th.textContent = fmtTime(hh, 0);
+        const span = document.createElement('span');
+        span.className = 'time-label hour';
+        span.textContent = fmtTime(hh, 0);
+        th.appendChild(span);
         tr.appendChild(th);
-      }
+        }
 
-      for (let day = 0; day < 7; day++) {
+        for (let day = 0; day < 7; day++) {
         const td = document.createElement('td');
         td.className = 'slot-cell';
         const epoch = getDayStartSec(day) + r * SLOT_SEC;
@@ -168,8 +173,8 @@
         td.addEventListener('mousemove', onCellHoverMove);
         td.addEventListener('mouseleave', hideTooltip);
         tr.appendChild(td);
-      }
-      tbody.appendChild(tr);
+        }
+        tbody.appendChild(tr);
     }
 
     table.appendChild(tbody);
@@ -180,17 +185,17 @@
     updateNowMarker();
 
     requestAnimationFrame(() => {
-      const headH = thead.offsetHeight || 0;
-      const avail = Math.max(0, gridContent.clientHeight - headH - 2);
-      const needed = ROWS_PER_DAY * slotHeight;
-      if (needed > 0) {
+        const headH = thead.offsetHeight || 0;
+        const avail = Math.max(0, gridContent.clientHeight - headH - 2);
+        const needed = ROWS_PER_DAY * slotHeight;
+        if (needed > 0) {
         const fit = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, Math.floor(avail / (needed / slotHeight))));
         if (!Number.isNaN(fit)) {
-          slotHeight = fit;
-          applySlotHeight();
-          updateNowMarker();
+            slotHeight = fit;
+            applySlotHeight();
+            updateNowMarker();
         }
-      }
+        }
     });
 
     updateWeekLabel();
