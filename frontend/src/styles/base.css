@@ -263,3 +263,23 @@ h1,h2,h3,p{margin:0}
   box-shadow: 0 0 0 3px var(--ring);
   border-radius: 8px;
 }
+
+/* centered red logo text between auth label and clock */
+.brand-title{
+  position:absolute;
+  left:50%;
+  top:50%;
+  transform:translate(-50%,-50%);
+  white-space:nowrap;
+  font-weight:800;
+  font-size:clamp(14px,2vw,18px);
+  color:#ff3b3b;
+  letter-spacing:.2px;
+  user-select:none;
+  pointer-events:none; /* never intercept clicks */
+}
+
+/* hide logo on smaller screens to avoid overlap/push */
+@media (max-width: 1200px){
+  .brand-title{ display:none }
+}
