@@ -181,6 +181,7 @@
   grid-template-columns: auto 1fr auto;
   align-items: center;
   margin: 0;
+  gap: 16px;
 }
 .availability .week-controls { display: flex; gap: 8px; align-items: center; }
 .availability .mode-controls { display: flex; gap: 8px; }
