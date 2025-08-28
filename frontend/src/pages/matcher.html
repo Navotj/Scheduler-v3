@@ -1,0 +1,99 @@
+<!-- @include ../partials/dochead.html -->
+<title>matcher</title>
+<link rel="stylesheet" href="/styles/matcher.css" />
+</head>
+<body>
+  <div class="shell">
+    <!-- @include ../partials/topbar.html -->
+
+    <div class="layout">
+      <!-- @include ../partials/rail.html -->
+
+      <main id="page" class="main" tabindex="-1" aria-label="Main content">
+        <section class="matcher">
+          <div class="matcher-layout">
+            <section class="matcher-left">
+              <div id="controls" class="controls">
+                <button id="prev-week" type="button" aria-label="Previous week">Prev</button>
+                <span id="week-label" aria-live="polite"></span>
+                <button id="next-week" type="button" aria-label="Next week">Next</button>
+                <div class="helper" aria-hidden="true">Shift+Scroll to zoom</div>
+              </div>
+
+              <div id="grid" class="grid">
+                <div id="grid-content" class="grid-content">
+                  <table id="scheduler-table" class="table" aria-label="Weekly availability heatmap"></table>
+                  <div id="now-marker" class="now-marker" style="display:none"><span class="bubble">NOW</span></div>
+                  <div id="cell-tooltip" class="cell-tooltip" style="display:none"></div>
+                </div>
+              </div>
+
+              <div id="filters-panel" class="controls-pane panel">
+                <div class="panel-section">
+                  <h3>Members</h3>
+                  <div class="add-user">
+                    <input id="add-username" type="text" placeholder="username" autocomplete="off" />
+                    <button id="add-user-btn" class="btn btn-primary" type="button">Add</button>
+                    <button id="add-me-btn" class="btn btn-secondary" type="button">Add me</button>
+                  </div>
+                  <div id="member-error" class="error-text"></div>
+                  <ul id="member-list" class="member-list"></ul>
+                </div>
+
+                <div class="panel-section">
+                  <h3>Filters</h3>
+                  <div class="field-row">
+                    <div class="field">
+                      <label for="max-missing">Max missing</label>
+                      <input id="max-missing" type="number" min="0" value="0" />
+                    </div>
+                    <div class="field">
+                      <label for="min-hours">Min length</label>
+                      <div class="row">
+                        <input id="min-hours" type="number" min="0.5" step="0.5" value="1" />
+                        <span>h</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="field">
+                    <label for="sort-method">Sort by</label>
+                    <select id="sort-method">
+                      <option value="most">Most participants</option>
+                      <option value="earliest-week">Earliest in week</option>
+                      <option value="latest-week">Latest in week</option>
+                      <option value="earliest">Earliest time of day</option>
+                      <option value="latest">Latest time of day</option>
+                      <option value="longest">Longest duration</option>
+                    </select>
+                  </div>
+
+                  <div class="legend">
+                    <h3>Legend</h3>
+                    <div id="legend-blocks" class="legend-blocks"></div>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <aside id="right-col" class="matcher-right">
+              <section id="results-panel" class="panel">
+                <h3>Results</h3>
+                <div id="results" class="results"></div>
+              </section>
+            </aside>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <script src="/scripts/config.js" defer></script>
+  <script src="/scripts/clock.js" defer></script>
+  <script src="/scripts/modal.js" defer></script>
+  <script src="/scripts/auth.js" defer></script>
+  <script src="/scripts/login.js" defer></script>
+  <script src="/scripts/register.js" defer></script>
+  <script src="/scripts/settings.js" defer></script>
+  <script src="/scripts/matcher.js" defer></script>
+</body>
+</html>
