@@ -534,9 +534,8 @@
     const startIdx   = (weekOffset > 0) ? 0 : nowGlobalIndex();
 
     const { baseEpoch } = getWeekStartEpochAndYMD();
-    const sessions = [];
 
-    if (!totalMembers || needed <= 0) { renderResults(sessions); return; }
+    if (!totalMembers || needed <= 0) { renderResults([]); return; }
 
     // --- helpers ---
     const setEqual = (a, b) => {
@@ -544,69 +543,115 @@
       for (const v of a) if (!b.has(v)) return false;
       return true;
     };
+    const setIntersect = (a, b) => {
+      const out = new Set();
+      for (const v of a) if (b.has(v)) out.add(v);
+      return out;
+    };
+    const toSortedArr = (s) => Array.from(s).sort();
 
-    // Sweep as runs of **exact cohort equality**.
-    // This captures both outer (e.g., 8h of 4 ppl) and nested stronger cohorts (e.g., 4h of 5 ppl).
-    let currentCohort = null;  // Set of users for the current segment (exact slot cohort)
-    let segmentStart  = -1;    // g index where the current segment starts
-
-    const flushSegment = (endG) => {
-      if (currentCohort && segmentStart >= 0) {
-        const length = endG - segmentStart;
-        if (length >= minSlots && currentCohort.size >= needed) {
-          const usersSorted = Array.from(currentCohort).sort();
-          sessions.push({
-            gStart: segmentStart,
-            gEnd: endG,
-            start: baseEpoch + segmentStart * SLOT_SEC,
-            end:   baseEpoch + endG * SLOT_SEC,
-            duration: length,
-            participants: usersSorted.length,
-            users: usersSorted
-          });
-        }
-      }
+    const sessions = [];
+    const addSession = (gStart, gEnd, cohortSet) => {
+      const length = gEnd - gStart;
+      if (length < minSlots) return;
+      if (!cohortSet || cohortSet.size < needed) return;
+      const usersSorted = toSortedArr(cohortSet);
+      sessions.push({
+        gStart,
+        gEnd,
+        start: baseEpoch + gStart * SLOT_SEC,
+        end:   baseEpoch + gEnd   * SLOT_SEC,
+        duration: length,
+        participants: usersSorted.length,
+        users: usersSorted
+      });
     };
 
-    for (let g = startIdx; g < WEEK_ROWS; g++) {
-      const slotSet = sets[g];
+    // PASS A: Stable-INTERSECTION segments (outer blocks).
+    // This ensures that any slot within a larger valid block stays "available" for dimming,
+    // even if inner sub-runs (with different exact cohorts) are too short to be emitted.
+    (function buildIntersectionSegments() {
+      let current = null;   // running intersection cohort
+      let segStart = -1;
 
-      // If no availability or below threshold, close any open segment.
-      if (!slotSet || slotSet.size < needed) {
-        if (currentCohort) {
-          flushSegment(g);
-          currentCohort = null;
-          segmentStart  = -1;
+      for (let g = startIdx; g < WEEK_ROWS; g++) {
+        const slot = sets[g];
+
+        if (!slot || slot.size < needed) {
+          if (current) addSession(segStart, g, current);
+          current = null;
+          segStart = -1;
+          continue;
         }
-        continue;
-      }
 
-      if (!currentCohort) {
-        // Start a new segment with this slot's exact cohort.
-        currentCohort = new Set(slotSet);
-        segmentStart  = g;
-        continue;
-      }
-
-      // If the cohort changed (either shrank or expanded or swapped), close and start anew.
-      if (!setEqual(slotSet, currentCohort)) {
-        flushSegment(g);
-        // Start a new segment if the new slot still meets threshold.
-        if (slotSet.size >= needed) {
-          currentCohort = new Set(slotSet);
-          segmentStart  = g;
-        } else {
-          currentCohort = null;
-          segmentStart  = -1;
+        if (!current) {
+          current = new Set(slot);
+          segStart = g;
+          continue;
         }
-        continue;
+
+        const next = setIntersect(current, slot);
+
+        if (next.size < needed) {
+          // close up to g
+          addSession(segStart, g, current);
+          current = null;
+          segStart = -1;
+          continue;
+        }
+
+        // if intersection changed, close previous segment and start a new one at g
+        if (!setEqual(next, current)) {
+          addSession(segStart, g, current);
+          current = next;
+          segStart = g;
+        }
+        // else unchanged: keep extending
       }
 
-      // else: exact cohort unchanged; keep extending.
-    }
+      if (current) addSession(segStart, WEEK_ROWS, current);
+    })();
 
-    // Close trailing segment
-    if (currentCohort) flushSegment(WEEK_ROWS);
+    // PASS B: Exact-cohort runs (inner stronger cohorts).
+    // This adds nested segments like a 4h block of 5 people inside an 8h block of 4 people.
+    (function buildExactRuns() {
+      let runCohort = null;
+      let runStart = -1;
+
+      for (let g = startIdx; g < WEEK_ROWS; g++) {
+        const slot = sets[g];
+
+        const meets = !!slot && slot.size >= needed;
+
+        if (!meets) {
+          if (runCohort) addSession(runStart, g, runCohort);
+          runCohort = null;
+          runStart = -1;
+          continue;
+        }
+
+        if (!runCohort) {
+          runCohort = new Set(slot);
+          runStart = g;
+          continue;
+        }
+
+        if (!setEqual(slot, runCohort)) {
+          addSession(runStart, g, runCohort);
+          runCohort = new Set(slot);
+          runStart = g;
+        }
+        // else unchanged, continue
+      }
+
+      if (runCohort) addSession(runStart, WEEK_ROWS, runCohort);
+    })();
+
+    // Deduplicate identical sessions (same [gStart,gEnd) & same users)
+    const keyOf = (s) => `${s.gStart}:${s.gEnd}:${s.users.join(',')}`;
+    const dedupMap = new Map();
+    for (const s of sessions) dedupMap.set(keyOf(s), s);
+    const finalSessions = Array.from(dedupMap.values());
 
     // Sort-mode from either value or visible text
     const sortEl  = document.getElementById('sort-method');
@@ -622,7 +667,7 @@
     else if (sortRaw.includes('longest') || sortRaw.includes('duration')) sortMode = 'longest';
     else if (sortRaw.includes('most'))     sortMode = 'most';
 
-    sessions.sort((a, b) => {
+    finalSessions.sort((a, b) => {
       switch (sortMode) {
         case 'most':
           if (b.participants !== a.participants) return b.participants - a.participants;
@@ -651,7 +696,7 @@
       }
     });
 
-    renderResults(sessions);
+    renderResults(finalSessions);
   }
 
   function renderResults(list) {
