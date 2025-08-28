@@ -239,22 +239,16 @@
     const rgb = interpStops(stops, t);
     return rgbToCss(rgb);
   }
-  
   function shadeForCount(count) {
     const n = totalMembers || 0;
     const threshold = n >= 11 ? (n - 10) : 0;
-
-    // Empty/under-threshold cells: inherit table background
-    if (n <= 0 || count <= threshold) return 'transparent';
-
-    // Map count -> color and force ~70% opacity
+    if (n <= 0) return '#0a0a0a';
+    if (count <= threshold) return '#0a0a0a';
     const denom = Math.max(1, n - threshold);
     const t0 = (count - threshold) / denom;
     const t = Math.max(0, Math.min(1, t0));
     const g = heatmapName === 'twilight' ? t : Math.pow(t, 0.85);
-    const rgb = colormapColor(g); // "rgb(r, g, b)"
-    const m = /^rgb\((\d+),\s*(\d+),\s*(\d+)\)$/.exec(rgb);
-    return m ? `rgba(${m[1]}, ${m[2]}, ${m[3]}, 0.7)` : rgb;
+    return colormapColor(g);
   }
 
   function slotCount(epoch) {
