@@ -307,7 +307,6 @@
         if (!Number.isFinite(epoch)) return;
         if (epoch < nowSec) {
         td.classList.add('past');
-        // Ensure heatmap color does not override the greyed-out past style
         td.style.removeProperty('background-color');
         } else {
         td.classList.remove('past');
@@ -324,7 +323,6 @@
   }
 
   function updateNowMarker() {
-    // Ensure the NOW marker element with a bubble exists (matches availability.js behavior)
     if (!nowMarker && gridContent) {
         nowMarker = document.createElement('div');
         nowMarker.id = 'now-marker';
@@ -368,7 +366,6 @@
     const td = e.currentTarget;
     if (td.classList.contains('past')) return;
 
-    // Ensure the floating tooltip exists (created once, attached to <body>)
     let tip = document.getElementById('cell-tooltip');
     if (!tip) {
         tip = document.createElement('div');
@@ -386,13 +383,10 @@
     tip.innerHTML = `<div>${avail}</div><div style="margin-top:6px; color:#bbb;">${unavail}</div>`;
     tip.style.display = 'block';
 
-    // Follow the mouse and clamp to viewport
-    // (use clientX/Y so it doesn't scroll the layout or cause reflow)
     const pad = 12;
     let x = e.clientX + 14;
     let y = e.clientY + 16;
 
-    // Temporarily position to measure size
     tip.style.left = `${x}px`;
     tip.style.top = `${y}px`;
 
@@ -426,7 +420,7 @@
     const maxMissing = parseInt(document.getElementById('max-missing').value || '0', 10);
     const minHours = parseFloat(document.getElementById('min-hours').value || '1');
     const needed = Math.max(0, totalMembers - maxMissing);
-    const minSlots = Math.max(1, Math.round(minHours * SLOTS_PER_HOUR));
+    const minSlots = Math.max(1, Math.ceil(minHours * SLOTS_PER_HOUR));
     const startIdx = nowGlobalIndex();
 
     for (const td of table.querySelectorAll('.slot-cell')) td.classList.remove('dim');
@@ -517,7 +511,7 @@
     const maxMissing = parseInt(document.getElementById('max-missing').value || '0', 10);
     const minHours = parseFloat(document.getElementById('min-hours').value || '1');
     const needed = Math.max(0, totalMembers - maxMissing);
-    const minSlots = Math.max(1, Math.round(minHours * SLOTS_PER_HOUR));
+    const minSlots = Math.max(1, Math.ceil(minHours * SLOTS_PER_HOUR));
     const startIdx = nowGlobalIndex();
 
     const sessions = [];
@@ -591,18 +585,14 @@
   }
 
   function renderResults(list) {
-    // Reset results UI and any previous highlights
     resultsEl.innerHTML = '';
     clearHighlights();
 
-    // Build a mask of all slot indices (g) that are included in at least one result
     const keep = new Array(WEEK_ROWS).fill(false);
     for (const it of list) {
         for (let g = it.gStart; g < it.gEnd; g++) keep[g] = true;
     }
 
-    // Darken every cell that is NOT included in the results; undim those that are.
-    // Use both class and inline styles so this works regardless of CSS definitions.
     const tds = table.querySelectorAll('.slot-cell');
     for (const td of tds) {
         const day = Number(td.dataset.day);
@@ -611,23 +601,21 @@
         const g = day * ROWS_PER_DAY + row;
 
         if (keep[g]) {
-        td.classList.remove('dim');
-        td.style.opacity = '';
-        td.style.filter = '';
+          td.classList.remove('dim');
+          td.style.opacity = '';
+          td.style.filter = '';
         } else {
-        td.classList.add('dim');
-        td.style.opacity = '0.45';
-        td.style.filter = 'grayscale(40%) brightness(0.85)';
+          td.classList.add('dim');
+          td.style.opacity = '0.45';
+          td.style.filter = 'grayscale(40%) brightness(0.85)';
         }
     }
 
-    // If there are no sessions, still show the "no matches" card
     if (!list.length) {
         resultsEl.innerHTML = '<div class="result"><div class="res-sub">No matching sessions. Adjust filters.</div></div>';
         return;
     }
 
-    // Render result cards
     for (const it of list) {
         const wrap = document.createElement('div');
         wrap.className = 'result';
@@ -649,12 +637,12 @@
         copyBtn.type = 'button';
         copyBtn.textContent = 'Copy Discord invitation';
         copyBtn.addEventListener('click', async (e) => {
-        e.stopPropagation();
-        const text = buildDiscordInvite(it);
-        const ok = await copyToClipboard(text);
-        const old = copyBtn.textContent;
-        copyBtn.textContent = ok ? 'Copied to clipboard' : 'Failed to copy';
-        setTimeout(() => { copyBtn.textContent = old; }, 1200);
+          e.stopPropagation();
+          const text = buildDiscordInvite(it);
+          const ok = await copyToClipboard(text);
+          const old = copyBtn.textContent;
+          copyBtn.textContent = ok ? 'Copied to clipboard' : 'Failed to copy';
+          setTimeout(() => { copyBtn.textContent = old; }, 1200);
         });
         actions.appendChild(copyBtn);
 
@@ -664,12 +652,14 @@
         wrap.appendChild(actions);
 
         wrap.addEventListener('mouseenter', () => {
-        highlightRangeGlobal(it.gStart, it.gEnd, true);
-        wrap.classList.add('hovered');
+          highlightRangeGlobal(it.gStart, it.gEnd, true);
+          wrap.classList.add('hovered');
+          if (resultsPanel) resultsPanel.classList.add('glow');
         });
         wrap.addEventListener('mouseleave', () => {
-        highlightRangeGlobal(it.gStart, it.gEnd, false);
-        wrap.classList.remove('hovered');
+          highlightRangeGlobal(it.gStart, it.gEnd, false);
+          wrap.classList.remove('hovered');
+          if (resultsPanel) resultsPanel.classList.remove('glow');
         });
 
         resultsEl.appendChild(wrap);
@@ -702,11 +692,11 @@
 function setMemberError(msg) {
   const el = document.getElementById('member-error');
   if (el) {
-    el.textContent = '';                // never show inline message
+    el.textContent = '';
     el.classList.remove('is-error');
     el.setAttribute('aria-hidden', 'true');
   }
-  if (msg) showToast(msg, 'error');     // use toast only
+  if (msg) showToast(msg, 'error');
 }
   function renderMembers() {
     const ul = document.getElementById('member-list');
@@ -977,7 +967,6 @@ function showToast(message, variant = 'info') {
   div.textContent = message;
   stack.appendChild(div);
 
-  // auto dismiss
   window.setTimeout(() => {
     div.classList.add('bye');
   }, 3500);
