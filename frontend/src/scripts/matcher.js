@@ -535,49 +535,89 @@
 
     const { baseEpoch } = getWeekStartEpochAndYMD();
     const sessions = [];
+
     if (!totalMembers || needed <= 0) { renderResults(sessions); return; }
 
-    for (let g = startIdx; g < WEEK_ROWS; g++) {
-      const seed = sets[g];
-      if (!seed || seed.size < needed) continue;
+    // --- helpers ---
+    const setEqual = (a, b) => {
+      if (a.size !== b.size) return false;
+      for (const v of a) if (!b.has(v)) return false;
+      return true;
+    };
+    const setIntersect = (a, b) => {
+      const out = new Set();
+      for (const v of a) if (b.has(v)) out.add(v);
+      return out;
+    };
 
-      // Grow forward keeping the SAME cohort (no swapping).
-      let cohort = new Set(seed);
-      let t = g + 1;
-      while (t < WEEK_ROWS) {
-        const next = sets[t];
-        if (!next) break;
-        // Intersect to maintain identical attendees over the whole block
-        cohort = new Set([...cohort].filter(x => next.has(x)));
-        if (cohort.size < needed) break;
-        t++;
-      }
+    // --- sweep to build maximal segments with a stable cohort ---
+    let currentCohort = null;   // Set of users for the current segment
+    let segmentStart  = -1;     // g index where the current segment starts
 
-      const length = t - g;
-      if (length >= minSlots) {
-        // Emit only if this is the LEFT boundary for this cohort (avoid sliding duplicates)
-        const prev = g > 0 ? sets[g - 1] : null;
-        let leftExtendable = false;
-        if (prev) {
-          leftExtendable = true;
-          for (const u of cohort) { if (!prev.has(u)) { leftExtendable = false; break; } }
-        }
-        if (!leftExtendable) {
-          const usersSorted = Array.from(cohort).sort();
+    const flushSegment = (endG) => {
+      // Emit current segment [segmentStart, endG) if long enough and meets needed
+      if (currentCohort && segmentStart >= 0) {
+        const length = endG - segmentStart;
+        if (length >= minSlots && currentCohort.size >= needed) {
+          const usersSorted = Array.from(currentCohort).sort();
           sessions.push({
-            gStart: g,
-            gEnd: t,
-            start: baseEpoch + g * SLOT_SEC,
-            end:   baseEpoch + t * SLOT_SEC,
+            gStart: segmentStart,
+            gEnd: endG,
+            start: baseEpoch + segmentStart * SLOT_SEC,
+            end:   baseEpoch + endG * SLOT_SEC,
             duration: length,
             participants: usersSorted.length,
             users: usersSorted
           });
-          // Skip ahead to the end of this block; there cannot be another distinct
-          // identical-cohort session starting inside it.
-          g = t - 1;
         }
       }
+    };
+
+    for (let g = startIdx; g < WEEK_ROWS; g++) {
+      const slotSet = sets[g];
+
+      // No availability at this slot or below threshold: close any open segment.
+      if (!slotSet || slotSet.size < needed) {
+        if (currentCohort) {
+          flushSegment(g);
+          currentCohort = null;
+          segmentStart  = -1;
+        }
+        continue;
+      }
+
+      if (!currentCohort) {
+        // Start a new segment here with this slot's cohort.
+        currentCohort = new Set(slotSet);
+        segmentStart  = g;
+        continue;
+      }
+
+      // Continue an existing segment: intersect with current slot's users.
+      const nextCohort = setIntersect(currentCohort, slotSet);
+
+      // If the intersect drops below needed, close the segment before g.
+      if (nextCohort.size < needed) {
+        flushSegment(g);
+        currentCohort = null;
+        segmentStart  = -1;
+        continue;
+      }
+
+      // If the cohort identity changed (shrink or any change), close prior segment and start a new one at g.
+      if (!setEqual(nextCohort, currentCohort)) {
+        flushSegment(g);
+        currentCohort = nextCohort;
+        segmentStart  = g;
+        continue;
+      }
+
+      // else: cohort unchanged; keep extending.
+    }
+
+    // Close any trailing segment to WEEK_ROWS
+    if (currentCohort) {
+      flushSegment(WEEK_ROWS);
     }
 
     // Sort-mode from either value or visible text
