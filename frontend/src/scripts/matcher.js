@@ -130,8 +130,8 @@
     const { baseEpoch } = getWeekStartEpochAndYMD();
     for (let i = 0; i < 7; i++) {
         const d = new Date((baseEpoch + i * 86400) * 1000);
-        const label = new Intl.DateTimeFormat('en-GB', {
-        timeZone: tz, weekday: 'short', day: '2-digit', month: 'short'
+        const label = new Intl.DateTimeFormat('en-US', {
+        timeZone: tz, weekday: 'short', month: 'short', day: '2-digit'
         }).format(d);
         const th = document.createElement('th');
         th.textContent = label;
@@ -149,40 +149,29 @@
         const isHalf = (r % 2) === 1;
         tr.className = isHalf ? 'row-half' : 'row-hour';
 
-        if (!isHalf) {
-        const minutes = (HOURS_START * 60) + r * (60 / SLOTS_PER_HOUR);
-        const hh = Math.floor(minutes / 60);
         const th = document.createElement('th');
-        th.className = 'time-col hour';
-        th.rowSpan = 2;
-        const span = document.createElement('span');
-        span.className = 'time-label hour';
-        span.textContent = fmtTime(hh, 0);
-        th.appendChild(span);
-        tr.appendChild(th);
+        th.className = 'time-col';
+        if (!isHalf) {
+        const hours = HOURS_START + (r / SLOTS_PER_HOUR);
+        th.textContent = fmtHourLabel(hours);
         }
+        tr.appendChild(th);
 
-        for (let day = 0; day < 7; day++) {
+        for (let c = 0; c < 7; c++) {
         const td = document.createElement('td');
         td.className = 'slot-cell';
-        const epoch = getDayStartSec(day) + r * SLOT_SEC;
-        td.dataset.epoch = String(epoch);
-        td.dataset.day = String(day);
+        td.dataset.day = String(c);
         td.dataset.row = String(r);
-        td.dataset.c = '0';
-        td.addEventListener('mousemove', onCellHoverMove);
-        td.addEventListener('mouseleave', hideTooltip);
+
+        const epoch = baseEpoch + c * 86400 + r * SLOT_SEC;
+        td.dataset.epoch = String(epoch);
+
         tr.appendChild(td);
         }
         tbody.appendChild(tr);
     }
 
     table.appendChild(tbody);
-
-    applySlotHeight();
-    paintCounts();
-    shadePast();
-    updateNowMarker();
 
     requestAnimationFrame(() => {
         const headH = thead.offsetHeight || 0;
