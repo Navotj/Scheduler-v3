@@ -521,64 +521,81 @@
     const { baseEpoch } = getWeekStartEpochAndYMD();
 
     for (let k = totalMembers; k >= needed; k--) {
-      let g = startIdx;
-      while (g < WEEK_ROWS) {
+        let g = startIdx;
+        while (g < WEEK_ROWS) {
         if ((counts[g] || 0) < k) { g++; continue; }
         let s = g;
         let t = g + 1;
         let inter = new Set(sets[g]);
         while (t < WEEK_ROWS && (counts[t] || 0) >= k) {
-          const avail = sets[t];
-          inter = new Set([...inter].filter(x => avail.has(x)));
-          if (inter.size < k) break;
-          t++;
+            const avail = sets[t];
+            inter = new Set([...inter].filter(x => avail.has(x)));
+            if (inter.size < k) break;
+            t++;
         }
         s = Math.max(s, startIdx);
         const length = t - s;
         if (length >= minSlots && inter.size >= k) {
-          const startSec = baseEpoch + s * SLOT_SEC;
-          const endSec = baseEpoch + t * SLOT_SEC;
-          const usersSorted = Array.from(inter).sort();
-          const key = `${startSec}-${endSec}-${usersSorted.join('|')}`;
-          if (!seen.has(key)) {
+            const startSec = baseEpoch + s * SLOT_SEC;
+            const endSec = baseEpoch + t * SLOT_SEC;
+            const usersSorted = Array.from(inter).sort();
+            const key = `${startSec}-${endSec}-${usersSorted.join('|')}`;
+            if (!seen.has(key)) {
             seen.add(key);
             sessions.push({
-              gStart: s, gEnd: t,
-              start: startSec, end: endSec,
-              duration: length,
-              participants: usersSorted.length,
-              users: usersSorted
+                gStart: s, gEnd: t,
+                start: startSec, end: endSec,
+                duration: length,
+                participants: usersSorted.length,
+                users: usersSorted
             });
-          }
+            }
         }
         while (t < WEEK_ROWS && (counts[t] || 0) >= k) t++;
         g = t;
-      }
+        }
     }
 
-    const sortMode = document.getElementById('sort-method').value;
+    // Robust sort-mode mapping (accepts value OR visible text)
+    const sortEl = document.getElementById('sort-method');
+    let sortRaw = '';
+    if (sortEl) {
+        const byVal = (sortEl.value || '').toLowerCase().trim();
+        const byText = (sortEl.options && sortEl.selectedIndex >= 0)
+        ? (sortEl.options[sortEl.selectedIndex].text || '').toLowerCase().trim()
+        : '';
+        sortRaw = byVal || byText;
+    }
+    let sortMode = 'most';
+    if (sortRaw.includes('earliest') && sortRaw.includes('week')) sortMode = 'earliest-week';
+    else if (sortRaw.includes('latest') && sortRaw.includes('week')) sortMode = 'latest-week';
+    else if (sortRaw.includes('earliest')) sortMode = 'earliest';
+    else if (sortRaw.includes('latest')) sortMode = 'latest';
+    else if (sortRaw.includes('longest') || sortRaw.includes('duration')) sortMode = 'longest';
+    else if (sortRaw.includes('most')) sortMode = 'most';
+
     sessions.sort((a, b) => {
-      if (sortMode === 'most') {
+        if (sortMode === 'most') {
         if (b.participants !== a.participants) return b.participants - a.participants;
         return a.start - b.start;
-      }
-      if (sortMode === 'earliest-week') return a.start - b.start;
-      if (sortMode === 'latest-week') return b.start - a.start;
-      if (sortMode === 'earliest') {
+        }
+        if (sortMode === 'earliest-week') return a.start - b.start;
+        if (sortMode === 'latest-week') return b.start - a.start;
+        if (sortMode === 'earliest') {
         const aRow = a.gStart % ROWS_PER_DAY, bRow = b.gStart % ROWS_PER_DAY;
         if (aRow !== bRow) return aRow - bRow;
         return a.start - b.start;
-      }
-      if (sortMode === 'latest') {
+        }
+        if (sortMode === 'latest') {
         const aRow = a.gStart % ROWS_PER_DAY, bRow = b.gStart % ROWS_PER_DAY;
         if (aRow !== bRow) return bRow - aRow;
         return a.start - b.start;
-      }
-      if (sortMode === 'longest') {
+        }
+        if (sortMode === 'longest') {
         if (b.duration !== a.duration) return b.duration - a.duration;
         return a.start - b.start;
-      }
-      return a.start - b.start;
+        }
+        return a.start - b.start;
     });
 
     renderResults(sessions);
