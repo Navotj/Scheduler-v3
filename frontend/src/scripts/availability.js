@@ -333,18 +333,23 @@
 
     const minutes = minutesOfDayInTZ(tz);
 
-    const topStart = cumTop(firstCell, gridContent);
-    const topEnd = cumTop(lastCell, gridContent) + lastCell.offsetHeight;
-    const dayHeight = topEnd - topStart;
-    const topInContent = topStart + (minutes / (24 * 60)) * dayHeight;
-    const top = topInContent - gridContent.scrollTop;
+    // Compute vertical position using DOMRects relative to the scroll container's viewport.
+    // This avoids double-applying scroll offsets and fixes the "moves twice as much" drift.
+    const gcRect = gridContent.getBoundingClientRect();
+    const firstRect = firstCell.getBoundingClientRect();
+    const lastRect = lastCell.getBoundingClientRect();
 
+    const topStartVis = firstRect.top - gcRect.top;                 // visible top of the day's first slot within gridContent
+    const dayHeightVis = (lastRect.bottom - firstRect.top);         // visible height for the entire day within gridContent
+    const topVis = topStartVis + (minutes / (24 * 60)) * dayHeightVis;
+
+    // Horizontal placement unchanged (content coords adjusted by scrollLeft)
     const leftInContent = cumLeft(firstCell, gridContent);
     const width = firstCell.offsetWidth;
     const left = leftInContent - gridContent.scrollLeft;
 
     nowMarker.style.display = 'block';
-    nowMarker.style.top = top + 'px';
+    nowMarker.style.top = topVis + 'px';     // NOTE: no subtraction of scrollTop here
     nowMarker.style.left = left + 'px';
     nowMarker.style.right = '';
     nowMarker.style.width = width + 'px';
