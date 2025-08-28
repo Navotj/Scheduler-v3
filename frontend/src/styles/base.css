@@ -15,7 +15,7 @@
   --gap-lg:24px;
 
   --topbar-h:64px;
-  --rail-w:260px;
+  --rail-w:12%;
   --main-max:1440px;
 
   /* NEW: keep topbar/brand in lockstep */

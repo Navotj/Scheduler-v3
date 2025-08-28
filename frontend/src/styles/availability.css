@@ -166,7 +166,6 @@
 .availability .picker-controls {
   display: grid;
   grid-template-columns: auto 1fr auto;
-  gap: 12px 16px;
   align-items: center;
   margin: 0;
 }
