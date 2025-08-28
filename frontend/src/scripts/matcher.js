@@ -367,15 +367,45 @@
   function onCellHoverMove(e) {
     const td = e.currentTarget;
     if (td.classList.contains('past')) return;
+
+    // Ensure the floating tooltip exists (created once, attached to <body>)
+    let tip = document.getElementById('cell-tooltip');
+    if (!tip) {
+        tip = document.createElement('div');
+        tip.id = 'cell-tooltip';
+        tip.className = 'cell-tooltip';
+        document.body.appendChild(tip);
+    }
+
     const epoch = Number(td.dataset.epoch);
     const lists = availabilityListsAt(epoch);
-    const tip = document.getElementById('cell-tooltip');
+
     const avail = lists.available.length ? `Available: ${lists.available.join(', ')}` : 'Available: —';
     const unavail = lists.unavailable.length ? `Unavailable: ${lists.unavailable.join(', ')}` : 'Unavailable: —';
+
     tip.innerHTML = `<div>${avail}</div><div style="margin-top:6px; color:#bbb;">${unavail}</div>`;
     tip.style.display = 'block';
-    tip.style.left = (e.clientX + 14) + 'px';
-    tip.style.top = (e.clientY + 16) + 'px';
+
+    // Follow the mouse and clamp to viewport
+    // (use clientX/Y so it doesn't scroll the layout or cause reflow)
+    const pad = 12;
+    let x = e.clientX + 14;
+    let y = e.clientY + 16;
+
+    // Temporarily position to measure size
+    tip.style.left = `${x}px`;
+    tip.style.top = `${y}px`;
+
+    const vw = document.documentElement.clientWidth;
+    const vh = document.documentElement.clientHeight;
+    const tw = tip.offsetWidth || 0;
+    const th = tip.offsetHeight || 0;
+
+    if (x + tw + pad > vw) x = Math.max(pad, vw - tw - pad);
+    if (y + th + pad > vh) y = Math.max(pad, vh - th - pad);
+
+    tip.style.left = `${x}px`;
+    tip.style.top = `${y}px`;
   }
   function hideTooltip() {
     const tip = document.getElementById('cell-tooltip');
