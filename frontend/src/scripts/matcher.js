@@ -1,64 +1,56 @@
 (function () {
   'use strict';
 
-  const SLOTS_PER_HOUR = 2;
+  // Core constants — match availability’s slot model
+  const SLOTS_PER_HOUR = 2;            // 30-minute slots
   const HOURS_START = 0;
   const HOURS_END = 24;
-  const SLOT_SEC = 1800;
+  const SLOT_SEC = 30 * 60;
 
-  let weekOffset = 0;
+  // State
+  let weekOffset = 0;                  // relative to current week
   let isAuthenticated = false;
   let currentUsername = null;
 
-  const DEFAULT_SETTINGS = { timezone: 'auto', clock: '24', weekStart: 'sun', defaultZoom: 1.0, heatmap: 'viridis' };
+  // Settings (shared with availability)
+  const DEFAULT_SETTINGS = { timezone: 'auto', clock: '24', weekStart: 'sun', heatmap: 'viridis' };
   let settings = { ...DEFAULT_SETTINGS };
   let tz = resolveTimezone(settings.timezone);
   let hour12 = settings.clock === '12';
   let weekStartIdx = settings.weekStart === 'mon' ? 1 : 0;
   let heatmapName = settings.heatmap || 'viridis';
 
-  let zoomFactor = 1.0;
-  const ZOOM_MIN = 0.6, ZOOM_MAX = 2.0, ZOOM_STEP = 0.1;
+  // Vertical zoom — use the same CSS var as availability: --slot-h
+  let slotHeight = 18; // px
+  const ZOOM_MIN = 12, ZOOM_MAX = 48, ZOOM_STEP = 2;
 
-  let members = [];
-  const userSlotSets = new Map();
+  // Members & availability
+  let members = [];                    // usernames
+  const userSlotSets = new Map();      // username -> Set(epoch seconds)
   let totalMembers = 0;
 
-  let table;
-  let grid;
-  let resultsEl;
-  let resultsPanelEl;
-  let nowMarkerEl;
-  let rightColEl;
-  let controlsEl;
-
-  let ROWS_PER_DAY = (HOURS_END - HOURS_START) * SLOTS_PER_HOUR;
+  // Derived week arrays
+  const ROWS_PER_DAY = (HOURS_END - HOURS_START) * SLOTS_PER_HOUR;
   let WEEK_ROWS = 7 * ROWS_PER_DAY;
-  let counts = [];
-  let sets = [];
+  let counts = [];                     // per-slot available count
+  let sets = [];                       // per-slot Set of available users
 
+  // DOM refs
+  let gridContent, table, nowMarker, resultsEl, resultsPanel, controlsPane;
+
+  // Init guard / reentrancy guards
   let __initDone = false;
   let __addingUser = false;
   let __addingMe = false;
 
+  // ───────────────────────── Time helpers ─────────────────────────
   function resolveTimezone(val) {
     if (!val || val === 'auto') return (Intl.DateTimeFormat().resolvedOptions().timeZone) || 'UTC';
     return val;
   }
-  function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
-
-  function loadLocalSettings() {
-    try {
-      const raw = localStorage.getItem('nat20_settings');
-      if (!raw) return null;
-      return JSON.parse(raw);
-    } catch { return null; }
-  }
-
   function tzOffsetMinutes(tzName, date) {
     const parts = new Intl.DateTimeFormat('en-US', {
-      timeZone: tzName,
-      hour12: false,
+      timeZone: tzName, hour12: false,
       year: 'numeric', month: '2-digit', day: '2-digit',
       hour: '2-digit', minute: '2-digit', second: '2-digit'
     }).formatToParts(date);
@@ -67,7 +59,6 @@
     const asUTC = Date.UTC(Number(map.year), Number(map.month) - 1, Number(map.day), Number(map.hour), Number(map.minute), Number(map.second));
     return Math.round((asUTC - date.getTime()) / 60000);
   }
-
   function epochFromZoned(y, m, d, hh, mm, tzName) {
     const guess = Date.UTC(y, m - 1, d, hh, mm, 0, 0);
     let off = tzOffsetMinutes(tzName, new Date(guess));
@@ -76,7 +67,6 @@
     ts = guess - off * 60000;
     return Math.floor(ts / 1000);
   }
-
   function getYMDInTZ(date, tzName) {
     const parts = new Intl.DateTimeFormat('en-US', { timeZone: tzName, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(date);
     const map = {};
@@ -84,18 +74,15 @@
     return { y: Number(map.year), m: Number(map.month), d: Number(map.day) };
   }
   function getTodayYMDInTZ(tzName) { return getYMDInTZ(new Date(), tzName); }
-
   function ymdAddDays(ymd, add) {
     const tmp = new Date(Date.UTC(ymd.y, ymd.m - 1, ymd.d));
     tmp.setUTCDate(tmp.getUTCDate() + add);
     return { y: tmp.getUTCFullYear(), m: tmp.getUTCMonth() + 1, d: tmp.getUTCDate() };
   }
-
   function weekdayIndexInTZ(epochSec, tzName) {
     const wd = new Intl.DateTimeFormat('en-US', { timeZone: tzName, weekday: 'short' }).format(new Date(epochSec * 1000));
     return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(wd);
   }
-
   function getWeekStartEpochAndYMD() {
     const today = getTodayYMDInTZ(tz);
     const todayMid = epochFromZoned(today.y, today.m, today.d, 0, 0, tz);
@@ -106,6 +93,7 @@
     return { baseEpoch, baseYMD };
   }
 
+  // ───────────────────────── Formatting ─────────────────────────
   function fmtTime(h, m) {
     if (hour12) {
       const ampm = h >= 12 ? 'pm' : 'am';
@@ -115,7 +103,6 @@
     }
     return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
   }
-
   function fmtRangeSec(startSec, endSec) {
     const a = new Date(startSec * 1000);
     const b = new Date(endSec * 1000);
@@ -125,68 +112,26 @@
     return `${dow}, ${s} – ${e}`;
   }
 
-  function rowHeightPx() {
-    const v = getComputedStyle(document.documentElement).getPropertyValue('--row-height').trim();
-    return parseFloat(v.replace('px',''));
+  // ─────────────────────── Zoom / row sizing ───────────────────────
+  function applySlotHeight() {
+    if (gridContent) gridContent.style.setProperty('--slot-h', `${slotHeight}px`);
+  }
+  function onWheelZoom(e) {
+    if (!e.shiftKey) return;
+    if (!gridContent) return;
+    e.preventDefault();
+    const dir = Math.sign(e.deltaY);              // up: -1, down: +1 (device-dependent)
+    const next = slotHeight - dir * ZOOM_STEP;    // invert so wheel-up zooms in
+    slotHeight = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, next));
+    applySlotHeight();
+    updateNowMarker();
   }
 
-  function gToDayRow(g) {
-    const day = Math.floor(g / ROWS_PER_DAY);
-    const row = g % ROWS_PER_DAY;
-    return { day, row };
-  }
-
-  function lerp(a, b, t) { return a + (b - a) * t; }
-  function hexToRgb(hex) {
-    const m = /^#?([a-f0-9]{2})([a-f0-9]{2})([a-f0-9]{2})$/i.exec(hex);
-    if (!m) return { r: 0, g: 0, b: 0 };
-    return { r: parseInt(m[1], 16), g: parseInt(m[2], 16), b: parseInt(m[3], 16) };
-  }
-  function rgbToCss({ r, g, b }) { return `rgb(${r}, ${g}, ${b})`; }
-  function interpStops(stops, t) {
-    if (t <= 0) return hexToRgb(stops[0][1]);
-    if (t >= 1) return hexToRgb(stops[stops.length - 1][1]);
-    for (let i = 0; i < stops.length - 1; i++) {
-      const [t0, c0] = stops[i];
-      const [t1, c1] = stops[i + 1];
-      if (t >= t0 && t <= t1) {
-        const k = (t - t0) / (t1 - t0);
-        const a = hexToRgb(c0), b = hexToRgb(c1);
-        return { r: Math.round(lerp(a.r, b.r, k)), g: Math.round(lerp(a.g, b.g, k)), b: Math.round(lerp(a.b, b.b, k)) };
-      }
-    }
-    return hexToRgb(stops[stops.length - 1][1]);
-  }
-
-  const COLORMAPS = {
-    viridis:    [[0,'#440154'],[0.25,'#3b528b'],[0.5,'#21918c'],[0.75,'#5ec962'],[1,'#fde725']],
-    plasma:     [[0,'#0d0887'],[0.25,'#6a00a8'],[0.5,'#b12a90'],[0.75,'#e16462'],[1,'#fca636']],
-    cividis:    [[0,'#00204c'],[0.25,'#2c3e70'],[0.5,'#606c7c'],[0.75,'#9da472'],[1,'#f9e721']],
-    twilight:   [[0,'#1e1745'],[0.25,'#373a97'],[0.5,'#73518c'],[0.75,'#b06b6d'],[1,'#d3c6b9']],
-    lava:       [[0,'#000004'],[0.2,'#320a5a'],[0.4,'#781c6d'],[0.6,'#bb3654'],[0.8,'#ed6925'],[1,'#fcffa4']]
-  };
-
-  function colormapColor(t) {
-    const stops = COLORMAPS[heatmapName] || COLORMAPS.viridis;
-    const rgb = interpStops(stops, t);
-    return rgbToCss(rgb);
-  }
-
-  function shadeForCount(count) {
-    const n = totalMembers || 0;
-    const threshold = n >= 11 ? (n - 10) : 0;
-    if (n <= 0) return '#0a0a0a';
-    if (count <= threshold) return '#0a0a0a';
-    const denom = Math.max(1, n - threshold);
-    const t0 = (count - threshold) / denom;
-    const t = Math.max(0, Math.min(1, t0));
-    const g = heatmapName === 'twilight' ? t : Math.pow(t, 0.85);
-    return colormapColor(g);
-  }
-
+  // ───────────────────── Table build / shading ─────────────────────
   function buildTable() {
     table.innerHTML = '';
 
+    // Header
     const thead = document.createElement('thead');
     const trh = document.createElement('tr');
 
@@ -209,12 +154,14 @@
     thead.appendChild(trh);
     table.appendChild(thead);
 
+    // Body
     const tbody = document.createElement('tbody');
     const totalRows = ROWS_PER_DAY;
 
     for (let r = 0; r < totalRows; r++) {
       const tr = document.createElement('tr');
 
+      // hour label cell spans two rows (both half-hours)
       if (r % 2 === 0) {
         const minutes = (HOURS_START * 60) + r * (60 / SLOTS_PER_HOUR);
         const hh = Math.floor(minutes / 60);
@@ -227,8 +174,8 @@
 
       for (let day = 0; day < 7; day++) {
         const td = document.createElement('td');
-        td.className = 'slot-cell';
-        const epoch = (getDayStartSec(day) + r * SLOT_SEC);
+        td.className = 'slot-cell';                // not interactive here
+        const epoch = getDayStartSec(day) + r * SLOT_SEC;
         td.dataset.epoch = String(epoch);
         td.dataset.day = String(day);
         td.dataset.row = String(r);
@@ -237,20 +184,34 @@
         td.addEventListener('mouseleave', hideTooltip);
         tr.appendChild(td);
       }
-
       tbody.appendChild(tr);
     }
 
     table.appendChild(tbody);
 
-    applyZoomStyles();
+    // After build: style and paint
+    applySlotHeight();
     paintCounts();
     shadePast();
-    positionNowMarker();
-    syncRightColOffset();
+    updateNowMarker();
     syncResultsHeight();
 
-    requestAnimationFrame(() => requestAnimationFrame(initialZoomToFit24h));
+    // Initial fit: try to fit 24h in view
+    requestAnimationFrame(() => {
+      const headH = thead.offsetHeight || 0;
+      const avail = Math.max(0, gridContent.clientHeight - headH - 2);
+      const needed = ROWS_PER_DAY * slotHeight;
+      if (needed > 0) {
+        const fit = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, Math.floor(avail / (needed / slotHeight))));
+        if (!Number.isNaN(fit)) {
+          slotHeight = fit;
+          applySlotHeight();
+          updateNowMarker();
+        }
+      }
+    });
+
+    updateWeekLabel();
   }
 
   function getDayStartSec(dayIndex) {
@@ -258,64 +219,50 @@
     return baseEpoch + dayIndex * 86400;
   }
 
-  async function fetchMembersAvail() {
-    if (!members.length) {
-      userSlotSets.clear();
-      totalMembers = 0;
-      paintCounts();
-      shadePast();
-      applyFilterDimming();
-      updateLegend();
-      syncResultsHeight();
-      findCandidates();
-      return;
-    }
-    const { baseEpoch, baseYMD } = getWeekStartEpochAndYMD();
-    const endYMD = ymdAddDays(baseYMD, 7);
-    const endEpoch = epochFromZoned(endYMD.y, endYMD.m, endYMD.d, 0, 0, tz);
-
-    const payload = { from: baseEpoch, to: endEpoch, usernames: members };
-    const tryPaths = [
-      `${window.API_BASE_URL}/availability/get_many`,
-      `${window.API_BASE_URL}/availability/availability/get_many`
-    ];
-
-    let data = { intervals: {} };
-    for (const url of tryPaths) {
-      try {
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify(payload)
-        });
-        if (res.status === 404) { continue; }
-        if (!res.ok) { continue; }
-        data = await res.json();
-        break;
-      } catch {}
-    }
-
-    userSlotSets.clear();
-    for (const uname of members) {
-      const intervals = (data.intervals && data.intervals[uname]) || [];
-      const set = new Set();
-      for (const iv of intervals) {
-        const from = Math.max(iv.from, baseEpoch);
-        const to = Math.min(iv.to, endEpoch);
-        let t = Math.ceil(from / SLOT_SEC) * SLOT_SEC;
-        for (; t < to; t += SLOT_SEC) set.add(t);
+  // Heatmap colormaps
+  const COLORMAPS = {
+    viridis:    [[0,'#440154'],[0.25,'#3b528b'],[0.5,'#21918c'],[0.75,'#5ec962'],[1,'#fde725']],
+    plasma:     [[0,'#0d0887'],[0.25,'#6a00a8'],[0.5,'#b12a90'],[0.75,'#e16462'],[1,'#fca636']],
+    cividis:    [[0,'#00204c'],[0.25,'#2c3e70'],[0.5,'#606c7c'],[0.75,'#9da472'],[1,'#f9e721']],
+    twilight:   [[0,'#1e1745'],[0.25,'#373a97'],[0.5,'#73518c'],[0.75,'#b06b6d'],[1,'#d3c6b9']],
+    lava:       [[0,'#000004'],[0.2,'#320a5a'],[0.4,'#781c6d'],[0.6,'#bb3654'],[0.8,'#ed6925'],[1,'#fcffa4']]
+  };
+  function lerp(a, b, t) { return a + (b - a) * t; }
+  function hexToRgb(hex) {
+    const m = /^#?([a-f0-9]{2})([a-f0-9]{2})([a-f0-9]{2})$/i.exec(hex);
+    if (!m) return { r: 0, g: 0, b: 0 };
+    return { r: parseInt(m[1], 16), g: parseInt(m[2], 16), b: parseInt(m[3], 16) };
+  }
+  function rgbToCss({ r, g, b }) { return `rgb(${r}, ${g}, ${b})`; }
+  function interpStops(stops, t) {
+    if (t <= 0) return hexToRgb(stops[0][1]);
+    if (t >= 1) return hexToRgb(stops[stops.length - 1][1]);
+    for (let i = 0; i < stops.length - 1; i++) {
+      const [t0, c0] = stops[i];
+      const [t1, c1] = stops[i + 1];
+      if (t >= t0 && t <= t1) {
+        const k = (t - t0) / (t1 - t0);
+        const a = hexToRgb(c0), b = hexToRgb(c1);
+        return { r: Math.round(lerp(a.r, b.r, k)), g: Math.round(lerp(a.g, b.g, k)), b: Math.round(lerp(a.b, b.b, k)) };
       }
-      userSlotSets.set(uname, set);
     }
-    totalMembers = members.length;
-
-    paintCounts();
-    shadePast();
-    applyFilterDimming();
-    updateLegend();
-    syncResultsHeight();
-    findCandidates();
+    return hexToRgb(stops[stops.length - 1][1]);
+  }
+  function colormapColor(t) {
+    const stops = COLORMAPS[heatmapName] || COLORMAPS.viridis;
+    const rgb = interpStops(stops, t);
+    return rgbToCss(rgb);
+  }
+  function shadeForCount(count) {
+    const n = totalMembers || 0;
+    const threshold = n >= 11 ? (n - 10) : 0;   // compress low counts when large groups
+    if (n <= 0) return '#0a0a0a';
+    if (count <= threshold) return '#0a0a0a';
+    const denom = Math.max(1, n - threshold);   // map threshold..n -> 0..1
+    const t0 = (count - threshold) / denom;
+    const t = Math.max(0, Math.min(1, t0));
+    const g = heatmapName === 'twilight' ? t : Math.pow(t, 0.85);
+    return colormapColor(g);
   }
 
   function slotCount(epoch) {
@@ -338,20 +285,18 @@
       const epoch = Number(td.dataset.epoch);
       const raw = slotCount(epoch);
 
+      // Force background color (override any class-based rules)
       td.style.setProperty('background-color', shadeForCount(raw), 'important');
 
-      if (n >= 11) {
-        td.dataset.c = (raw <= threshold) ? '0' : '7';
-      } else {
-        td.dataset.c = raw > 0 ? '7' : '0';
-      }
+      // Provide dataset.c for any CSS that keys on it (e.g., compress-low)
+      if (n >= 11) td.dataset.c = (raw <= threshold) ? '0' : '7';
+      else td.dataset.c = raw > 0 ? '7' : '0';
 
       td.classList.remove('dim', 'highlight');
 
       const day = Number(td.dataset.day);
       const row = Number(td.dataset.row);
       const g = day * ROWS_PER_DAY + row;
-
       counts[g] = raw;
 
       const who = new Set();
@@ -364,6 +309,7 @@
     WEEK_ROWS = counts.length;
   }
 
+  // Past shading relative to now in this week
   function shadePast() {
     const nowMs = Date.now();
     const { baseEpoch } = getWeekStartEpochAndYMD();
@@ -387,54 +333,75 @@
     return Math.max(0, idx);
   }
 
-  let theadTopCache = 0;
-  function positionNowMarker() {
+  // ───────────────────────── NOW marker ─────────────────────────
+  function updateNowMarker() {
     const nowSec = Math.floor(Date.now() / 1000);
     const { baseEpoch } = getWeekStartEpochAndYMD();
-    const endSec = baseEpoch + 7 * 86400;
+    const weekEnd = baseEpoch + 7 * 86400;
 
-    if (nowSec < baseEpoch || nowSec >= endSec) {
-      nowMarkerEl.style.display = 'none';
+    if (nowSec < baseEpoch || nowSec >= weekEnd) {
+      nowMarker.style.display = 'none';
       return;
     }
-    nowMarkerEl.style.display = 'block';
+    nowMarker.style.display = 'block';
 
     const secondsIntoWeek = nowSec - baseEpoch;
-    theadTopCache = table.querySelector('thead')?.offsetHeight || 0;
     const dayIdx = Math.floor(secondsIntoWeek / 86400);
     const secondsIntoDay = secondsIntoWeek - dayIdx * 86400;
     const rowsIntoDay = secondsIntoDay / SLOT_SEC;
 
-    const headerH = theadTopCache;
-    const topPx = headerH + rowsIntoDay * rowHeightPx();
-    nowMarkerEl.style.top = `${topPx}px`;
+    const headH = table.querySelector('thead')?.offsetHeight || 0;
+    const topPx = headH + rowsIntoDay * slotHeight;
+    nowMarker.style.top = `${topPx}px`;
 
+    // Constrain left/width to the current day column
     const firstCell = table.querySelector(`tbody tr:first-child td.slot-cell[data-day="${dayIdx}"][data-row="0"]`);
     if (firstCell) {
-      const colLeft = firstCell.offsetLeft;
-      const colWidth = firstCell.offsetWidth;
-      nowMarkerEl.style.left = `${colLeft}px`;
-      nowMarkerEl.style.width = `${colWidth}px`;
+      nowMarker.style.left = `${firstCell.offsetLeft}px`;
+      nowMarker.style.width = `${firstCell.offsetWidth}px`;
     }
   }
 
-  function bindMarkerReposition() {
-    grid.addEventListener('scroll', () => { positionNowMarker(); });
-    window.addEventListener('resize', () => { positionNowMarker(); syncRightColOffset(); syncResultsHeight(); });
-    setInterval(positionNowMarker, 30000);
+  // ─────────────────────── Tooltip / hover ───────────────────────
+  function onCellHoverMove(e) {
+    const td = e.currentTarget;
+    if (td.classList.contains('past')) return;
+    const epoch = Number(td.dataset.epoch);
+    const lists = availabilityListsAt(epoch);
+    const tip = document.getElementById('cell-tooltip');
+    const avail = lists.available.length ? `Available: ${lists.available.join(', ')}` : 'Available: —';
+    const unavail = lists.unavailable.length ? `Unavailable: ${lists.unavailable.join(', ')}` : 'Unavailable: —';
+    tip.innerHTML = `<div>${avail}</div><div style="margin-top:6px; color:#bbb;">${unavail}</div>`;
+    tip.style.display = 'block';
+    tip.style.left = (e.clientX + 14) + 'px';
+    tip.style.top = (e.clientY + 16) + 'px';
+  }
+  function hideTooltip() {
+    const tip = document.getElementById('cell-tooltip');
+    tip.style.display = 'none';
+  }
+  function availabilityListsAt(epoch) {
+    const available = [];
+    const unavailable = [];
+    for (const u of members) {
+      const set = userSlotSets.get(u);
+      if (set && set.has(epoch)) available.push(u);
+      else unavailable.push(u);
+    }
+    return { available, unavailable };
   }
 
+  // ─────────────────────── Filters / legend ───────────────────────
   function applyFilterDimming() {
     const maxMissing = parseInt(document.getElementById('max-missing').value || '0', 10);
     const minHours = parseFloat(document.getElementById('min-hours').value || '1');
     const needed = Math.max(0, totalMembers - maxMissing);
     const minSlots = Math.max(1, Math.round(minHours * SLOTS_PER_HOUR));
+    const startIdx = nowGlobalIndex();
 
     const tds = table.querySelectorAll('.slot-cell');
     for (const td of tds) td.classList.remove('dim');
     if (!totalMembers || needed <= 0) return;
-
-    const startIdx = nowGlobalIndex();
 
     let g = 0;
     while (g < WEEK_ROWS) {
@@ -448,13 +415,73 @@
       g = h;
     }
   }
-
   function dimCell(globalIndex) {
-    const { day, row } = gToDayRow(globalIndex);
+    const day = Math.floor(globalIndex / ROWS_PER_DAY);
+    const row = globalIndex % ROWS_PER_DAY;
     const cell = table.querySelector(`.slot-cell[data-day="${day}"][data-row="${row}"]`);
     if (cell) cell.classList.add('dim');
   }
 
+  function updateLegend() {
+    const blocks = document.getElementById('legend-blocks');
+    const n = members.length;
+    const chips = [];
+
+    document.documentElement.classList.toggle('compress-low', n >= 11);
+
+    if (n >= 11) {
+      const threshold = Math.max(0, n - 10);
+      chips.push({ raw: 0, label: `≤${threshold}` });
+      for (let i = threshold + 1; i <= n; i++) chips.push({ raw: i, label: String(i) });
+    } else {
+      for (let i = 0; i <= n; i++) chips.push({ raw: i, label: String(i) });
+    }
+
+    if (blocks) {
+      blocks.innerHTML = '';
+      const COLS = 5;
+      for (let i = 0; i < chips.length; i += COLS) {
+        const group = chips.slice(i, i + COLS);
+
+        const stepsRow = document.createElement('div');
+        stepsRow.className = 'steps-row';
+
+        const labelsRow = document.createElement('div');
+        labelsRow.className = 'labels-row';
+
+        for (const item of group) {
+          const chip = document.createElement('div');
+          chip.className = 'chip slot-cell';
+          chip.style.setProperty('background-color', shadeForCount(item.raw), 'important');
+          if (n >= 11) {
+            const threshold = Math.max(0, n - 10);
+            chip.dataset.c = (item.raw <= threshold) ? '0' : '7';
+          } else {
+            chip.dataset.c = item.raw > 0 ? '7' : '0';
+          }
+          stepsRow.appendChild(chip);
+
+          const lab = document.createElement('span');
+          lab.textContent = item.label;
+          labelsRow.appendChild(lab);
+        }
+
+        for (let f = group.length; f < COLS; f++) {
+          const spacerChip = document.createElement('div');
+          spacerChip.className = 'chip spacer';
+          stepsRow.appendChild(spacerChip);
+          const spacerLab = document.createElement('span');
+          spacerLab.className = 'spacer';
+          labelsRow.appendChild(spacerLab);
+        }
+
+        blocks.appendChild(stepsRow);
+        blocks.appendChild(labelsRow);
+      }
+    }
+  }
+
+  // ───────────────────────── Results list ─────────────────────────
   function findCandidates() {
     const maxMissing = parseInt(document.getElementById('max-missing').value || '0', 10);
     const minHours = parseFloat(document.getElementById('min-hours').value || '1');
@@ -472,7 +499,6 @@
       let g = startIdx;
       while (g < WEEK_ROWS) {
         if ((counts[g] || 0) < k) { g++; continue; }
-
         let s = g;
         let t = g + 1;
         let inter = new Set(sets[g]);
@@ -482,9 +508,7 @@
           if (inter.size < k) break;
           t++;
         }
-
         s = Math.max(s, startIdx);
-
         const length = t - s;
         if (length >= minSlots && inter.size >= k) {
           const startSec = baseEpoch + s * SLOT_SEC;
@@ -502,7 +526,6 @@
             });
           }
         }
-
         while (t < WEEK_ROWS && (counts[t] || 0) >= k) t++;
         g = t;
       }
@@ -562,7 +585,6 @@
       usersLine.textContent = `Users: ${it.users.join(', ')}`;
 
       const actions = document.createElement('div');
-      actions.className = 'result-actions';
       const copyBtn = document.createElement('button');
       copyBtn.type = 'button';
       copyBtn.textContent = 'Copy Discord invitation';
@@ -596,201 +618,17 @@
 
   function highlightRangeGlobal(gStart, gEnd, on) {
     for (let g = gStart; g < gEnd; g++) {
-      const { day, row } = gToDayRow(g);
+      const day = Math.floor(g / ROWS_PER_DAY);
+      const row = g % ROWS_PER_DAY;
       const td = table.querySelector(`.slot-cell[data-day="${day}"][data-row="${row}"]`);
       if (td) td.classList.toggle('highlight', on);
     }
   }
-
   function clearHighlights() {
     for (const td of table.querySelectorAll('.slot-cell.highlight')) td.classList.remove('highlight');
   }
 
-  function onCellHoverMove(e) {
-    const td = e.currentTarget;
-    if (td.classList.contains('past')) return;
-    const epoch = Number(td.dataset.epoch);
-    const lists = availabilityListsAt(epoch);
-    const tip = document.getElementById('cell-tooltip');
-    const avail = lists.available.length ? `Available: ${lists.available.join(', ')}` : 'Available: —';
-    const unavail = lists.unavailable.length ? `Unavailable: ${lists.unavailable.join(', ')}` : 'Unavailable: —';
-    tip.innerHTML = `<div>${avail}</div><div style="margin-top:6px; color:#bbb;">${unavail}</div>`;
-    tip.style.display = 'block';
-    tip.style.left = (e.clientX + 14) + 'px';
-    tip.style.top = (e.clientY + 16) + 'px';
-  }
-  function hideTooltip() {
-    const tip = document.getElementById('cell-tooltip');
-    tip.style.display = 'none';
-  }
-  function availabilityListsAt(epoch) {
-    const available = [];
-    const unavailable = [];
-    for (const u of members) {
-      const set = userSlotSets.get(u);
-      if (set && set.has(epoch)) available.push(u);
-      else unavailable.push(u);
-    }
-    return { available, unavailable };
-  }
-
-  function updateLegend() {
-    const blocks = document.getElementById('legend-blocks');
-    const steps = document.getElementById('legend-steps');
-    const labels = document.getElementById('legend-labels');
-
-    const n = members.length;
-    const chips = [];
-
-    document.documentElement.classList.toggle('compress-low', n >= 11);
-
-    if (n >= 11) {
-      const threshold = Math.max(0, n - 10);
-      chips.push({ raw: 0, label: `≤${threshold}` });
-      for (let i = threshold + 1; i <= n; i++) chips.push({ raw: i, label: String(i) });
-    } else {
-      for (let i = 0; i <= n; i++) chips.push({ raw: i, label: String(i) });
-    }
-
-    if (blocks) {
-      blocks.innerHTML = '';
-      const COLS = 5;
-
-      for (let i = 0; i < chips.length; i += COLS) {
-        const group = chips.slice(i, i + COLS);
-
-        const stepsRow = document.createElement('div');
-        stepsRow.className = 'steps-row';
-
-        const labelsRow = document.createElement('div');
-        labelsRow.className = 'labels-row';
-
-        for (const item of group) {
-          const chip = document.createElement('div');
-          chip.className = 'chip slot-cell';
-          chip.style.setProperty('background-color', shadeForCount(item.raw), 'important');
-
-          if (n >= 11) {
-            const threshold = Math.max(0, n - 10);
-            chip.dataset.c = (item.raw <= threshold) ? '0' : '7';
-          } else {
-            chip.dataset.c = item.raw > 0 ? '7' : '0';
-          }
-
-          stepsRow.appendChild(chip);
-
-          const lab = document.createElement('span');
-          lab.textContent = item.label;
-          labelsRow.appendChild(lab);
-        }
-
-        for (let f = group.length; f < COLS; f++) {
-          const spacerChip = document.createElement('div');
-          spacerChip.className = 'chip spacer';
-          stepsRow.appendChild(spacerChip);
-
-          const spacerLab = document.createElement('span');
-          spacerLab.className = 'spacer';
-          spacerLab.textContent = '';
-          labelsRow.appendChild(spacerLab);
-        }
-
-        blocks.appendChild(stepsRow);
-        blocks.appendChild(labelsRow);
-      }
-
-      syncResultsHeight();
-      return;
-    }
-
-    if (steps && labels) {
-      steps.innerHTML = '';
-      labels.innerHTML = '';
-      steps.style.gridTemplateColumns = 'repeat(5, 1fr)';
-      labels.style.gridTemplateColumns = 'repeat(5, 1fr)';
-
-      for (const item of chips) {
-        const chip = document.createElement('div');
-        chip.className = 'chip slot-cell';
-        chip.style.setProperty('background-color', shadeForCount(item.raw), 'important');
-
-        if (n >= 11) {
-          const threshold = Math.max(0, n - 10);
-          chip.dataset.c = (item.raw <= threshold) ? '0' : '7';
-        } else {
-          chip.dataset.c = item.raw > 0 ? '7' : '0';
-        }
-
-        steps.appendChild(chip);
-
-        const lab = document.createElement('span');
-        lab.textContent = item.label;
-        labels.appendChild(lab);
-      }
-
-      syncResultsHeight();
-    }
-  }
-
-  function syncResultsHeight() {
-    if (!grid || !resultsPanelEl || !resultsEl) return;
-    const gridRect = grid.getBoundingClientRect();
-    const panelRect = resultsPanelEl.getBoundingClientRect();
-    const available = Math.max(120, Math.floor(gridRect.bottom - panelRect.top - 8));
-    const panelStyles = getComputedStyle(resultsPanelEl);
-    const pTop = parseFloat(panelStyles.paddingTop) || 0;
-    const pBottom = parseFloat(panelStyles.paddingBottom) || 0;
-    const titleH = resultsPanelEl.querySelector('h3').offsetHeight;
-    resultsPanelEl.style.height = available + 'px';
-    const inner = Math.max(60, available - (pTop + pBottom + titleH) - 6);
-    resultsEl.style.height = inner + 'px';
-  }
-
-  function syncRightColOffset() {
-    if (!rightColEl || !controlsEl) return;
-    const styles = getComputedStyle(controlsEl);
-    const mTop = parseFloat(styles.marginTop) || 0;
-    const mBottom = parseFloat(styles.marginBottom) || 0;
-    const offset = controlsEl.offsetHeight + mTop + mBottom;
-    rightColEl.style.marginTop = offset + 'px';
-  }
-
-  function applyZoomStyles() {
-    const base = 18;
-    const px = clamp(Math.round(base * zoomFactor), 10, 42);
-    document.documentElement.style.setProperty('--row-height', `${px}px`);
-    positionNowMarker();
-    syncResultsHeight();
-  }
-
-  function setupZoomHandlers() {
-    if (!grid) grid = document.getElementById('grid');
-    grid.addEventListener('wheel', (e) => {
-      if (!e.shiftKey) return;
-      e.preventDefault();
-      const delta = Math.sign(e.deltaY);
-      zoomFactor = clamp(zoomFactor - delta * ZOOM_STEP, ZOOM_MIN, ZOOM_MAX);
-      applyZoomStyles();
-    }, { passive: false });
-  }
-
-  function initialZoomToFit24h() {
-    const base = 18;
-    const contentEl = document.getElementById('grid-content');
-    const thead = table.querySelector('thead');
-    if (!contentEl || !thead) return;
-    const available = Math.max(0, contentEl.clientHeight - thead.offsetHeight - 2);
-    const needed = ROWS_PER_DAY * base;
-    const zFit = clamp(available / needed, ZOOM_MIN, ZOOM_MAX);
-    zoomFactor = zFit >= ZOOM_MIN ? zFit : ZOOM_MIN;
-    applyZoomStyles();
-  }
-
-  function setAuth(ok, username) {
-    isAuthenticated = !!ok;
-    currentUsername = ok ? username : null;
-  }
-
+  // ───────────────────── Members UI / helpers ─────────────────────
   async function userExists(name) {
     try {
       const url = `${window.API_BASE_URL}/users/exists?username=${encodeURIComponent(name)}`;
@@ -804,10 +642,8 @@
   }
   function setMemberError(msg) {
     const el = document.getElementById('member-error');
-    if (!el) return;
-    el.textContent = msg || '';
+    if (el) el.textContent = msg || '';
   }
-
   function renderMembers() {
     const ul = document.getElementById('member-list');
     ul.innerHTML = '';
@@ -827,7 +663,6 @@
       ul.appendChild(li);
     }
     updateLegend();
-    syncResultsHeight();
   }
 
   async function copyToClipboard(text) {
@@ -850,7 +685,6 @@
       return false;
     }
   }
-
   function buildDiscordInvite(item) {
     const start = Math.floor(item.start);
     const end = Math.floor(item.end);
@@ -864,45 +698,103 @@ ${missingLine}
 please confirm`;
   }
 
-  async function init() {
-    if (__initDone) return;
-    __initDone = true;
-
-    table = document.getElementById('scheduler-table');
-    grid = document.getElementById('grid');
-    resultsEl = document.getElementById('results');
-    resultsPanelEl = document.getElementById('results-panel');
-    nowMarkerEl = document.getElementById('now-marker');
-    rightColEl = document.getElementById('right-col');
-    controlsEl = document.getElementById('controls');
-
-    const local = loadLocalSettings();
-    if (local) {
-      settings = { ...DEFAULT_SETTINGS, ...local };
-      tz = resolveTimezone(settings.timezone);
-      hour12 = settings.clock === '12';
-      weekStartIdx = settings.weekStart === 'mon' ? 1 : 0;
-      heatmapName = settings.heatmap || 'viridis';
+  // ───────────────────────── Fetch availability ─────────────────────────
+  async function fetchMembersAvail() {
+    if (!members.length) {
+      userSlotSets.clear();
+      totalMembers = 0;
+      paintCounts();
+      shadePast();
+      applyFilterDimming();
+      updateLegend();
+      findCandidates();
+      return;
     }
 
-    window.addEventListener('storage', (e) => {
-      if (e && e.key === 'nat20_settings') {
-        const next = loadLocalSettings();
-        if (next) {
-          settings = { ...DEFAULT_SETTINGS, ...next };
-          const newTz = resolveTimezone(settings.timezone);
-          const newHour12 = settings.clock === '12';
-          const newWeekStartIdx = settings.weekStart === 'mon' ? 1 : 0;
-          const newHeatmap = settings.heatmap || 'viridis';
-          const needsRebuild = (newTz !== tz) || (newWeekStartIdx !== weekStartIdx);
-          tz = newTz; hour12 = newHour12; weekStartIdx = newWeekStartIdx;
-          heatmapName = newHeatmap;
-          if (needsRebuild) { buildTable(); fetchMembersAvail(); }
-          else { paintCounts(); updateLegend(); }
-        }
-      }
-    });
+    const { baseEpoch, baseYMD } = getWeekStartEpochAndYMD();
+    const endYMD = ymdAddDays(baseYMD, 7);
+    const endEpoch = epochFromZoned(endYMD.y, endYMD.m, endYMD.d, 0, 0, tz);
 
+    const payload = { from: baseEpoch, to: endEpoch, usernames: members };
+    const tryPaths = [
+      `${window.API_BASE_URL}/availability/get_many`,
+      `${window.API_BASE_URL}/availability/availability/get_many`
+    ];
+
+    let data = { intervals: {} };
+    for (const url of tryPaths) {
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify(payload)
+        });
+        if (res.status === 404) { continue; }
+        if (!res.ok) { continue; }
+        data = await res.json();
+        break;
+      } catch {}
+    }
+
+    userSlotSets.clear();
+    for (const uname of members) {
+      const intervals = (data.intervals && data.intervals[uname]) || [];
+      const set = new Set();
+      for (const iv of intervals) {
+        const from = Math.max(iv.from, baseEpoch);
+        const to = Math.min(iv.to, endEpoch);
+        let t = Math.ceil(from / SLOT_SEC) * SLOT_SEC;
+        for (; t < to; t += SLOT_SEC) set.add(t);
+      }
+      userSlotSets.set(uname, set);
+    }
+    totalMembers = members.length;
+
+    paintCounts();
+    shadePast();
+    applyFilterDimming();
+    updateLegend();
+    findCandidates();
+  }
+
+  // ───────────────────────── Week label/nav ─────────────────────────
+  function updateWeekLabel() {
+    const el = document.getElementById('week-label');
+    if (!el) return;
+    const { baseEpoch } = getWeekStartEpochAndYMD();
+    const end = baseEpoch + 7 * 86400;
+    const a = new Date(baseEpoch * 1000);
+    const b = new Date((end - 1) * 1000);
+    const fmt = new Intl.DateTimeFormat('en-GB', { timeZone: tz, month: 'short', day: '2-digit' });
+    el.textContent = `${fmt.format(a)} – ${fmt.format(b)}`;
+  }
+
+  // ───────────────────────── Init / wiring ─────────────────────────
+  function setAuth(ok, username) {
+    isAuthenticated = !!ok;
+    currentUsername = ok ? username : null;
+  }
+
+  function attachHandlers() {
+    // Zoom
+    gridContent.addEventListener('wheel', onWheelZoom, { passive: false });
+
+    // Reposition NOW line with scroll/resize/time
+    gridContent.addEventListener('scroll', updateNowMarker, { passive: true });
+    window.addEventListener('resize', () => { updateNowMarker(); syncResultsHeight(); });
+    setInterval(updateNowMarker, 30000);
+
+    // Filters
+    document.getElementById('max-missing').addEventListener('input', () => { applyFilterDimming(); findCandidates(); });
+    document.getElementById('min-hours').addEventListener('input', () => { applyFilterDimming(); findCandidates(); });
+    document.getElementById('sort-method').addEventListener('change', () => { findCandidates(); });
+
+    // Members
+    document.getElementById('add-user-btn').addEventListener('click', onAddUser);
+    document.getElementById('add-me-btn').addEventListener('click', onAddMe);
+
+    // Week nav
     document.getElementById('prev-week').addEventListener('click', async () => {
       weekOffset -= 1;
       buildTable();
@@ -914,53 +806,101 @@ please confirm`;
       await fetchMembersAvail();
     });
 
-    document.getElementById('add-user-btn').addEventListener('click', async () => {
-      if (__addingUser) return;
-      __addingUser = true;
-      try {
-        const input = document.getElementById('add-username');
-        const name = (input.value || '').trim();
-        if (!name) return;
-        if (members.includes(name)) { input.value = ''; return; }
-        setMemberError('');
-        const exists = await userExists(name);
-        if (!exists) {
-          setMemberError('User not found');
-          return;
+    // React live to settings changes
+    window.addEventListener('storage', (e) => {
+      if (e && e.key === 'nat20_settings') {
+        const next = loadLocalSettings();
+        if (next) {
+          const prevTz = tz;
+          settings = { ...DEFAULT_SETTINGS, ...next };
+          tz = resolveTimezone(settings.timezone);
+          hour12 = settings.clock === '12';
+          weekStartIdx = settings.weekStart === 'mon' ? 1 : 0;
+          heatmapName = settings.heatmap || 'viridis';
+          if (tz !== prevTz) { buildTable(); fetchMembersAvail(); }
+          else { paintCounts(); updateLegend(); }
         }
-        if (!members.includes(name)) members.push(name);
-        input.value = '';
-        renderMembers();
-        await fetchMembersAvail();
-      } finally {
-        __addingUser = false;
       }
     });
-
-    document.getElementById('add-me-btn').addEventListener('click', async () => {
-      if (__addingMe) return;
-      __addingMe = true;
-      try {
-        if (!currentUsername) { setMemberError('Please login first.'); return; }
-        if (!members.includes(currentUsername)) members.push(currentUsername);
-        renderMembers();
-        await fetchMembersAvail();
-      } finally {
-        __addingMe = false;
-      }
-    });
-
-    document.getElementById('max-missing').addEventListener('input', () => { applyFilterDimming(); findCandidates(); });
-    document.getElementById('min-hours').addEventListener('input', () => { applyFilterDimming(); findCandidates(); });
-    document.getElementById('sort-method').addEventListener('change', () => { findCandidates(); });
-
-    setupZoomHandlers();
-
-    buildTable();
-    await fetchMembersAvail();
-    bindMarkerReposition();
   }
 
+  async function onAddUser() {
+    if (__addingUser) return;
+    __addingUser = true;
+    try {
+      const input = document.getElementById('add-username');
+      const name = (input.value || '').trim();
+      if (!name) return;
+      if (members.includes(name)) { input.value = ''; return; }
+      setMemberError('');
+      const exists = await userExists(name);
+      if (!exists) { setMemberError('User not found'); return; }
+      members.push(name);
+      input.value = '';
+      renderMembers();
+      await fetchMembersAvail();
+    } finally {
+      __addingUser = false;
+    }
+  }
+
+  async function onAddMe() {
+    if (__addingMe) return;
+    __addingMe = true;
+    try {
+      if (!currentUsername) { setMemberError('Please login first.'); return; }
+      if (!members.includes(currentUsername)) members.push(currentUsername);
+      renderMembers();
+      await fetchMembersAvail();
+    } finally {
+      __addingMe = false;
+    }
+  }
+
+  function loadLocalSettings() {
+    try {
+      const raw = localStorage.getItem('nat20_settings');
+      return raw ? JSON.parse(raw) : null;
+    } catch { return null; }
+  }
+
+  function syncResultsHeight() {
+    if (!resultsPanel) return;
+    // Match results panel height to bottom of grid
+    const gridRect = document.getElementById('grid').getBoundingClientRect();
+    const panelRect = resultsPanel.getBoundingClientRect();
+    const available = Math.max(120, Math.floor(gridRect.bottom - panelRect.top - 8));
+    resultsPanel.style.minHeight = available + 'px';
+  }
+
+  async function init() {
+    if (__initDone) return;
+    __initDone = true;
+
+    // Rehydrate settings
+    const local = loadLocalSettings();
+    if (local) {
+      settings = { ...DEFAULT_SETTINGS, ...local };
+      tz = resolveTimezone(settings.timezone);
+      hour12 = settings.clock === '12';
+      weekStartIdx = settings.weekStart === 'mon' ? 1 : 0;
+      heatmapName = settings.heatmap || 'viridis';
+    }
+
+    // DOM
+    gridContent = document.getElementById('grid-content');
+    table = document.getElementById('schedule-table');
+    nowMarker = document.getElementById('now-marker');
+    resultsEl = document.getElementById('results');
+    resultsPanel = document.getElementById('results-panel');
+    controlsPane = document.getElementById('filters-pane');
+
+    buildTable();
+    attachHandlers();
+    await fetchMembersAvail();
+  }
+
+  // Expose minimal API
   window.scheduler = { init, setAuth };
 
   if (document.readyState === 'loading') {
