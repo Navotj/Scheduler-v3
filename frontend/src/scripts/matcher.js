@@ -39,6 +39,7 @@
     if (!val || val === 'auto') return (Intl.DateTimeFormat().resolvedOptions().timeZone) || 'UTC';
     return val;
   }
+
   function tzOffsetMinutes(tzName, date) {
     const parts = new Intl.DateTimeFormat('en-US', {
       timeZone: tzName, hour12: false,
@@ -50,6 +51,7 @@
     const asUTC = Date.UTC(Number(map.year), Number(map.month) - 1, Number(map.day), Number(map.hour), Number(map.minute), Number(map.second));
     return Math.round((asUTC - date.getTime()) / 60000);
   }
+
   function epochFromZoned(y, m, d, hh, mm, tzName) {
     const guess = Date.UTC(y, m - 1, d, hh, mm, 0, 0);
     let off = tzOffsetMinutes(tzName, new Date(guess));
@@ -58,22 +60,26 @@
     ts = guess - off * 60000;
     return Math.floor(ts / 1000);
   }
+
   function getYMDInTZ(date, tzName) {
     const parts = new Intl.DateTimeFormat('en-US', { timeZone: tzName, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(date);
     const map = {};
     for (const p of parts) map[p.type] = p.value;
     return { y: Number(map.year), m: Number(map.month), d: Number(map.day) };
   }
+
   function getTodayYMDInTZ(tzName) { return getYMDInTZ(new Date(), tzName); }
   function ymdAddDays(ymd, add) {
     const tmp = new Date(Date.UTC(ymd.y, ymd.m - 1, ymd.d));
     tmp.setUTCDate(tmp.getUTCDate() + add);
     return { y: tmp.getUTCFullYear(), m: tmp.getUTCMonth() + 1, d: tmp.getUTCDate() };
   }
+
   function weekdayIndexInTZ(epochSec, tzName) {
     const wd = new Intl.DateTimeFormat('en-US', { timeZone: tzName, weekday: 'short' }).format(new Date(epochSec * 1000));
     return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(wd);
   }
+
   function getWeekStartEpochAndYMD() {
     const today = getTodayYMDInTZ(tz);
     const todayMid = epochFromZoned(today.y, today.m, today.d, 0, 0, tz);
@@ -93,6 +99,7 @@
     }
     return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
   }
+
   function fmtRangeSec(startSec, endSec) {
     const a = new Date(startSec * 1000);
     const b = new Date(endSec * 1000);
@@ -105,6 +112,7 @@
   function applySlotHeight() {
     if (gridContent) gridContent.style.setProperty('--slot-h', `${slotHeight}px`);
   }
+
   function onWheelZoom(e) {
     if (!e.shiftKey) return;
     if (!gridContent) return;
@@ -213,13 +221,16 @@
     twilight:   [[0,'#1e1745'],[0.25,'#373a97'],[0.5,'#73518c'],[0.75,'#b06b6d'],[1,'#d3c6b9']],
     lava:       [[0,'#000004'],[0.2,'#320a5a'],[0.4,'#781c6d'],[0.6,'#bb3654'],[0.8,'#ed6925'],[1,'#fcffa4']]
   };
+
   function lerp(a, b, t) { return a + (b - a) * t; }
   function hexToRgb(hex) {
     const m = /^#?([a-f0-9]{2})([a-f0-9]{2})([a-f0-9]{2})$/i.exec(hex);
     if (!m) return { r: 0, g: 0, b: 0 };
     return { r: parseInt(m[1], 16), g: parseInt(m[2], 16), b: parseInt(m[3], 16) };
   }
+
   function rgbToCss({ r, g, b }) { return `rgb(${r}, ${g}, ${b})`; }
+
   function interpStops(stops, t) {
     if (t <= 0) return hexToRgb(stops[0][1]);
     if (t >= 1) return hexToRgb(stops[stops.length - 1][1]);
@@ -234,11 +245,13 @@
     }
     return hexToRgb(stops[stops.length - 1][1]);
   }
+
   function colormapColor(t) {
     const stops = COLORMAPS[heatmapName] || COLORMAPS.viridis;
     const rgb = interpStops(stops, t);
     return rgbToCss(rgb);
   }
+
   function shadeForCount(count) {
     const n = totalMembers || 0;
     const threshold = n >= 11 ? (n - 10) : 0;
@@ -401,10 +414,12 @@
     tip.style.left = `${x}px`;
     tip.style.top = `${y}px`;
   }
+
   function hideTooltip() {
     const tip = document.getElementById('cell-tooltip');
     tip.style.display = 'none';
   }
+
   function availabilityListsAt(epoch) {
     const available = [];
     const unavailable = [];
@@ -438,6 +453,7 @@
       g = h;
     }
   }
+
   function dimCell(globalIndex) {
     const day = Math.floor(globalIndex / ROWS_PER_DAY);
     const row = globalIndex % ROWS_PER_DAY;
@@ -516,44 +532,53 @@
     const { baseEpoch } = getWeekStartEpochAndYMD();
 
     const sessions = [];
-    const seen = new Set();
     if (!totalMembers || needed <= 0) { renderResults(sessions); return; }
 
-    // STRICT: participants must remain the SAME across the whole block (no swapping).
+    // Scan from every slot, but only emit a session when this slot is the
+    // LEFTMOST boundary for that exact cohort (prevents sliding duplicates).
     for (let g = startIdx; g < WEEK_ROWS; g++) {
       let curr = sets[g];
       if (!curr || curr.size < needed) continue;
 
+      // Grow forward while the intersection keeps at least `needed` members.
       let t = g + 1;
+      let cohort = new Set(curr);
       while (t < WEEK_ROWS) {
         const next = sets[t];
-        // shrink to intersection to keep exactly the common attendees so far
-        curr = new Set([...curr].filter(x => next && next.has(x)));
-        if (curr.size < needed) break;
+        if (!next) break;
+        // Intersect with next; stop when cohort becomes too small.
+        cohort = new Set([...cohort].filter(x => next.has(x)));
+        if (cohort.size < needed) break;
         t++;
       }
 
+      // If the block qualifies by length, check that g is the leftmost boundary
+      // for THIS exact cohort; if previous slot also contains all `cohort` users,
+      // then a longer identical-cohort block already started earlier -> skip.
       const length = t - g;
       if (length >= minSlots) {
-        const usersSorted = Array.from(curr).sort();
-        const startSec = baseEpoch + g * SLOT_SEC;
-        const endSec   = baseEpoch + t * SLOT_SEC;
-        const key = `${g}-${t}-${usersSorted.join('|')}`;
-        if (!seen.has(key)) {
-          seen.add(key);
+        const prev = g > 0 ? sets[g - 1] : null;
+        let leftExtendable = false;
+        if (prev) {
+          leftExtendable = true;
+          for (const u of cohort) { if (!prev.has(u)) { leftExtendable = false; break; } }
+        }
+        if (!leftExtendable) {
+          const usersSorted = Array.from(cohort).sort();
           sessions.push({
-            gStart: g, gEnd: t,
-            start: startSec, end: endSec,
+            gStart: g,
+            gEnd: t,
+            start: baseEpoch + g * SLOT_SEC,
+            end:   baseEpoch + t * SLOT_SEC,
             duration: length,
             participants: usersSorted.length,
             users: usersSorted
           });
         }
       }
-      // continue scanning; next g will re-evaluate possible sub-blocks
     }
 
-    // Robust sort; accept either <option value> or visible text.
+    // Map sort-mode from either <option value> or visible text
     const sortEl  = document.getElementById('sort-method');
     const byVal   = (sortEl && sortEl.value || '').toLowerCase().trim();
     const byText  = (sortEl && sortEl.options && sortEl.selectedIndex >= 0 ? (sortEl.options[sortEl.selectedIndex].text || '') : '').toLowerCase().trim();
@@ -689,6 +714,7 @@
       if (td) td.classList.toggle('highlight', on);
     }
   }
+
   function clearHighlights() {
     for (const td of table.querySelectorAll('.slot-cell.highlight')) td.classList.remove('highlight');
   }
@@ -704,15 +730,17 @@
       return false;
     }
   }
-function setMemberError(msg) {
-  const el = document.getElementById('member-error');
-  if (el) {
-    el.textContent = '';
-    el.classList.remove('is-error');
-    el.setAttribute('aria-hidden', 'true');
+
+  function setMemberError(msg) {
+    const el = document.getElementById('member-error');
+    if (el) {
+      el.textContent = '';
+      el.classList.remove('is-error');
+      el.setAttribute('aria-hidden', 'true');
+    }
+    if (msg) showToast(msg, 'error');
   }
-  if (msg) showToast(msg, 'error');
-}
+
   function renderMembers() {
     const ul = document.getElementById('member-list');
     if (!ul) { updateLegend(); return; }
@@ -954,15 +982,6 @@ please confirm`;
     await fetchMembersAvail();
   }
 
-  window.scheduler = { init, setAuth };
-
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
-  } else {
-    init();
-  }
-})();
-
 function getToastStack() {
   let stack = document.getElementById('toast-stack');
   if (!stack) {
@@ -989,3 +1008,12 @@ function showToast(message, variant = 'info') {
     if (div.classList.contains('bye')) div.remove();
   });
 }
+
+  window.scheduler = { init, setAuth };
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();
