@@ -601,15 +601,24 @@
         for (let g = it.gStart; g < it.gEnd; g++) keep[g] = true;
     }
 
-    // Darken (dim) every cell that is NOT included in the results; undim those that are
+    // Darken every cell that is NOT included in the results; undim those that are.
+    // Use both class and inline styles so this works regardless of CSS definitions.
     const tds = table.querySelectorAll('.slot-cell');
     for (const td of tds) {
         const day = Number(td.dataset.day);
         const row = Number(td.dataset.row);
         if (!Number.isFinite(day) || !Number.isFinite(row)) continue;
         const g = day * ROWS_PER_DAY + row;
-        if (keep[g]) td.classList.remove('dim');
-        else td.classList.add('dim');
+
+        if (keep[g]) {
+        td.classList.remove('dim');
+        td.style.opacity = '';
+        td.style.filter = '';
+        } else {
+        td.classList.add('dim');
+        td.style.opacity = '0.45';
+        td.style.filter = 'grayscale(40%) brightness(0.85)';
+        }
     }
 
     // If there are no sessions, still show the "no matches" card
@@ -618,7 +627,7 @@
         return;
     }
 
-    // Render result cards (unchanged)
+    // Render result cards
     for (const it of list) {
         const wrap = document.createElement('div');
         wrap.className = 'result';
