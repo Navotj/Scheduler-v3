@@ -1,5 +1,6 @@
-.availability {
+.availability { 
   height: 100%;
+  --slot-h: 18px; /* base slot height (px); JS updates via Shift+Scroll */
 }
 
 /* Fill the shellâ€™s main area; no extra padding on the layout wrapper */
@@ -20,8 +21,7 @@
   width: 100%;
   height: 100%;
   display: grid;
-  grid-template-rows: var(--grid-h, 95%) var(--controls-h, 5%); /* rows sum to 100% */
-  gap: 12px;
+  grid-template-rows: 1fr auto; /* grid resizes; controls never force page overflow */
 }
 
 /* Scrollable grid viewport (scoped; no page-level coupling) */
@@ -34,7 +34,8 @@
 /* Give the scroll container a concrete height so the table is visible */
 .availability .grid-content {
   position: relative;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden; /* never allow horizontal scrollbar */
   width: 100%;
   height: 100%;
   min-height: inherit; /* ensures grid fills the container height */
@@ -49,7 +50,7 @@
   height: 100%;
   border-collapse: separate;
   border-spacing: 0;
-  table-layout: fixed;
+  table-layout: fixed; /* columns shrink to fit; no horizontal overflow */
   font-size: 12px;
   color: var(--fg-0, #e7eaf2);
   background: var(--card, #121315);
@@ -62,10 +63,16 @@
   z-index: 2;
   background: var(--bg-1, #0c0d10);
   border-bottom: 1px solid #2a2f3a;
-  padding: 8px;
-  text-align: left;
+  padding: 0 8px; /* vertical size tied to slot height; no overflow */
+  height: var(--slot-h);
+  line-height: var(--slot-h);
+  display: flex;
+  align-items: center;          /* vertically centered */
+  justify-content: center;      /* horizontally centered for day cells; time col overridden below */
   font-weight: 600;
   white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
 }
 
 /* Columns */
@@ -75,7 +82,8 @@
   color: var(--fg-1, #b6bfd4);
   background: var(--bg-1, #0c0d10);
   border-right: 1px solid #2a2f3a;
-  padding: 4px 8px;
+  padding: 0 8px;               /* match header row vertical rhythm */
+  justify-content: center;      /* keep flex centering consistent */
 }
 .availability .table th.day { text-align: center; }
 
@@ -104,8 +112,8 @@
 
 /* Slot sizing */
 .availability .table tbody td.slot-cell {
-  height: 18px;
-  line-height: 18px;
+  height: var(--slot-h);
+  line-height: var(--slot-h);
   padding: 0;
   cursor: default;
 }

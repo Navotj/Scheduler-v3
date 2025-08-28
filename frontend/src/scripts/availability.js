@@ -9,6 +9,7 @@
   let paintMode = 'add';
   let weekOffset = 0;                   // in weeks relative to current
   const selected = new Set();           // epoch seconds of selected slots (current page’s week)
+  let slotHeight = 18;                  // px; controls vertical zoom of slots
 
   // DOM refs
   let gridContent, table, nowMarker;
@@ -229,6 +230,9 @@
     // Ensure and place NOW marker
     ensureNowMarker();
     updateNowMarker();
+
+    // Apply current zoom after rebuild
+    applySlotHeight();
   }
 
   // --- Drag selection ---
@@ -446,6 +450,22 @@
     if (saveBtn) saveBtn.addEventListener('click', saveWeek);
   }
 
+  // --- Zoom (Shift + Scroll) ---
+  function applySlotHeight() {
+    if (gridContent) gridContent.style.setProperty('--slot-h', `${slotHeight}px`);
+  }
+  function onWheelZoom(e) {
+    if (!e.shiftKey) return;
+    if (!gridContent) return;
+    e.preventDefault();
+    const step = 2;
+    const dir = Math.sign(e.deltaY);       // up: -1, down: +1 (varies per device)
+    const next = slotHeight - dir * step;  // invert so wheel-up zooms in (larger rows)
+    slotHeight = Math.min(48, Math.max(12, next)); // clamp
+    applySlotHeight();
+    updateNowMarker();
+  }
+
   // --- Init / Public API ---
   function init() {
     gridContent = document.getElementById('grid-content');
@@ -453,6 +473,8 @@
     if (!gridContent || !table) return;
     setMode('add');
     attachControls();
+    applySlotHeight();
+    gridContent.addEventListener('wheel', onWheelZoom, { passive: false });
     buildGrid();
     // Keep the NOW marker in sync
     setInterval(updateNowMarker, 60000);
