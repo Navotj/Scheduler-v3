@@ -13,7 +13,7 @@
       <main id="page" class="main" tabindex="-1" aria-label="Main content">
         <section class="availability">
           <div class="availability-layout">
-            <!-- LEFT: grid (fixed height) + bottom controls (like availability) -->
+            <!-- LEFT: grid + bottom controls -->
             <section class="availability-left">
               <div id="grid" class="grid">
                 <div id="grid-content" class="grid-content">
@@ -37,36 +37,44 @@
                 </div>
               </div>
 
+              <!-- Bottom pane: single horizontal line (clusters) -->
               <div class="controls-pane">
                 <div class="picker-controls">
-                  <!-- week nav (use availability visuals) -->
-                  <div class="week-controls">
+                  <!-- cluster 1: week nav (Prev | Next) -->
+                  <div class="cluster week-controls">
                     <button id="prev-week" type="button" aria-label="Previous week">Prev</button>
-                    <span id="week-label" class="week-label" aria-live="polite"></span>
                     <button id="next-week" type="button" aria-label="Next week">Next</button>
+                    <span id="week-label" class="week-label" aria-live="polite"></span>
                   </div>
 
-                  <!-- add members -->
-                  <div class="add-user">
+                  <!-- cluster 2: username + Add -->
+                  <div class="cluster add-user">
                     <input id="add-username" type="text" placeholder="username" autocomplete="off" />
                     <button id="add-user-btn" type="button">Add</button>
                   </div>
 
-                  <!-- filters stacked as label over input, but arranged horizontally overall -->
-                  <div class="field">
-                    <label for="max-missing">Max missing</label>
-                    <input id="max-missing" type="number" min="0" value="0" />
-                  </div>
-
-                  <div class="field">
-                    <label for="min-hours">Min length</label>
-                    <div class="row">
+                  <!-- cluster 3: filters (labels above inputs) -->
+                  <div class="cluster filters">
+                    <div class="field">
+                      <label for="max-missing">Max missing</label>
+                      <input id="max-missing" type="number" min="0" value="0" />
+                    </div>
+                    <div class="field">
+                      <label for="min-hours">Min length</label>
                       <input id="min-hours" type="number" min="0.5" step="0.5" value="1" />
-                      <span>h</span>
                     </div>
                   </div>
 
-                  <div class="field">
+                  <!-- cluster 4: legend -->
+                  <div class="cluster legend">
+                    <div class="legend-inline">
+                      <label class="legend-label">Legend</label>
+                      <div id="legend-blocks" class="legend-blocks"></div>
+                    </div>
+                  </div>
+
+                  <!-- keep Sort by in DOM for JS, but hide from layout -->
+                  <div class="cluster sort-by" aria-hidden="true">
                     <label for="sort-method">Sort by</label>
                     <select id="sort-method">
                       <option value="participants">Most participants</option>
@@ -74,16 +82,9 @@
                       <option value="soonest">Soonest first</option>
                     </select>
                   </div>
-
-                  <!-- legend included in the same horizontal row -->
-                  <div class="legend-inline">
-                    <label class="legend-label">Legend</label>
-                    <div id="legend-blocks" class="legend-blocks"></div>
-                  </div>
                 </div>
 
                 <div id="member-error" class="error-text"></div>
-                <!-- chips (optional). keep but off the main row to preserve side-by-side layout -->
                 <ul id="member-list" class="member-list" hidden></ul>
               </div>
             </section>

@@ -1,55 +1,51 @@
-/* Make left column match availability proportions */
-.availability-left .grid { height: var(--panels-height); }
-
-/* Keep everything on one line; allow horizontal scroll if needed */
-.availability-left .picker-controls {
-  flex-wrap: nowrap !important;
-  overflow-x: auto;
+/* --- Bottom controls: single horizontal line with precise gaps --- */
+.availability .availability-left .controls-pane .picker-controls {
+  display: flex;
+  flex-wrap: nowrap;           /* never wrap to second row */
+  align-items: flex-end;       /* labels above, inputs/buttons align at bottom */
+  gap: 16px;                   /* MEDIUM gap between clusters */
+  overflow-x: auto;            /* allow horizontal scroll on very small screens */
   scrollbar-width: thin;
 }
-.availability-left .picker-controls > * { flex: 0 0 auto; }
+.availability .availability-left .controls-pane .picker-controls > * {
+  flex: 0 0 auto;              /* keep every cluster side-by-side */
+}
 
-/* Make numeric filters significantly shorter */
-#max-missing { width: 4ch; min-width: 4ch; }
-#min-hours  { width: 4ch; min-width: 4ch; text-align: center; }
+/* Clusters */
+.availability .availability-left .picker-controls .cluster {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 8px;                    /* default SMALL gap inside clusters */
+}
 
-/* Shorter username box and inline */
-#add-username { width: 16ch; min-width: 12ch; }
+/* Cluster-specific inner gaps to match request */
+.availability .availability-left .picker-controls .week-controls { gap: 6px; }   /* small: Prev | Next */
+.availability .availability-left .picker-controls .add-user      { gap: 4px; }   /* very small: username | Add */
+.availability .availability-left .picker-controls .filters       { gap: 8px; }   /* small between the two fields */
 
-/* Week controls keep availability visuals; just ensure they sit at the far left */
-.availability-left .week-controls { display: inline-grid; grid-auto-flow: column; gap: 8px; align-items: center; }
+/* Hide the auto-generated week label to save width */
+.availability .availability-left .picker-controls .week-controls .week-label { display: none; }
 
-/* Horizontal parts — each with a label on top and control under it */
-.field { display: flex; flex-direction: column; gap: 4px; min-width: 10ch; }
-.field label { font-size: 12px; color: var(--fg-1, #b6bfd4); white-space: nowrap; }
-
-.field input[type="text"],
-.field input[type="number"],
-.field select,
-.add-user input {
-  background: #0f0f0f;
-  color: #eee;
-  border: 1px solid #333;
+/* Inputs & buttons (compact, dark UI) */
+.availability .availability-left .picker-controls input[type="text"],
+.availability .availability-left .picker-controls input[type="number"],
+.availability .availability-left .picker-controls select {
+  background: #0f0f11;
+  color: #e7eaf2;
+  border: 1px solid var(--border, #1a1c20);
   border-radius: 8px;
-  height: 32px;
-  padding: 4px 8px;
+  height: 28px;
+  padding: 2px 6px;
   box-sizing: border-box;
-  min-width: 10ch;
 }
-.field select { height: 32px; }
-.field .row { display: inline-flex; align-items: center; gap: 6px; }
-#min-hours { padding-right: 0; text-align: center; }
 
-/* Add members (inline block) */
-.add-user {
-  display: grid;
-  grid-template-columns: minmax(16ch, 24ch) auto auto;
-  align-items: end;
-  gap: 8px;
-}
-.add-user button {
-  height: 32px;
-  padding: 0 10px;
+/* Username field shorter */
+#add-username { width: 12ch; min-width: 10ch; }
+
+/* Make Add button only as wide as its text */
+#add-user-btn {
+  height: 28px;
+  padding: 0 6px;
   border-radius: 8px;
   border: 1px solid var(--border, #1a1c20);
   background: #272727;
@@ -57,22 +53,33 @@
   cursor: pointer;
 }
 
-/* Legend embedded in the same row */
-.legend-inline { display: flex; flex-direction: column; gap: 4px; min-width: 18ch; }
+/* Filters: labels on top, inputs same (small) width */
+.field { display: flex; flex-direction: column; gap: 4px; }
+.field label { font-size: 12px; color: var(--fg-1, #b6bfd4); white-space: nowrap; }
+
+/* “same size as the text” — tight numeric widths */
+#max-missing,
+#min-hours {
+  width: 3ch;                  /* holds up to two digits comfortably */
+  min-width: 3ch;
+  text-align: center;
+  padding: 2px 4px;
+}
+
+/* Keep Sort-by in DOM for JS, but remove from layout line */
+.cluster.sort-by { display: none !important; }
+
+/* Legend block, inline with the row */
+.legend-inline { display: flex; flex-direction: column; gap: 4px; min-width: 10ch; }
 .legend-inline .legend-label { font-size: 12px; color: var(--fg-1, #b6bfd4); }
-.legend-blocks { display: grid; gap: 6px; }
+.legend-blocks { display: grid; gap: 4px; }
 .legend-blocks .steps-row,
-.legend-blocks .labels-row { display: grid; gap: 3px; grid-template-columns: repeat(5, 1fr); }
+.legend-blocks .labels-row { display: grid; gap: 2px; grid-template-columns: repeat(5, 1fr); }
 .legend-blocks .chip { width: 100%; height: 10px; border-radius: 6px; border: 1px solid var(--border, #1a1c20); }
 .legend-blocks .labels-row span { text-align: center; font-size: 12px; }
 .legend-blocks .spacer { visibility: hidden; }
 
-/* Don’t show boxed section chrome for members/filters/week (titles/borders removed) */
-.controls-pane { margin-top: 8px; }
-.controls-pane .pane-block,
-.controls-pane h3 { display: none; }
-
-/* Tooltip for cell hover */
+/* --- Tooltip for cell hover --- */
 .cell-tooltip {
   position: fixed;
   z-index: 6000;
@@ -87,8 +94,13 @@
   box-shadow: 0 10px 28px rgba(0,0,0,0.45);
 }
 
-/* Results panel (right column) */
-.panel { background: var(--card, #121315); border: 1px solid var(--border, #1a1c20); border-radius: var(--radius, 10px); padding: 12px; }
+/* --- Results panel (right column) --- */
+.panel {
+  background: var(--card, #121315);
+  border: 1px solid var(--border, #1a1c20);
+  border-radius: var(--radius, 10px);
+  padding: 12px;
+}
 .panel h3 { margin: 0 0 8px 0; font-size: 15px; }
 .results { max-height: 100%; overflow: auto; padding-right: 4px; }
 .results .result {
@@ -104,5 +116,9 @@
 .results .res-sub { font-size: 11px; color: #bbb; margin-bottom: 3px; }
 .results .res-users { font-size: 11px; color: #cfe9cf; word-break: break-word; }
 .results .result.hovered { border-color: #ffd54a; }
-.results .result button { position: absolute; right: 10px; bottom: 8px; background: none; border: none; padding: 0; cursor: pointer; color: transparent; font-size: 0; }
+.results .result button {
+  position: absolute; right: 10px; bottom: 8px;
+  background: none; border: none; padding: 0; cursor: pointer;
+  color: transparent; font-size: 0;
+}
 .results .result button::before { content: "Copy"; font-weight: 700; font-size: 12px; color: #e6e6e6; }

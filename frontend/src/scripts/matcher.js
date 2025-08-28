@@ -745,10 +745,12 @@ please confirm`;
   function setAuth(ok, username) {
     isAuthenticated = !!ok;
     currentUsername = ok ? username : null;
-    if (isAuthenticated && currentUsername && !members.includes(currentUsername)) {
-    members.push(currentUsername);
-    renderMembers();
-    fetchMembersAvail();
+    if (isAuthenticated && currentUsername) {
+        if (!members.includes(currentUsername)) {
+        members.push(currentUsername);
+        renderMembers();
+        }
+        fetchMembersAvail();
     }
   }
 
@@ -765,30 +767,30 @@ please confirm`;
     document.getElementById('add-user-btn').addEventListener('click', onAddUser);
 
     document.getElementById('prev-week').addEventListener('click', async () => {
-    weekOffset -= 1;
-    buildTable();
-    await fetchMembersAvail();
+        weekOffset -= 1;
+        buildTable();
+        await fetchMembersAvail();
     });
     document.getElementById('next-week').addEventListener('click', async () => {
-    weekOffset += 1;
-    buildTable();
-    await fetchMembersAvail();
+        weekOffset += 1;
+        buildTable();
+        await fetchMembersAvail();
     });
 
     window.addEventListener('storage', (e) => {
-    if (e && e.key === 'nat20_settings') {
+        if (e && e.key === 'nat20_settings') {
         const next = loadLocalSettings();
         if (next) {
-        const prevTz = tz;
-        settings = { ...DEFAULT_SETTINGS, ...next };
-        tz = resolveTimezone(settings.timezone);
-        hour12 = settings.clock === '12';
-        weekStartIdx = settings.weekStart === 'mon' ? 1 : 0;
-        heatmapName = settings.heatmap || 'viridis';
-        if (tz !== prevTz) { buildTable(); fetchMembersAvail(); }
-        else { paintCounts(); updateLegend(); }
+            const prevTz = tz;
+            settings = { ...DEFAULT_SETTINGS, ...next };
+            tz = resolveTimezone(settings.timezone);
+            hour12 = settings.clock === '12';
+            weekStartIdx = settings.weekStart === 'mon' ? 1 : 0;
+            heatmapName = settings.heatmap || 'viridis';
+            if (tz !== prevTz) { buildTable(); fetchMembersAvail(); }
+            else { paintCounts(); updateLegend(); }
         }
-    }
+        }
     });
   }
 
