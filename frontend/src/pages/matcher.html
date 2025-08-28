@@ -17,13 +17,26 @@
             <section class="availability-left">
               <div id="grid" class="grid">
                 <div id="grid-content" class="grid-content">
-                  <table id="schedule-table" class="table" aria-label="Weekly availability heatmap"></table>
-                  <div id="now-marker" class="now-marker"><span class="bubble">NOW</span></div>
+                  <table id="schedule-table" class="table" aria-label="Weekly availability grid">
+                    <thead>
+                      <tr id="header-row">
+                        <th class="times-col" scope="col">Time</th>
+                        <th scope="col" data-day="0"></th>
+                        <th scope="col" data-day="1"></th>
+                        <th scope="col" data-day="2"></th>
+                        <th scope="col" data-day="3"></th>
+                        <th scope="col" data-day="4"></th>
+                        <th scope="col" data-day="5"></th>
+                        <th scope="col" data-day="6"></th>
+                      </tr>
+                    </thead>
+                    <tbody id="table-body"></tbody>
+                  </table>
+                  <div id="now-marker" class="now-marker" aria-hidden="true"></div>
                   <div id="cell-tooltip" class="cell-tooltip" style="display:none"></div>
                 </div>
               </div>
 
-              <!-- Bottom row: everything side-by-side (week nav on far left) -->
               <div class="controls-pane">
                 <div class="picker-controls">
                   <!-- week nav (use availability visuals) -->
@@ -35,10 +48,8 @@
 
                   <!-- add members -->
                   <div class="add-user">
-                    <label class="sr-only" for="add-username">username</label>
                     <input id="add-username" type="text" placeholder="username" autocomplete="off" />
                     <button id="add-user-btn" type="button">Add</button>
-                    <button id="add-me-btn" type="button">Add me</button>
                   </div>
 
                   <!-- filters stacked as label over input, but arranged horizontally overall -->
@@ -58,12 +69,9 @@
                   <div class="field">
                     <label for="sort-method">Sort by</label>
                     <select id="sort-method">
-                      <option value="most">Most participants</option>
-                      <option value="earliest-week">Earliest in week</option>
-                      <option value="latest-week">Latest in week</option>
-                      <option value="earliest">Earliest time of day</option>
-                      <option value="latest">Latest time of day</option>
-                      <option value="longest">Longest duration</option>
+                      <option value="participants">Most participants</option>
+                      <option value="longest">Longest first</option>
+                      <option value="soonest">Soonest first</option>
                     </select>
                   </div>
 

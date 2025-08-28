@@ -73,6 +73,7 @@ h1,h2,h3,p{margin:0}
   color:var(--fg-0);
   border:1px solid transparent;
   transition:transform .12s ease, background .12s ease, border-color .12s ease;
+  cursor: pointer;
 }
 .navbtn:hover{background:rgba(124,92,255,.1); border-color:var(--border); transform:translateY(-1px)}
 .navbtn:active{transform:translateY(0)}
@@ -216,6 +217,7 @@ h1,h2,h3,p{margin:0}
   border:1px solid var(--border);
   background:rgba(255,255,255,0.02);
   transition:background .12s ease,border-color .12s ease,transform .12s ease;
+  cursor: pointer;
 }
 .btn:hover{background:rgba(124,92,255,.12); border-color:rgba(124,92,255,.5); transform:translateY(-1px)}
 .btn:active{transform:translateY(0)}
@@ -247,6 +249,7 @@ h1,h2,h3,p{margin:0}
   box-shadow: none;
   appearance: none;
   -webkit-appearance: none;
+  cursor: pointer;
 }
 
 #settings-btn:hover {

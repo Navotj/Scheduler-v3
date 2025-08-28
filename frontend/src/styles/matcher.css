@@ -1,13 +1,20 @@
 /* Make left column match availability proportions */
 .availability-left .grid { height: var(--panels-height); }
 
-/* Bottom controls: force a single horizontal row like availability’s picker bar */
+/* Keep everything on one line; allow horizontal scroll if needed */
 .availability-left .picker-controls {
-  display: flex !important;
-  flex-wrap: wrap;
-  align-items: flex-end;         /* labels above inputs; bottoms line up */
-  gap: 10px 14px;
+  flex-wrap: nowrap !important;
+  overflow-x: auto;
+  scrollbar-width: thin;
 }
+.availability-left .picker-controls > * { flex: 0 0 auto; }
+
+/* Make numeric filters significantly shorter */
+#max-missing { width: 4ch; min-width: 4ch; }
+#min-hours  { width: 4ch; min-width: 4ch; text-align: center; }
+
+/* Shorter username box and inline */
+#add-username { width: 16ch; min-width: 12ch; }
 
 /* Week controls keep availability visuals; just ensure they sit at the far left */
 .availability-left .week-controls { display: inline-grid; grid-auto-flow: column; gap: 8px; align-items: center; }
