@@ -130,7 +130,7 @@
     const { baseEpoch } = getWeekStartEpochAndYMD();
     for (let i = 0; i < 7; i++) {
         const d = new Date((baseEpoch + i * 86400) * 1000);
-        const label = new Intl.DateTimeFormat('en-GB', {
+        const label = new Intl.DateTimeFormat('en-US', {
         timeZone: tz, weekday: 'short', day: '2-digit', month: 'short'
         }).format(d);
         const th = document.createElement('th');
