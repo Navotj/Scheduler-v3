@@ -294,19 +294,22 @@
   }
 
   function shadePast() {
-    const nowMs = Date.now();
-    const { baseEpoch } = getWeekStartEpochAndYMD();
-    const baseMs = baseEpoch * 1000;
-    const endMs = baseMs + 7 * 86400000;
-
-    for (const td of table.querySelectorAll('.slot-cell')) td.classList.remove('past');
-    if (nowMs < baseMs || nowMs > endMs) return;
-
-    for (const td of table.querySelectorAll('.slot-cell')) {
-      const cellMs = Number(td.dataset.epoch) * 1000;
-      if (cellMs < nowMs) td.classList.add('past');
-    }
+    if (!table) return;
+    const nowSec = Math.floor(Date.now() / 1000);
+    const cells = table.querySelectorAll('td.slot-cell');
+    cells.forEach(td => {
+        const epoch = Number(td.dataset.epoch);
+        if (!Number.isFinite(epoch)) return;
+        if (epoch < nowSec) {
+        td.classList.add('past');
+        // Ensure heatmap color does not override the greyed-out past style
+        td.style.removeProperty('background-color');
+        } else {
+        td.classList.remove('past');
+        }
+    });
   }
+
 
   function nowGlobalIndex() {
     const nowSec = Math.floor(Date.now() / 1000);
@@ -316,13 +319,26 @@
   }
 
   function updateNowMarker() {
+    // Ensure the NOW marker element with a bubble exists (matches availability.js behavior)
+    if (!nowMarker && gridContent) {
+        nowMarker = document.createElement('div');
+        nowMarker.id = 'now-marker';
+        nowMarker.className = 'now-marker';
+        const bubble = document.createElement('span');
+        bubble.className = 'bubble';
+        bubble.textContent = 'NOW';
+        nowMarker.appendChild(bubble);
+        gridContent.appendChild(nowMarker);
+    }
+    if (!nowMarker) return;
+
     const nowSec = Math.floor(Date.now() / 1000);
     const { baseEpoch } = getWeekStartEpochAndYMD();
     const weekEnd = baseEpoch + 7 * 86400;
 
     if (nowSec < baseEpoch || nowSec >= weekEnd) {
-      nowMarker.style.display = 'none';
-      return;
+        nowMarker.style.display = 'none';
+        return;
     }
     nowMarker.style.display = 'block';
 
@@ -331,14 +347,15 @@
     const secondsIntoDay = secondsIntoWeek - dayIdx * 86400;
     const rowsIntoDay = secondsIntoDay / SLOT_SEC;
 
-    const headH = table.querySelector('thead')?.offsetHeight || 0;
-    const topPx = headH + rowsIntoDay * slotHeight;
+    const thead = table.querySelector('thead');
+    const theadH = thead ? thead.offsetHeight : 0;
+    const topPx = theadH + rowsIntoDay * slotHeight;
     nowMarker.style.top = `${topPx}px`;
 
     const firstCell = table.querySelector(`tbody tr:first-child td.slot-cell[data-day="${dayIdx}"][data-row="0"]`);
     if (firstCell) {
-      nowMarker.style.left = `${firstCell.offsetLeft}px`;
-      nowMarker.style.width = `${firstCell.offsetWidth}px`;
+        nowMarker.style.left = `${firstCell.offsetLeft}px`;
+        nowMarker.style.width = `${firstCell.offsetWidth}px`;
     }
   }
 
