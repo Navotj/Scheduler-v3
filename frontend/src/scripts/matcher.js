@@ -616,10 +616,11 @@
 function setMemberError(msg) {
   const el = document.getElementById('member-error');
   if (el) {
-    el.textContent = msg || '';
-    if (msg) el.classList.add('is-error'); else el.classList.remove('is-error');
+    el.textContent = '';                // never show inline message
+    el.classList.remove('is-error');
+    el.setAttribute('aria-hidden', 'true');
   }
-  if (msg) showToast(msg, 'error');
+  if (msg) showToast(msg, 'error');     // use toast only
 }
   function renderMembers() {
     const ul = document.getElementById('member-list');

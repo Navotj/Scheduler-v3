@@ -1,176 +1,157 @@
-/* --- Bottom controls: single horizontal line with precise gaps --- */
-.availability .availability-left .controls-pane .picker-controls {
-  display: flex;
-  flex-wrap: nowrap;           /* never wrap to second row */
-  align-items: flex-end;       /* labels above, inputs/buttons align at bottom */
-  gap: 16px;                   /* MEDIUM gap between clusters */
-  overflow-x: auto;            /* allow horizontal scroll on very small screens */
-  scrollbar-width: thin;
-}
-.availability .availability-left .controls-pane .picker-controls > * {
-  flex: 0 0 auto;              /* keep every cluster side-by-side */
+/* --- Controls row: single horizontal line and unified sizing --- */
+:root{
+  --matcher-ctrl-h: 40px;   /* exact height for ALL controls (matches Prev/Next) */
+  --gap-sm: 8px;            /* small gap inside clusters */
+  --gap-md: 16px;           /* medium gap between clusters */
+  --mmw: 11ch;              /* width equal to “Max missing” text */
 }
 
-/* Clusters */
-.availability .availability-left .picker-controls .cluster {
-  display: inline-flex;
-  align-items: flex-end;
-  gap: 8px;                    /* default SMALL gap inside clusters */
+/* Ensure outlines/labels can render outside without moving layout */
+.availability .availability-left .controls-pane{overflow:visible;}
+.availability .availability-left .controls-pane .picker-controls{
+  display:flex;
+  flex-wrap:nowrap;                 /* never wrap to a second row */
+  align-items:flex-end;             /* bottoms of controls align */
+  gap:var(--gap-md);                /* medium gap between clusters */
+  overflow-x:auto;                  /* allow horizontal scroll on tiny screens */
+  overflow-y:visible;               /* let focus outlines/titles show above */
+  scrollbar-width:thin;
+}
+.availability .availability-left .controls-pane .picker-controls>*{flex:0 0 auto;}
+
+.availability .availability-left .picker-controls .cluster{
+  display:inline-flex;
+  align-items:flex-end;
+  gap:var(--gap-sm);
+}
+.availability .availability-left .picker-controls .week-controls{gap:6px;} /* small gap */
+.availability .availability-left .picker-controls .add-user{gap:4px;}      /* very small gap */
+.availability .availability-left .picker-controls .filters{gap:var(--gap-sm);}
+.availability .availability-left .picker-controls .week-controls .week-label{display:none;}
+
+/* Unify button height (Prev/Next/Add) */
+.availability .availability-left .picker-controls button{
+  height:var(--matcher-ctrl-h);
+  padding:0 18px;                             /* width from padding only */
+  line-height:calc(var(--matcher-ctrl-h) - 2px);
 }
 
-/* Cluster-specific inner gaps to match request */
-.availability .availability-left .picker-controls .week-controls { gap: 6px; }   /* small: Prev | Next */
-.availability .availability-left .picker-controls .add-user      { gap: 4px; }   /* very small: username | Add */
-.availability .availability-left .picker-controls .filters       { gap: 8px; }   /* small between the two fields */
-
-/* Hide the auto-generated week label to save width */
-.availability .availability-left .picker-controls .week-controls .week-label { display: none; }
-
-/* Inputs & buttons (compact, dark UI) */
+/* Inputs/selects: same height as buttons */
 .availability .availability-left .picker-controls input[type="text"],
 .availability .availability-left .picker-controls input[type="number"],
-.availability .availability-left .picker-controls select {
-  background: #0f0f11;
-  color: #e7eaf2;
-  border: 1px solid var(--border, #1a1c20);
-  border-radius: 8px;
-  height: 28px;
-  padding: 2px 6px;
-  box-sizing: border-box;
+.availability .availability-left .picker-controls select{
+  background:#0f0f11;
+  color:#e7eaf2;
+  border:1px solid var(--border,#1a1c20);
+  border-radius:8px;
+  height:var(--matcher-ctrl-h);
+  padding:0 6px;
+  box-sizing:border-box;
 }
 
-/* Username field shorter */
-#add-username { width: 12ch; min-width: 10ch; }
-
-/* Make Add button only as wide as its text */
-#add-user-btn {
-  height: 28px;
-  padding: 0 6px;
-  border-radius: 8px;
-  border: 1px solid var(--border, #1a1c20);
-  background: #272727;
-  color: #fff;
-  cursor: pointer;
+/* Focus outline should be visible outside the container */
+.availability .availability-left .picker-controls button:focus-visible,
+.availability .availability-left .picker-controls input:focus-visible,
+.availability .availability-left .picker-controls select:focus-visible{
+  outline-offset:2px;
 }
 
-/* Filters: labels on top, inputs same (small) width */
-.field { display: flex; flex-direction: column; gap: 4px; }
-.field label { font-size: 12px; color: var(--fg-1, #b6bfd4); white-space: nowrap; }
+/* Short username box */
+#add-username{width:12ch;min-width:10ch;}
+/* Make Add button as small as its text; height is unified via rule above */
+#add-user-btn{padding:0 8px;}
 
-/* “same size as the text” — tight numeric widths */
-#max-missing,
-#min-hours {
-  width: 3ch;                  /* holds up to two digits comfortably */
-  min-width: 3ch;
-  text-align: center;
-  padding: 2px 4px;
+/* Labels above inputs WITHOUT pushing boxes down; titles line up across clusters */
+.field{
+  position:relative;
+  display:inline-flex;
+  align-items:flex-end;
+  height:var(--matcher-ctrl-h);
+}
+.field label{
+  position:absolute;
+  bottom:calc(100% + 2px);         /* push label up */
+  left:0;
+  font-size:12px;
+  color:var(--fg-1,#b6bfd4);
+  white-space:nowrap;
 }
 
-/* Keep Sort-by in DOM for JS, but remove from layout line */
-.cluster.sort-by { display: none !important; }
-
-/* Legend block, inline with the row */
-.legend-inline { display: flex; flex-direction: column; gap: 4px; min-width: 10ch; }
-.legend-inline .legend-label { font-size: 12px; color: var(--fg-1, #b6bfd4); }
-.legend-blocks { display: grid; gap: 4px; }
-.legend-blocks .steps-row,
-.legend-blocks .labels-row { display: grid; gap: 2px; grid-template-columns: repeat(5, 1fr); }
-.legend-blocks .chip { width: 100%; height: 10px; border-radius: 6px; border: 1px solid var(--border, #1a1c20); }
-.legend-blocks .labels-row span { text-align: center; font-size: 12px; }
-.legend-blocks .spacer { visibility: hidden; }
-
-/* --- Tooltip for cell hover --- */
-.cell-tooltip {
-  position: fixed;
-  z-index: 6000;
-  background: #141414;
-  border: 1px solid #333;
-  color: #eee;
-  padding: 6px 8px;
-  border-radius: 8px;
-  font-size: 11px;
-  max-width: 260px;
-  pointer-events: none;
-  box-shadow: 0 10px 28px rgba(0,0,0,0.45);
+/* Required widths: both numeric boxes exactly as wide as “Max missing” text */
+#max-missing,#min-hours{
+  width:var(--mmw) !important;
+  min-width:var(--mmw) !important;
+  text-align:center;
 }
 
-/* --- Results panel (right column) --- */
-.panel {
-  background: var(--card, #121315);
-  border: 1px solid var(--border, #1a1c20);
-  border-radius: var(--radius, 10px);
-  padding: 12px;
-}
-.panel h3 { margin: 0 0 8px 0; font-size: 15px; }
-.results { max-height: 100%; overflow: auto; padding-right: 4px; }
-.results .result {
-  position: relative;
-  background: #121212;
-  border: 1px solid #2a2a2a;
-  border-radius: 10px;
-  padding: 8px 10px 26px 10px;
-  margin: 8px 0;
-  transition: border-color 0.12s ease;
-}
-.results .res-top { font-weight: 600; margin-bottom: 3px; font-size: 13px; }
-.results .res-sub { font-size: 11px; color: #bbb; margin-bottom: 3px; }
-.results .res-users { font-size: 11px; color: #cfe9cf; word-break: break-word; }
-.results .result.hovered { border-color: #ffd54a; }
-.results .result button {
-  position: absolute; right: 10px; bottom: 8px;
-  background: none; border: none; padding: 0; cursor: pointer;
-  color: transparent; font-size: 0;
-}
-.results .result button::before { content: "Copy"; font-weight: 700; font-size: 12px; color: #e6e6e6; }
+/* Select width behaves like inputs; keep compact but legible */
+.select-field select{min-width:14ch;}
 
-/* Inline error under controls */
-#member-error,
-.error-text {
-  color: #ff5a5f;
-  min-height: 1em; /* reserve space so layout doesn't jump */
+/* Ensure number inputs don’t distort width across browsers */
+input[type="number"]{-moz-appearance:textfield;appearance:textfield;}
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}
+
+/* Legend: fits within the same height as controls (1 or 2 compact rows) */
+.legend-field{position:relative;display:inline-flex;align-items:stretch;height:var(--matcher-ctrl-h);}
+.legend-field > label{position:absolute;bottom:calc(100% + 2px);left:0;}
+.legend-blocks{
+  display:grid;
+  grid-template-rows: 1fr 1fr;     /* chips row (top) + numbers row (bottom) */
+  gap:4px;
+  height:100%;                     /* exactly the control height */
+  min-width:10ch;
 }
+.legend-blocks .steps-row{
+  display:grid;
+  grid-auto-flow:column;
+  gap:4px;
+  align-items:start;               /* top aligns with control tops */
+}
+.legend-blocks .labels-row{
+  display:grid;
+  grid-auto-flow:column;
+  gap:6px;
+  align-items:end;                 /* bottom aligns with control bottoms */
+  font-size:12px; line-height:1;
+}
+.legend-blocks .chip{width:100%;height:10px;border-radius:6px;border:1px solid var(--border,#1a1c20);}
+.legend-blocks .spacer{visibility:hidden;}
+
+/* Hide any inline error text; we use toast instead */
+#member-error{display:none !important;}
 
 /* Toast notifications (fixed; no layout shift) */
-.toast-stack {
-  position: fixed;
-  right: 16px;
-  bottom: 16px;
-  display: grid;
-  gap: 8px;
-  z-index: 9999;
-  pointer-events: none;
+.toast-stack{
+  position:fixed;right:16px;bottom:16px;display:grid;gap:8px;z-index:9999;pointer-events:none;
 }
+.toast{
+  pointer-events:auto;
+  background:rgba(255,64,64,0.18);
+  border:1px solid rgba(255,64,64,0.55);
+  color:#ffd9d9;
+  padding:10px 12px;
+  border-radius:10px;
+  box-shadow:0 10px 28px rgba(0,0,0,0.45);
+  backdrop-filter:blur(4px);
+  transform:translateY(8px);
+  opacity:0;
+  animation:toast-in 160ms ease-out forwards;
+  font-size:14px;line-height:1.2;
+}
+.toast-error{background:rgba(255,64,64,0.22);border-color:rgba(255,64,64,0.65);color:#ffe2e2;}
+.toast.bye{animation:toast-out 200ms ease-in forwards;}
+@keyframes toast-in{from{transform:translateY(8px);opacity:0;}to{transform:translateY(0);opacity:1;}}
+@keyframes toast-out{to{transform:translateY(8px);opacity:0;}}
 
-.toast {
-  pointer-events: auto;
-  background: rgba(255, 64, 64, 0.18); /* mostly transparent red */
-  border: 1px solid rgba(255, 64, 64, 0.55);
-  color: #ffd9d9;
-  padding: 10px 12px;
-  border-radius: 10px;
-  box-shadow: 0 10px 28px rgba(0,0,0,0.45);
-  backdrop-filter: blur(4px);
-  transform: translateY(8px);
-  opacity: 0;
-  animation: toast-in 160ms ease-out forwards;
-  font-size: 14px;
-  line-height: 1.2;
-}
-
-.toast-error {
-  background: rgba(255, 64, 64, 0.22);
-  border-color: rgba(255, 64, 64, 0.65);
-  color: #ffe2e2;
-}
-
-.toast.bye {
-  animation: toast-out 200ms ease-in forwards;
-}
-
-@keyframes toast-in {
-  from { transform: translateY(8px); opacity: 0; }
-  to   { transform: translateY(0);  opacity: 1; }
-}
-@keyframes toast-out {
-  to   { transform: translateY(8px); opacity: 0; }
-}
+/* Results panel (right column) */
+.panel{background:var(--card,#121315);border:1px solid var(--border,#1a1c20);border-radius:var(--radius,10px);padding:12px;}
+.panel h3{margin:0 0 8px 0;font-size:15px;}
+.results{max-height:100%;overflow:auto;padding-right:4px;}
+.results .result{position:relative;background:#121212;border:1px solid #2a2a2a;border-radius:10px;padding:8px 10px 26px 10px;margin:8px 0;transition:border-color .12s ease;}
+.results .res-top{font-weight:600;margin-bottom:3px;font-size:13px;}
+.results .res-sub{font-size:11px;color:#bbb;margin-bottom:3px;}
+.results .res-users{font-size:11px;color:#cfe9cf;word-break:break-word;}
+.results .result.hovered{border-color:#ffd54a;}
+.results .result button{position:absolute;right:10px;bottom:8px;background:none;border:none;padding:0;cursor:pointer;color:transparent;font-size:0;}
+.results .result button::before{content:"Copy";font-weight:700;font-size:12px;color:#e6e6e6;}

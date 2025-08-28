@@ -65,22 +65,24 @@
                     </div>
                   </div>
 
-                  <!-- cluster 4: legend -->
+                  <!-- cluster 4: legend (label on the same titles line) -->
                   <div class="cluster legend">
-                    <div class="legend-inline">
-                      <label class="legend-label">Legend</label>
+                    <div class="field legend-field">
+                      <label class="field-label">Legend</label>
                       <div id="legend-blocks" class="legend-blocks"></div>
                     </div>
                   </div>
 
-                  <!-- keep Sort by in DOM for JS, but hide from layout -->
-                  <div class="cluster sort-by" aria-hidden="true">
-                    <label for="sort-method">Sort by</label>
-                    <select id="sort-method">
-                      <option value="participants">Most participants</option>
-                      <option value="longest">Longest first</option>
-                      <option value="soonest">Soonest first</option>
-                    </select>
+                  <!-- cluster 5: sort by (same format as filters/legend) -->
+                  <div class="cluster sort-by">
+                    <div class="field select-field">
+                      <label for="sort-method">Sort by</label>
+                      <select id="sort-method">
+                        <option value="participants">Most participants</option>
+                        <option value="longest">Longest first</option>
+                        <option value="soonest">Soonest first</option>
+                      </select>
+                    </div>
                   </div>
                 </div>
 
