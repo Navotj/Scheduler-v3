@@ -155,3 +155,58 @@ input[type="number"]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0
 .results .result.hovered{border-color:#ffd54a;}
 .results .result button{position:absolute;right:10px;bottom:8px;background:none;border:none;padding:0;cursor:pointer;color:transparent;font-size:0;}
 .results .result button::before{content:"Copy";font-weight:700;font-size:12px;color:#e6e6e6;}
+
+/* --- Overrides for filters layout, widths, arrows, and bottom pane overflow --- */
+
+/* Make numeric boxes more compact */
+:root{
+  --mmw: 6.5ch; /* narrower input width for max missing / min hours */
+}
+
+/* Bottom pane must not overflow or scroll; cutoff anything that doesn't fit */
+.availability .availability-left .controls-pane{
+  overflow:hidden;
+}
+.availability .availability-left .controls-pane .picker-controls{
+  overflow:hidden;     /* no scrollbars, single row, clipped at container edge */
+  flex-wrap:nowrap;    /* ensure single row */
+}
+
+/* Show titles next to the boxes (two-line text) for filters only */
+.availability .availability-left .picker-controls .filters .field{
+  position:static;
+  display:grid;
+  grid-template-columns:auto var(--mmw);
+  align-items:center;
+  height:var(--matcher-ctrl-h);
+}
+.availability .availability-left .picker-controls .filters .field label{
+  position:static;
+  margin-right:6px;
+  font-size:14px;
+  line-height:1.1;
+  white-space:pre-line; /* respect the <br> to force two lines */
+  color:var(--fg-1,#b6bfd4);
+}
+
+/* Keep boxes compact and centered text */
+#max-missing,
+#min-hours{
+  width:var(--mmw);
+  min-width:var(--mmw);
+  text-align:center;
+}
+
+/* Re-enable native number input arrows specifically for these fields */
+#max-missing,
+#min-hours{
+  appearance:auto;
+  -moz-appearance:auto;
+}
+#max-missing::-webkit-inner-spin-button,
+#max-missing::-webkit-outer-spin-button,
+#min-hours::-webkit-inner-spin-button,
+#min-hours::-webkit-outer-spin-button{
+  -webkit-appearance:auto;
+  margin:0;
+}
