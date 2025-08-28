@@ -268,27 +268,32 @@
     const threshold = n >= 11 ? (n - 10) : 0;
 
     for (const td of tds) {
-      const epoch = Number(td.dataset.epoch);
-      const raw = slotCount(epoch);
+        const epoch = Number(td.dataset.epoch);
+        const raw = slotCount(epoch);
 
-      td.style.setProperty('background-color', shadeForCount(raw), 'important');
+        const isEmpty = (n >= 11) ? (raw <= threshold) : (raw === 0);
+        if (isEmpty) {
+        td.style.removeProperty('background-color'); // let CSS default from availability.css show for empty slots
+        } else {
+        td.style.setProperty('background-color', shadeForCount(raw), 'important');
+        }
 
-      if (n >= 11) td.dataset.c = (raw <= threshold) ? '0' : '7';
-      else td.dataset.c = raw > 0 ? '7' : '0';
+        if (n >= 11) td.dataset.c = (raw <= threshold) ? '0' : '7';
+        else td.dataset.c = raw > 0 ? '7' : '0';
 
-      td.classList.remove('dim', 'highlight');
+        td.classList.remove('dim', 'highlight');
 
-      const day = Number(td.dataset.day);
-      const row = Number(td.dataset.row);
-      const g = day * ROWS_PER_DAY + row;
-      counts[g] = raw;
+        const day = Number(td.dataset.day);
+        const row = Number(td.dataset.row);
+        const g = day * ROWS_PER_DAY + row;
+        counts[g] = raw;
 
-      const who = new Set();
-      for (const u of members) {
+        const who = new Set();
+        for (const u of members) {
         const set = userSlotSets.get(u);
         if (set && set.has(epoch)) who.add(u);
-      }
-      sets[g] = who;
+        }
+        sets[g] = who;
     }
     WEEK_ROWS = counts.length;
   }
