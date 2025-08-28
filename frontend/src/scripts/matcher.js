@@ -509,93 +509,91 @@
 
   function findCandidates() {
     const maxMissing = parseInt(document.getElementById('max-missing').value || '0', 10);
-    const minHours = parseFloat(document.getElementById('min-hours').value || '1');
-    const needed = Math.max(0, totalMembers - maxMissing);
-    const minSlots = Math.max(1, Math.ceil(minHours * SLOTS_PER_HOUR));
-    const startIdx = nowGlobalIndex();
+    const minHours   = parseFloat(document.getElementById('min-hours').value || '1');
+    const needed     = Math.max(0, totalMembers - maxMissing);
+    const minSlots   = Math.max(1, Math.ceil(minHours * SLOTS_PER_HOUR));
+    const startIdx   = nowGlobalIndex();
+    const { baseEpoch } = getWeekStartEpochAndYMD();
 
     const sessions = [];
     const seen = new Set();
     if (!totalMembers || needed <= 0) { renderResults(sessions); return; }
 
-    const { baseEpoch } = getWeekStartEpochAndYMD();
+    // STRICT: participants must remain the SAME across the whole block (no swapping).
+    for (let g = startIdx; g < WEEK_ROWS; g++) {
+      let curr = sets[g];
+      if (!curr || curr.size < needed) continue;
 
-    for (let k = totalMembers; k >= needed; k--) {
-        let g = startIdx;
-        while (g < WEEK_ROWS) {
-        if ((counts[g] || 0) < k) { g++; continue; }
-        let s = g;
-        let t = g + 1;
-        let inter = new Set(sets[g]);
-        while (t < WEEK_ROWS && (counts[t] || 0) >= k) {
-            const avail = sets[t];
-            inter = new Set([...inter].filter(x => avail.has(x)));
-            if (inter.size < k) break;
-            t++;
+      let t = g + 1;
+      while (t < WEEK_ROWS) {
+        const next = sets[t];
+        // shrink to intersection to keep exactly the common attendees so far
+        curr = new Set([...curr].filter(x => next && next.has(x)));
+        if (curr.size < needed) break;
+        t++;
+      }
+
+      const length = t - g;
+      if (length >= minSlots) {
+        const usersSorted = Array.from(curr).sort();
+        const startSec = baseEpoch + g * SLOT_SEC;
+        const endSec   = baseEpoch + t * SLOT_SEC;
+        const key = `${g}-${t}-${usersSorted.join('|')}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          sessions.push({
+            gStart: g, gEnd: t,
+            start: startSec, end: endSec,
+            duration: length,
+            participants: usersSorted.length,
+            users: usersSorted
+          });
         }
-        s = Math.max(s, startIdx);
-        const length = t - s;
-        if (length >= minSlots && inter.size >= k) {
-            const startSec = baseEpoch + s * SLOT_SEC;
-            const endSec = baseEpoch + t * SLOT_SEC;
-            const usersSorted = Array.from(inter).sort();
-            const key = `${startSec}-${endSec}-${usersSorted.join('|')}`;
-            if (!seen.has(key)) {
-            seen.add(key);
-            sessions.push({
-                gStart: s, gEnd: t,
-                start: startSec, end: endSec,
-                duration: length,
-                participants: usersSorted.length,
-                users: usersSorted
-            });
-            }
-        }
-        while (t < WEEK_ROWS && (counts[t] || 0) >= k) t++;
-        g = t;
-        }
+      }
+      // continue scanning; next g will re-evaluate possible sub-blocks
     }
 
-    // Robust sort-mode mapping (accepts value OR visible text)
-    const sortEl = document.getElementById('sort-method');
-    let sortRaw = '';
-    if (sortEl) {
-        const byVal = (sortEl.value || '').toLowerCase().trim();
-        const byText = (sortEl.options && sortEl.selectedIndex >= 0)
-        ? (sortEl.options[sortEl.selectedIndex].text || '').toLowerCase().trim()
-        : '';
-        sortRaw = byVal || byText;
-    }
+    // Robust sort; accept either <option value> or visible text.
+    const sortEl  = document.getElementById('sort-method');
+    const byVal   = (sortEl && sortEl.value || '').toLowerCase().trim();
+    const byText  = (sortEl && sortEl.options && sortEl.selectedIndex >= 0 ? (sortEl.options[sortEl.selectedIndex].text || '') : '').toLowerCase().trim();
+    const sortRaw = byVal || byText;
+
     let sortMode = 'most';
     if (sortRaw.includes('earliest') && sortRaw.includes('week')) sortMode = 'earliest-week';
     else if (sortRaw.includes('latest') && sortRaw.includes('week')) sortMode = 'latest-week';
     else if (sortRaw.includes('earliest')) sortMode = 'earliest';
-    else if (sortRaw.includes('latest')) sortMode = 'latest';
+    else if (sortRaw.includes('latest'))   sortMode = 'latest';
     else if (sortRaw.includes('longest') || sortRaw.includes('duration')) sortMode = 'longest';
-    else if (sortRaw.includes('most')) sortMode = 'most';
+    else if (sortRaw.includes('most'))     sortMode = 'most';
 
     sessions.sort((a, b) => {
-        if (sortMode === 'most') {
-        if (b.participants !== a.participants) return b.participants - a.participants;
-        return a.start - b.start;
+      switch (sortMode) {
+        case 'most':
+          if (b.participants !== a.participants) return b.participants - a.participants;
+          if (b.duration !== a.duration)         return b.duration - a.duration;
+          return a.start - b.start;
+        case 'earliest-week':
+          return a.start - b.start;
+        case 'latest-week':
+          return b.start - a.start;
+        case 'earliest': {
+          const ar = a.gStart % ROWS_PER_DAY, br = b.gStart % ROWS_PER_DAY;
+          if (ar !== br) return ar - br;
+          return a.start - b.start;
         }
-        if (sortMode === 'earliest-week') return a.start - b.start;
-        if (sortMode === 'latest-week') return b.start - a.start;
-        if (sortMode === 'earliest') {
-        const aRow = a.gStart % ROWS_PER_DAY, bRow = b.gStart % ROWS_PER_DAY;
-        if (aRow !== bRow) return aRow - bRow;
-        return a.start - b.start;
+        case 'latest': {
+          const ar = a.gStart % ROWS_PER_DAY, br = b.gStart % ROWS_PER_DAY;
+          if (ar !== br) return br - ar;
+          return a.start - b.start;
         }
-        if (sortMode === 'latest') {
-        const aRow = a.gStart % ROWS_PER_DAY, bRow = b.gStart % ROWS_PER_DAY;
-        if (aRow !== bRow) return bRow - aRow;
-        return a.start - b.start;
-        }
-        if (sortMode === 'longest') {
-        if (b.duration !== a.duration) return b.duration - a.duration;
-        return a.start - b.start;
-        }
-        return a.start - b.start;
+        case 'longest':
+          if (b.duration !== a.duration) return b.duration - a.duration;
+          if (b.participants !== a.participants) return b.participants - a.participants;
+          return a.start - b.start;
+        default:
+          return a.start - b.start;
+      }
     });
 
     renderResults(sessions);
