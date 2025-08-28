@@ -11,10 +11,9 @@
       <!-- @include ../partials/rail.html -->
 
       <main id="page" class="main" tabindex="-1" aria-label="Main content">
-        <!-- Keep the exact same shell and class names as availability to inherit visuals -->
         <section class="availability">
           <div class="availability-layout">
-            <!-- LEFT: grid (1fr) + bottom controls (auto) exactly like availability -->
+            <!-- LEFT: grid (fixed height) + bottom controls (like availability) -->
             <section class="availability-left">
               <div id="grid" class="grid">
                 <div id="grid-content" class="grid-content">
@@ -24,67 +23,64 @@
                 </div>
               </div>
 
-              <!-- Bottom controls pane — mirrors availability placement -->
+              <!-- Bottom row: everything side-by-side (week nav on far left) -->
               <div class="controls-pane">
                 <div class="picker-controls">
-                  <!-- 1) Week controls on the FAR LEFT, same placement & visuals as availability -->
+                  <!-- week nav (use availability visuals) -->
                   <div class="week-controls">
                     <button id="prev-week" type="button" aria-label="Previous week">Prev</button>
                     <span id="week-label" class="week-label" aria-live="polite"></span>
                     <button id="next-week" type="button" aria-label="Next week">Next</button>
                   </div>
 
-                  <!-- 2) Middle column: all filters laid out HORIZONTALLY -->
-                  <div class="filters-controls">
-                    <!-- Add members (inline) -->
-                    <div class="add-user">
-                      <input id="add-username" type="text" placeholder="username" autocomplete="off" />
-                      <button id="add-user-btn" type="button">Add</button>
-                      <button id="add-me-btn" type="button">Add me</button>
-                    </div>
+                  <!-- add members -->
+                  <div class="add-user">
+                    <label class="sr-only" for="add-username">username</label>
+                    <input id="add-username" type="text" placeholder="username" autocomplete="off" />
+                    <button id="add-user-btn" type="button">Add</button>
+                    <button id="add-me-btn" type="button">Add me</button>
+                  </div>
 
-                    <!-- Max missing -->
-                    <div class="field">
-                      <label for="max-missing">Max missing</label>
-                      <input id="max-missing" type="number" min="0" value="0" />
-                    </div>
+                  <!-- filters stacked as label over input, but arranged horizontally overall -->
+                  <div class="field">
+                    <label for="max-missing">Max missing</label>
+                    <input id="max-missing" type="number" min="0" value="0" />
+                  </div>
 
-                    <!-- Minimum hours -->
-                    <div class="field">
-                      <label for="min-hours">Min length</label>
-                      <div class="row">
-                        <input id="min-hours" type="number" min="0.5" step="0.5" value="1" />
-                        <span>h</span>
-                      </div>
-                    </div>
-
-                    <!-- Sort -->
-                    <div class="field">
-                      <label for="sort-method">Sort by</label>
-                      <select id="sort-method">
-                        <option value="most">Most participants</option>
-                        <option value="earliest-week">Earliest in week</option>
-                        <option value="latest-week">Latest in week</option>
-                        <option value="earliest">Earliest time of day</option>
-                        <option value="latest">Latest time of day</option>
-                        <option value="longest">Longest duration</option>
-                      </select>
+                  <div class="field">
+                    <label for="min-hours">Min length</label>
+                    <div class="row">
+                      <input id="min-hours" type="number" min="0.5" step="0.5" value="1" />
+                      <span>h</span>
                     </div>
                   </div>
 
-                  <!-- 3) Right column left empty (keeps the same 3-col grid as availability) -->
-                  <div class="save-controls"></div>
+                  <div class="field">
+                    <label for="sort-method">Sort by</label>
+                    <select id="sort-method">
+                      <option value="most">Most participants</option>
+                      <option value="earliest-week">Earliest in week</option>
+                      <option value="latest-week">Latest in week</option>
+                      <option value="earliest">Earliest time of day</option>
+                      <option value="latest">Latest time of day</option>
+                      <option value="longest">Longest duration</option>
+                    </select>
+                  </div>
+
+                  <!-- legend included in the same horizontal row -->
+                  <div class="legend-inline">
+                    <label class="legend-label">Legend</label>
+                    <div id="legend-blocks" class="legend-blocks"></div>
+                  </div>
                 </div>
 
-                <!-- Inline error under the controls row -->
                 <div id="member-error" class="error-text"></div>
-
-                <!-- Optional member chips list (kept hidden to preserve horizontal-only layout) -->
+                <!-- chips (optional). keep but off the main row to preserve side-by-side layout -->
                 <ul id="member-list" class="member-list" hidden></ul>
               </div>
             </section>
 
-            <!-- RIGHT: results list in the same slot as availability-right -->
+            <!-- RIGHT: results list -->
             <aside class="availability-right">
               <section id="results-panel" class="panel">
                 <h3>Results</h3>

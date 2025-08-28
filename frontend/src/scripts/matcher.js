@@ -1,18 +1,15 @@
 (function () {
   'use strict';
 
-  // Core constants — match availability’s slot model
-  const SLOTS_PER_HOUR = 2;            // 30-minute slots
+  const SLOTS_PER_HOUR = 2;
   const HOURS_START = 0;
   const HOURS_END = 24;
   const SLOT_SEC = 30 * 60;
 
-  // State
-  let weekOffset = 0;                  // relative to current week
+  let weekOffset = 0;
   let isAuthenticated = false;
   let currentUsername = null;
 
-  // Settings (shared with availability)
   const DEFAULT_SETTINGS = { timezone: 'auto', clock: '24', weekStart: 'sun', heatmap: 'viridis' };
   let settings = { ...DEFAULT_SETTINGS };
   let tz = resolveTimezone(settings.timezone);
@@ -20,30 +17,24 @@
   let weekStartIdx = settings.weekStart === 'mon' ? 1 : 0;
   let heatmapName = settings.heatmap || 'viridis';
 
-  // Vertical zoom — uses availability’s CSS var: --slot-h
   let slotHeight = 18; // px
   const ZOOM_MIN = 12, ZOOM_MAX = 48, ZOOM_STEP = 2;
 
-  // Members & availability
-  let members = [];                    // usernames
-  const userSlotSets = new Map();      // username -> Set(epoch seconds)
+  let members = [];
+  const userSlotSets = new Map();
   let totalMembers = 0;
 
-  // Derived week arrays
   const ROWS_PER_DAY = (HOURS_END - HOURS_START) * SLOTS_PER_HOUR;
   let WEEK_ROWS = 7 * ROWS_PER_DAY;
-  let counts = [];                     // per-slot available count
-  let sets = [];                       // per-slot Set of available users
+  let counts = [];
+  let sets = [];
 
-  // DOM refs
   let gridContent, table, nowMarker, resultsEl, resultsPanel;
 
-  // Init guard / reentrancy guards
   let __initDone = false;
   let __addingUser = false;
   let __addingMe = false;
 
-  // ───────────────────────── Time helpers ─────────────────────────
   function resolveTimezone(val) {
     if (!val || val === 'auto') return (Intl.DateTimeFormat().resolvedOptions().timeZone) || 'UTC';
     return val;
@@ -93,7 +84,6 @@
     return { baseEpoch, baseYMD };
   }
 
-  // ───────────────────────── Formatting ─────────────────────────
   function fmtTime(h, m) {
     if (hour12) {
       const ampm = h >= 12 ? 'pm' : 'am';
@@ -112,7 +102,6 @@
     return `${dow}, ${s} – ${e}`;
   }
 
-  // ─────────────────────── Zoom / row sizing ───────────────────────
   function applySlotHeight() {
     if (gridContent) gridContent.style.setProperty('--slot-h', `${slotHeight}px`);
   }
@@ -120,18 +109,16 @@
     if (!e.shiftKey) return;
     if (!gridContent) return;
     e.preventDefault();
-    const dir = Math.sign(e.deltaY);              // up: -1, down: +1
-    const next = slotHeight - dir * ZOOM_STEP;    // wheel-up zooms in
+    const dir = Math.sign(e.deltaY);
+    const next = slotHeight - dir * ZOOM_STEP;
     slotHeight = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, next));
     applySlotHeight();
     updateNowMarker();
   }
 
-  // ───────────────────── Table build / shading ─────────────────────
   function buildTable() {
     table.innerHTML = '';
 
-    // Header
     const thead = document.createElement('thead');
     const trh = document.createElement('tr');
 
@@ -154,14 +141,12 @@
     thead.appendChild(trh);
     table.appendChild(thead);
 
-    // Body
     const tbody = document.createElement('tbody');
     const totalRows = ROWS_PER_DAY;
 
     for (let r = 0; r < totalRows; r++) {
       const tr = document.createElement('tr');
 
-      // hour label cell spans two rows (both half-hours)
       if (r % 2 === 0) {
         const minutes = (HOURS_START * 60) + r * (60 / SLOTS_PER_HOUR);
         const hh = Math.floor(minutes / 60);
@@ -174,7 +159,7 @@
 
       for (let day = 0; day < 7; day++) {
         const td = document.createElement('td');
-        td.className = 'slot-cell';                // not interactive here
+        td.className = 'slot-cell';
         const epoch = getDayStartSec(day) + r * SLOT_SEC;
         td.dataset.epoch = String(epoch);
         td.dataset.day = String(day);
@@ -189,13 +174,11 @@
 
     table.appendChild(tbody);
 
-    // After build: style and paint
     applySlotHeight();
     paintCounts();
     shadePast();
     updateNowMarker();
 
-    // Initial fit: try to fit 24h in view
     requestAnimationFrame(() => {
       const headH = thead.offsetHeight || 0;
       const avail = Math.max(0, gridContent.clientHeight - headH - 2);
@@ -218,7 +201,6 @@
     return baseEpoch + dayIndex * 86400;
   }
 
-  // Heatmap colormaps
   const COLORMAPS = {
     viridis:    [[0,'#440154'],[0.25,'#3b528b'],[0.5,'#21918c'],[0.75,'#5ec962'],[1,'#fde725']],
     plasma:     [[0,'#0d0887'],[0.25,'#6a00a8'],[0.5,'#b12a90'],[0.75,'#e16462'],[1,'#fca636']],
@@ -254,10 +236,10 @@
   }
   function shadeForCount(count) {
     const n = totalMembers || 0;
-    const threshold = n >= 11 ? (n - 10) : 0;   // compress low counts when large groups
+    const threshold = n >= 11 ? (n - 10) : 0;
     if (n <= 0) return '#0a0a0a';
     if (count <= threshold) return '#0a0a0a';
-    const denom = Math.max(1, n - threshold);   // map threshold..n -> 0..1
+    const denom = Math.max(1, n - threshold);
     const t0 = (count - threshold) / denom;
     const t = Math.max(0, Math.min(1, t0));
     const g = heatmapName === 'twilight' ? t : Math.pow(t, 0.85);
@@ -284,10 +266,8 @@
       const epoch = Number(td.dataset.epoch);
       const raw = slotCount(epoch);
 
-      // Force background color (override any class-based rules)
       td.style.setProperty('background-color', shadeForCount(raw), 'important');
 
-      // Provide dataset.c for any CSS that keys on it (e.g., compress-low)
       if (n >= 11) td.dataset.c = (raw <= threshold) ? '0' : '7';
       else td.dataset.c = raw > 0 ? '7' : '0';
 
@@ -308,7 +288,6 @@
     WEEK_ROWS = counts.length;
   }
 
-  // Past shading relative to now in this week
   function shadePast() {
     const nowMs = Date.now();
     const { baseEpoch } = getWeekStartEpochAndYMD();
@@ -331,7 +310,6 @@
     return Math.max(0, idx);
   }
 
-  // ───────────────────────── NOW marker ─────────────────────────
   function updateNowMarker() {
     const nowSec = Math.floor(Date.now() / 1000);
     const { baseEpoch } = getWeekStartEpochAndYMD();
@@ -352,7 +330,6 @@
     const topPx = headH + rowsIntoDay * slotHeight;
     nowMarker.style.top = `${topPx}px`;
 
-    // Constrain left/width to the current day column
     const firstCell = table.querySelector(`tbody tr:first-child td.slot-cell[data-day="${dayIdx}"][data-row="0"]`);
     if (firstCell) {
       nowMarker.style.left = `${firstCell.offsetLeft}px`;
@@ -360,7 +337,6 @@
     }
   }
 
-  // ─────────────────────── Tooltip / hover ───────────────────────
   function onCellHoverMove(e) {
     const td = e.currentTarget;
     if (td.classList.contains('past')) return;
@@ -389,7 +365,6 @@
     return { available, unavailable };
   }
 
-  // ─────────────────────── Filters / legend ───────────────────────
   function applyFilterDimming() {
     const maxMissing = parseInt(document.getElementById('max-missing').value || '0', 10);
     const minHours = parseFloat(document.getElementById('min-hours').value || '1');
@@ -420,7 +395,6 @@
   }
 
   function updateLegend() {
-    // Legend optional; skip if container not present (layout keeps availability look)
     const blocks = document.getElementById('legend-blocks');
     if (!blocks) return;
 
@@ -438,6 +412,7 @@
 
     blocks.innerHTML = '';
     const COLS = 5;
+
     for (let i = 0; i < chips.length; i += COLS) {
       const group = chips.slice(i, i + COLS);
 
@@ -470,6 +445,7 @@
         const spacerChip = document.createElement('div');
         spacerChip.className = 'chip spacer';
         stepsRow.appendChild(spacerChip);
+
         const spacerLab = document.createElement('span');
         spacerLab.className = 'spacer';
         labelsRow.appendChild(spacerLab);
@@ -480,7 +456,6 @@
     }
   }
 
-  // ───────────────────────── Results list ─────────────────────────
   function findCandidates() {
     const maxMissing = parseInt(document.getElementById('max-missing').value || '0', 10);
     const minHours = parseFloat(document.getElementById('min-hours').value || '1');
@@ -627,7 +602,6 @@
     for (const td of table.querySelectorAll('.slot-cell.highlight')) td.classList.remove('highlight');
   }
 
-  // ───────────────────── Members UI / helpers ─────────────────────
   async function userExists(name) {
     try {
       const url = `${window.API_BASE_URL}/users/exists?username=${encodeURIComponent(name)}`;
@@ -645,7 +619,7 @@
   }
   function renderMembers() {
     const ul = document.getElementById('member-list');
-    if (!ul) { updateLegend(); return; }  // keep logic safe if list is hidden/omitted
+    if (!ul) { updateLegend(); return; }
     ul.innerHTML = '';
     for (const name of members) {
       const li = document.createElement('li');
@@ -698,7 +672,6 @@ ${missingLine}
 please confirm`;
   }
 
-  // ───────────────────────── Fetch availability ─────────────────────────
   async function fetchMembersAvail() {
     if (!members.length) {
       userSlotSets.clear();
@@ -758,7 +731,6 @@ please confirm`;
     findCandidates();
   }
 
-  // ───────────────────────── Week label/nav ─────────────────────────
   function updateWeekLabel() {
     const el = document.getElementById('week-label');
     if (!el) return;
@@ -770,31 +742,24 @@ please confirm`;
     el.textContent = `${fmt.format(a)} – ${fmt.format(b)}`;
   }
 
-  // ───────────────────────── Init / wiring ─────────────────────────
   function setAuth(ok, username) {
     isAuthenticated = !!ok;
     currentUsername = ok ? username : null;
   }
 
   function attachHandlers() {
-    // Zoom
     gridContent.addEventListener('wheel', onWheelZoom, { passive: false });
-
-    // Reposition NOW line with scroll/resize/time
     gridContent.addEventListener('scroll', updateNowMarker, { passive: true });
     window.addEventListener('resize', updateNowMarker, { passive: true });
     setInterval(updateNowMarker, 30000);
 
-    // Filters
     document.getElementById('max-missing').addEventListener('input', () => { applyFilterDimming(); findCandidates(); });
     document.getElementById('min-hours').addEventListener('input', () => { applyFilterDimming(); findCandidates(); });
     document.getElementById('sort-method').addEventListener('change', () => { findCandidates(); });
 
-    // Members
     document.getElementById('add-user-btn').addEventListener('click', onAddUser);
     document.getElementById('add-me-btn').addEventListener('click', onAddMe);
 
-    // Week nav
     document.getElementById('prev-week').addEventListener('click', async () => {
       weekOffset -= 1;
       buildTable();
@@ -806,7 +771,6 @@ please confirm`;
       await fetchMembersAvail();
     });
 
-    // React live to settings changes
     window.addEventListener('storage', (e) => {
       if (e && e.key === 'nat20_settings') {
         const next = loadLocalSettings();
@@ -868,7 +832,6 @@ please confirm`;
     if (__initDone) return;
     __initDone = true;
 
-    // Rehydrate settings
     const local = loadLocalSettings();
     if (local) {
       settings = { ...DEFAULT_SETTINGS, ...local };
@@ -878,7 +841,6 @@ please confirm`;
       heatmapName = settings.heatmap || 'viridis';
     }
 
-    // DOM
     gridContent = document.getElementById('grid-content');
     table = document.getElementById('schedule-table');
     nowMarker = document.getElementById('now-marker');
@@ -890,7 +852,6 @@ please confirm`;
     await fetchMembersAvail();
   }
 
-  // Expose minimal API
   window.scheduler = { init, setAuth };
 
   if (document.readyState === 'loading') {
