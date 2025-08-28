@@ -314,7 +314,6 @@
 
     const tz = cfg.tz;
 
-    // Determine which column today is in, relative to the displayed week's base
     const base = getWeekStartYMD(tz);
     const baseEpoch = zonedEpoch(base.y, base.m, base.d, 0, 0, tz);
     const t = todayYMD(tz);
@@ -333,23 +332,16 @@
 
     const minutes = minutesOfDayInTZ(tz);
 
-    // Compute vertical position using DOMRects relative to the scroll container's viewport.
-    // This avoids double-applying scroll offsets and fixes the "moves twice as much" drift.
-    const gcRect = gridContent.getBoundingClientRect();
-    const firstRect = firstCell.getBoundingClientRect();
-    const lastRect = lastCell.getBoundingClientRect();
+    const topStart = cumTop(firstCell, gridContent);
+    const topEnd = cumTop(lastCell, gridContent) + lastCell.offsetHeight;
+    const dayHeight = topEnd - topStart;
+    const top = topStart + (minutes / (24 * 60)) * dayHeight;
 
-    const topStartVis = firstRect.top - gcRect.top;                 // visible top of the day's first slot within gridContent
-    const dayHeightVis = (lastRect.bottom - firstRect.top);         // visible height for the entire day within gridContent
-    const topVis = topStartVis + (minutes / (24 * 60)) * dayHeightVis;
-
-    // Horizontal placement unchanged (content coords adjusted by scrollLeft)
-    const leftInContent = cumLeft(firstCell, gridContent);
+    const left = cumLeft(firstCell, gridContent);
     const width = firstCell.offsetWidth;
-    const left = leftInContent - gridContent.scrollLeft;
 
     nowMarker.style.display = 'block';
-    nowMarker.style.top = topVis + 'px';     // NOTE: no subtraction of scrollTop here
+    nowMarker.style.top = top + 'px';
     nowMarker.style.left = left + 'px';
     nowMarker.style.right = '';
     nowMarker.style.width = width + 'px';
