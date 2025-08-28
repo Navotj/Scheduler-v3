@@ -591,59 +591,79 @@
   }
 
   function renderResults(list) {
+    // Reset results UI and any previous highlights
     resultsEl.innerHTML = '';
     clearHighlights();
 
-    if (!list.length) {
-      resultsEl.innerHTML = '<div class="result"><div class="res-sub">No matching sessions. Adjust filters.</div></div>';
-      return;
+    // Build a mask of all slot indices (g) that are included in at least one result
+    const keep = new Array(WEEK_ROWS).fill(false);
+    for (const it of list) {
+        for (let g = it.gStart; g < it.gEnd; g++) keep[g] = true;
     }
 
+    // Darken (dim) every cell that is NOT included in the results; undim those that are
+    const tds = table.querySelectorAll('.slot-cell');
+    for (const td of tds) {
+        const day = Number(td.dataset.day);
+        const row = Number(td.dataset.row);
+        if (!Number.isFinite(day) || !Number.isFinite(row)) continue;
+        const g = day * ROWS_PER_DAY + row;
+        if (keep[g]) td.classList.remove('dim');
+        else td.classList.add('dim');
+    }
+
+    // If there are no sessions, still show the "no matches" card
+    if (!list.length) {
+        resultsEl.innerHTML = '<div class="result"><div class="res-sub">No matching sessions. Adjust filters.</div></div>';
+        return;
+    }
+
+    // Render result cards (unchanged)
     for (const it of list) {
-      const wrap = document.createElement('div');
-      wrap.className = 'result';
+        const wrap = document.createElement('div');
+        wrap.className = 'result';
 
-      const top = document.createElement('div');
-      top.className = 'res-top';
-      top.textContent = fmtRangeSec(it.start, it.end);
+        const top = document.createElement('div');
+        top.className = 'res-top';
+        top.textContent = fmtRangeSec(it.start, it.end);
 
-      const sub = document.createElement('div');
-      sub.className = 'res-sub';
-      sub.textContent = `${it.participants}/${totalMembers} available • ${((it.duration)/SLOTS_PER_HOUR).toFixed(1)}h`;
+        const sub = document.createElement('div');
+        sub.className = 'res-sub';
+        sub.textContent = `${it.participants}/${totalMembers} available • ${((it.duration)/SLOTS_PER_HOUR).toFixed(1)}h`;
 
-      const usersLine = document.createElement('div');
-      usersLine.className = 'res-users';
-      usersLine.textContent = `Users: ${it.users.join(', ')}`;
+        const usersLine = document.createElement('div');
+        usersLine.className = 'res-users';
+        usersLine.textContent = `Users: ${it.users.join(', ')}`;
 
-      const actions = document.createElement('div');
-      const copyBtn = document.createElement('button');
-      copyBtn.type = 'button';
-      copyBtn.textContent = 'Copy Discord invitation';
-      copyBtn.addEventListener('click', async (e) => {
+        const actions = document.createElement('div');
+        const copyBtn = document.createElement('button');
+        copyBtn.type = 'button';
+        copyBtn.textContent = 'Copy Discord invitation';
+        copyBtn.addEventListener('click', async (e) => {
         e.stopPropagation();
         const text = buildDiscordInvite(it);
         const ok = await copyToClipboard(text);
         const old = copyBtn.textContent;
         copyBtn.textContent = ok ? 'Copied to clipboard' : 'Failed to copy';
         setTimeout(() => { copyBtn.textContent = old; }, 1200);
-      });
-      actions.appendChild(copyBtn);
+        });
+        actions.appendChild(copyBtn);
 
-      wrap.appendChild(top);
-      wrap.appendChild(sub);
-      wrap.appendChild(usersLine);
-      wrap.appendChild(actions);
+        wrap.appendChild(top);
+        wrap.appendChild(sub);
+        wrap.appendChild(usersLine);
+        wrap.appendChild(actions);
 
-      wrap.addEventListener('mouseenter', () => {
+        wrap.addEventListener('mouseenter', () => {
         highlightRangeGlobal(it.gStart, it.gEnd, true);
         wrap.classList.add('hovered');
-      });
-      wrap.addEventListener('mouseleave', () => {
+        });
+        wrap.addEventListener('mouseleave', () => {
         highlightRangeGlobal(it.gStart, it.gEnd, false);
         wrap.classList.remove('hovered');
-      });
+        });
 
-      resultsEl.appendChild(wrap);
+        resultsEl.appendChild(wrap);
     }
   }
 

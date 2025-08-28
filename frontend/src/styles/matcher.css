@@ -214,3 +214,24 @@ input[type="number"]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0
 .availability .availability-right{height:100%;min-height:0;overflow:hidden}
 .availability .availability-right .panel{display:grid;grid-template-rows:auto 1fr;height:100%;min-height:0}
 #results{overflow:auto;min-height:0;max-height:100%}
+
+/* Floating cell tooltip that follows the mouse (no layout shift) */
+.cell-tooltip,
+#cell-tooltip{
+  position: fixed;
+  z-index: 9999;
+  pointer-events: none;
+  display: none;
+
+  font-size: 12px;
+  line-height: 1.2;
+  color: var(--fg-1, #b6bfd4);
+
+  background: rgba(18, 19, 21, 0.75);
+  border: 1px solid var(--border, #1a1c20);
+  border-radius: 8px;
+  padding: 6px 8px;
+  max-width: 280px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+  white-space: normal; /* allow wrapping for long names */
+}
