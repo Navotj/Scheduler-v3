@@ -475,6 +475,8 @@
     if (!gridContent || !table) return;
     setMode('add');
     attachControls();
+    // Start fully zoomed out like matcher
+    slotHeight = 12;
     applySlotHeight();
     gridContent.addEventListener('wheel', onWheelZoom, { passive: false });
     buildGrid();

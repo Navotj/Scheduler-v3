@@ -19,20 +19,20 @@
                 <div id="grid-content" class="grid-content">
                   <table id="schedule-table" class="table" aria-label="Weekly availability grid">
                     <thead>
-                      <tr id="header-row">
-                        <th class="times-col" scope="col">Time</th>
-                        <th scope="col" data-day="0"></th>
-                        <th scope="col" data-day="1"></th>
-                        <th scope="col" data-day="2"></th>
-                        <th scope="col" data-day="3"></th>
-                        <th scope="col" data-day="4"></th>
-                        <th scope="col" data-day="5"></th>
-                        <th scope="col" data-day="6"></th>
+                      <tr>
+                        <th class="time-col">Time</th>
+                        <th class="day">Sun, 24 Aug</th>
+                        <th class="day">Mon, 25 Aug</th>
+                        <th class="day">Tue, 26 Aug</th>
+                        <th class="day">Wed, 27 Aug</th>
+                        <th class="day">Thu, 28 Aug</th>
+                        <th class="day">Fri, 29 Aug</th>
+                        <th class="day">Sat, 30 Aug</th>
                       </tr>
                     </thead>
                     <tbody id="table-body"></tbody>
                   </table>
-                  <div id="now-marker" class="now-marker" aria-hidden="true"></div>
+                  <div id="now-marker" class="now-marker" aria-hidden="true"><span class="bubble">NOW</span></div>
                   <div id="cell-tooltip" class="cell-tooltip" style="display:none"></div>
                 </div>
               </div>
@@ -47,13 +47,17 @@
                     <span id="week-label" class="week-label" aria-live="polite"></span>
                   </div>
 
-                  <!-- cluster 2: username + Add -->
+                  <!-- cluster 2: member entry -->
                   <div class="cluster add-user">
-                    <input id="add-username" type="text" placeholder="username" autocomplete="off" />
-                    <button id="add-user-btn" type="button">Add</button>
+                    <div class="field">
+                      <label for="member-name">Member</label>
+                      <input id="member-name" type="text" placeholder="username" />
+                    </div>
+                    <button id="add-user" type="button">Add</button>
+                    <button id="add-me" type="button">Add me</button>
                   </div>
 
-                  <!-- cluster 3: filters (labels above inputs) -->
+                  <!-- cluster 3: filters -->
                   <div class="cluster filters">
                     <div class="field">
                       <label for="max-missing">Max missing</label>
@@ -73,28 +77,22 @@
                     </div>
                   </div>
 
-                  <!-- cluster 5: sort by (same format as filters/legend) -->
-                  <div class="cluster sort-by">
-                    <div class="field select-field">
-                      <label for="sort-method">Sort by</label>
-                      <select id="sort-method">
-                        <option value="participants">Most participants</option>
-                        <option value="longest">Longest first</option>
-                        <option value="soonest">Soonest first</option>
-                      </select>
-                    </div>
+                  <!-- cluster 5: actions -->
+                  <div class="cluster save-controls">
+                    <button id="find" type="button">Find</button>
+                    <button id="copy" type="button">Copy</button>
                   </div>
                 </div>
-
-                <div id="member-error" class="error-text"></div>
-                <ul id="member-list" class="member-list" hidden></ul>
+                <p id="member-error" class="signin-tooltip" aria-hidden="true"></p>
               </div>
             </section>
 
-            <!-- RIGHT: results list -->
+            <!-- RIGHT: results -->
             <aside class="availability-right">
               <section id="results-panel" class="panel">
-                <h3>Results</h3>
+                <header class="panel-head">
+                  <h2>Results</h2>
+                </header>
                 <div id="results" class="results"></div>
               </section>
             </aside>
