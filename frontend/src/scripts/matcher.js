@@ -613,10 +613,14 @@
       return false;
     }
   }
-  function setMemberError(msg) {
-    const el = document.getElementById('member-error');
-    if (el) el.textContent = msg || '';
+function setMemberError(msg) {
+  const el = document.getElementById('member-error');
+  if (el) {
+    el.textContent = msg || '';
+    if (msg) el.classList.add('is-error'); else el.classList.remove('is-error');
   }
+  if (msg) showToast(msg, 'error');
+}
   function renderMembers() {
     const ul = document.getElementById('member-list');
     if (!ul) { updateLegend(); return; }
@@ -866,3 +870,31 @@ please confirm`;
     init();
   }
 })();
+
+function getToastStack() {
+  let stack = document.getElementById('toast-stack');
+  if (!stack) {
+    stack = document.createElement('div');
+    stack.id = 'toast-stack';
+    stack.className = 'toast-stack';
+    document.body.appendChild(stack);
+  }
+  return stack;
+}
+
+function showToast(message, variant = 'info') {
+  const stack = getToastStack();
+  const div = document.createElement('div');
+  div.className = `toast toast-${variant}`;
+  div.setAttribute('role', 'alert');
+  div.textContent = message;
+  stack.appendChild(div);
+
+  // auto dismiss
+  window.setTimeout(() => {
+    div.classList.add('bye');
+  }, 3500);
+  div.addEventListener('animationend', () => {
+    if (div.classList.contains('bye')) div.remove();
+  });
+}

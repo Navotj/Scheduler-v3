@@ -122,3 +122,55 @@
   color: transparent; font-size: 0;
 }
 .results .result button::before { content: "Copy"; font-weight: 700; font-size: 12px; color: #e6e6e6; }
+
+/* Inline error under controls */
+#member-error,
+.error-text {
+  color: #ff5a5f;
+  min-height: 1em; /* reserve space so layout doesn't jump */
+}
+
+/* Toast notifications (fixed; no layout shift) */
+.toast-stack {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  display: grid;
+  gap: 8px;
+  z-index: 9999;
+  pointer-events: none;
+}
+
+.toast {
+  pointer-events: auto;
+  background: rgba(255, 64, 64, 0.18); /* mostly transparent red */
+  border: 1px solid rgba(255, 64, 64, 0.55);
+  color: #ffd9d9;
+  padding: 10px 12px;
+  border-radius: 10px;
+  box-shadow: 0 10px 28px rgba(0,0,0,0.45);
+  backdrop-filter: blur(4px);
+  transform: translateY(8px);
+  opacity: 0;
+  animation: toast-in 160ms ease-out forwards;
+  font-size: 14px;
+  line-height: 1.2;
+}
+
+.toast-error {
+  background: rgba(255, 64, 64, 0.22);
+  border-color: rgba(255, 64, 64, 0.65);
+  color: #ffe2e2;
+}
+
+.toast.bye {
+  animation: toast-out 200ms ease-in forwards;
+}
+
+@keyframes toast-in {
+  from { transform: translateY(8px); opacity: 0; }
+  to   { transform: translateY(0);  opacity: 1; }
+}
+@keyframes toast-out {
+  to   { transform: translateY(8px); opacity: 0; }
+}
