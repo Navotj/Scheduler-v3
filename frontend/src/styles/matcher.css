@@ -1,68 +1,109 @@
-/* Extend availability visuals; do NOT change layout primitives from availability.css */
+/* Use availability’s layout and visuals; only add what’s needed for matcher controls/results. */
 
-/* Controls pane uses availability’s panel tones */
-.controls-pane .pane-inner { display: grid; gap: 12px; }
-.controls-pane .pane-row { display: grid; gap: 12px; }
-.controls-pane .pane-row-top {
-  grid-template-columns: 2fr 2fr 1fr; /* Members | Filters | Week nav */
+/* ───────────────────────── Bottom controls row ───────────────────────── */
+/* The container and week controls are already styled in availability.css via:
+   .controls-pane, .picker-controls, .week-controls, .picker-controls button, etc.
+   We only define the middle column (filters) and small form affordances. */
+
+.filters-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;   /* labels above inputs; align inputs along baseline */
+  gap: 12px 14px;
+  min-width: 0;
 }
-@media (max-width: 1100px) {
-  .controls-pane .pane-row-top { grid-template-columns: 1fr; }
-}
 
-/* Blocks inside the pane */
-.controls-pane .pane-block { background: var(--card, #121315); border: 1px solid var(--border, #1a1c20); border-radius: var(--radius, 10px); padding: 12px; }
-.controls-pane .pane-block h3 { margin: 0 0 8px 0; font-size: 14px; }
+/* Each field stacks label above the control (the ONLY vertical stacking) */
+.field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.field label { font-size: 12px; color: var(--fg-1, #b6bfd4); white-space: nowrap; }
 
-/* Member add row */
-.add-user { display: grid; grid-template-columns: minmax(0,1fr) auto auto; gap: 8px; align-items: center; }
+.field input[type="text"],
+.field input[type="number"],
+.field select,
 .add-user input {
-  background: #0f0f0f; color: #eee; border: 1px solid #333; border-radius: 8px; height: 32px; padding: 4px 8px;
+  background: #0f0f0f;
+  color: #eee;
+  border: 1px solid #333;
+  border-radius: 8px;
+  height: 32px;
+  padding: 4px 8px;
+  box-sizing: border-box;
+  min-width: 0;
 }
-.btn { display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 10px; border-radius: 8px; cursor: pointer; }
-.btn.btn-primary { background: #2d6cdf; color: #fff; border: 0; }
-.btn.btn-secondary { background: #272727; color: #fff; border: 1px solid #3a3a3a; }
+.field select { height: 32px; }
 
-/* Member chips */
-.member-list { list-style: none; margin: 8px 0 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
-.member-list li { position: relative; display: inline-flex; align-items: center; gap: 8px; background: #121212; border: 1px solid #2a2a2a; border-radius: 10px; padding: 4px 22px 4px 10px; font-size: 12px; }
-.member-list li button { position: absolute; top: 4px; right: 4px; width: 16px; height: 16px; padding: 0; border: 0; background: transparent; color: transparent; font-size: 0; cursor: pointer; }
-.member-list li button::before { content: "×"; font-size: 16px; line-height: 1; color: #ff4d4d; }
-.member-list li button:hover::before { color: #ff6b6b; }
+.field .row { display: inline-flex; align-items: center; gap: 6px; }
+#min-hours { padding-right: 0; text-align: center; }
+.field .row span { user-select: none; }
+
+/* Add members group (treated as a single horizontal “part”) */
+.add-user {
+  display: grid;
+  grid-template-columns: minmax(0, 16ch) auto auto;
+  gap: 8px;
+  align-items: end;
+  min-width: 24ch;
+}
+.add-user button {
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border, #1a1c20);
+  background: #272727;
+  color: #fff;
+  cursor: pointer;
+}
+
+/* Inline error under the controls */
 .error-text { color: #ff6b6b; font-size: 12px; min-height: 1.2em; margin-top: 6px; }
 
-/* Filters */
-.field { display: grid; gap: 4px; }
-.field-row { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 8px; }
-.field label { font-size: 12px; white-space: nowrap; }
-.field input[type="number"], .field select {
-  background: #0f0f0f; color: #eee; border: 1px solid #333; border-radius: 8px; height: 32px; padding: 4px 8px; width: 100%;
-}
-.field .row { display: inline-flex; align-items: center; gap: 6px; }
+/* Member chips are hidden to preserve horizontal-only bottom row (still updated by JS if unhidden) */
+.member-list { display: none; }
 
-/* Legend (chips colored by JS inline style to avoid CSS conflicts) */
-.legend { margin-top: 8px; }
-.legend-blocks { display: grid; gap: 6px; }
-.legend-blocks .steps-row, .legend-blocks .labels-row { display: grid; gap: 3px; grid-template-columns: repeat(5, 1fr); }
-.legend-blocks .chip { width: 100%; height: 10px; border-radius: 6px; border: 1px solid var(--border, #1a1c20); }
-.legend-blocks .labels-row span { text-align: center; font-size: 12px; }
-.legend-blocks .spacer { visibility: hidden; }
-
-/* Week nav area */
-.nav-row { display: inline-grid; grid-auto-flow: column; gap: 8px; align-items: center; }
-.week-label { min-width: 12ch; text-align: center; color: var(--fg-1, #b6bfd4); }
-
-/* Results panel in availability-right */
+/* ───────────────────────── Results panel ───────────────────────── */
 .panel { background: var(--card, #121315); border: 1px solid var(--border, #1a1c20); border-radius: var(--radius, 10px); padding: 12px; }
 .panel h3 { margin: 0 0 8px 0; font-size: 15px; }
+
 .results { max-height: 100%; overflow: auto; padding-right: 4px; }
-.results .result { position: relative; background: #121212; border: 1px solid #2a2a2a; border-radius: 10px; padding: 8px 10px 26px 10px; margin: 8px 0; }
-.results .result .res-top { font-weight: 600; margin-bottom: 3px; font-size: 13px; }
-.results .result .res-sub { font-size: 11px; color: #bbb; margin-bottom: 3px; }
-.results .result .res-users { font-size: 11px; color: #cfe9cf; word-break: break-word; }
+.results .result {
+  position: relative;
+  background: #121212;
+  border: 1px solid #2a2a2a;
+  border-radius: 10px;
+  padding: 8px 10px 26px 10px;
+  margin: 8px 0;
+  transition: border-color 0.12s ease;
+}
+.results .res-top { font-weight: 600; margin-bottom: 3px; font-size: 13px; }
+.results .res-sub { font-size: 11px; color: #bbb; margin-bottom: 3px; }
+.results .res-users { font-size: 11px; color: #cfe9cf; word-break: break-word; }
 .results .result.hovered { border-color: #ffd54a; }
-.results .result button { position: absolute; right: 10px; bottom: 8px; background: none; border: none; padding: 0; cursor: pointer; color: transparent; font-size: 0; }
+
+/* Minimal copy link */
+.results .result button {
+  position: absolute;
+  right: 10px;
+  bottom: 8px;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  color: transparent;
+  font-size: 0;
+}
 .results .result button::before { content: "Copy"; font-weight: 700; font-size: 12px; color: #e6e6e6; }
 
-/* Tooltip for cell hover (shares style with availability tooltip if present) */
-.cell-tooltip { position: fixed; z-index: 6000; background: #141414; border: 1px solid #333; color: #eee; padding: 6px 8px; border-radius: 8px; font-size: 11px; max-width: 260px; pointer-events: none; box-shadow: 0 10px 28px rgba(0,0,0,0.45); }
+/* Tooltip for cell hover (same tone as availability) */
+.cell-tooltip {
+  position: fixed;
+  z-index: 6000;
+  background: #141414;
+  border: 1px solid #333;
+  color: #eee;
+  padding: 6px 8px;
+  border-radius: 8px;
+  font-size: 11px;
+  max-width: 260px;
+  pointer-events: none;
+  box-shadow: 0 10px 28px rgba(0,0,0,0.45);
+}

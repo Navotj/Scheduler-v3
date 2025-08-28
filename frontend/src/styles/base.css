@@ -264,22 +264,17 @@ h1,h2,h3,p{margin:0}
   border-radius: 8px;
 }
 
-/* centered red logo text between auth label and clock */
 .brand-title{
-  position:absolute;
-  left:50%;
-  top:50%;
-  transform:translate(-50%,-50%);
-  white-space:nowrap;
   font-weight:800;
-  font-size:clamp(14px,2vw,18px);
+  font-size:clamp(14px,2.2vw,20px);
   color:#ff3b3b;
   letter-spacing:.2px;
   user-select:none;
-  pointer-events:none; /* never intercept clicks */
+  pointer-events:none;
+  line-height:1;
+  font-family:"Montserrat","Inter","Segoe UI",system-ui,-apple-system,Arial,sans-serif;
 }
 
-/* hide logo on smaller screens to avoid overlap/push */
-@media (max-width: 1200px){
+@container (max-width:980px){
   .brand-title{ display:none }
 }

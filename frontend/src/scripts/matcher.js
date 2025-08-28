@@ -20,7 +20,7 @@
   let weekStartIdx = settings.weekStart === 'mon' ? 1 : 0;
   let heatmapName = settings.heatmap || 'viridis';
 
-  // Vertical zoom — use the same CSS var as availability: --slot-h
+  // Vertical zoom — uses availability’s CSS var: --slot-h
   let slotHeight = 18; // px
   const ZOOM_MIN = 12, ZOOM_MAX = 48, ZOOM_STEP = 2;
 
@@ -36,7 +36,7 @@
   let sets = [];                       // per-slot Set of available users
 
   // DOM refs
-  let gridContent, table, nowMarker, resultsEl, resultsPanel, controlsPane;
+  let gridContent, table, nowMarker, resultsEl, resultsPanel;
 
   // Init guard / reentrancy guards
   let __initDone = false;
@@ -120,8 +120,8 @@
     if (!e.shiftKey) return;
     if (!gridContent) return;
     e.preventDefault();
-    const dir = Math.sign(e.deltaY);              // up: -1, down: +1 (device-dependent)
-    const next = slotHeight - dir * ZOOM_STEP;    // invert so wheel-up zooms in
+    const dir = Math.sign(e.deltaY);              // up: -1, down: +1
+    const next = slotHeight - dir * ZOOM_STEP;    // wheel-up zooms in
     slotHeight = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, next));
     applySlotHeight();
     updateNowMarker();
@@ -194,7 +194,6 @@
     paintCounts();
     shadePast();
     updateNowMarker();
-    syncResultsHeight();
 
     // Initial fit: try to fit 24h in view
     requestAnimationFrame(() => {
@@ -315,12 +314,11 @@
     const { baseEpoch } = getWeekStartEpochAndYMD();
     const baseMs = baseEpoch * 1000;
     const endMs = baseMs + 7 * 86400000;
-    const tds = table.querySelectorAll('.slot-cell');
 
-    for (const td of tds) td.classList.remove('past');
+    for (const td of table.querySelectorAll('.slot-cell')) td.classList.remove('past');
     if (nowMs < baseMs || nowMs > endMs) return;
 
-    for (const td of tds) {
+    for (const td of table.querySelectorAll('.slot-cell')) {
       const cellMs = Number(td.dataset.epoch) * 1000;
       if (cellMs < nowMs) td.classList.add('past');
     }
@@ -399,8 +397,7 @@
     const minSlots = Math.max(1, Math.round(minHours * SLOTS_PER_HOUR));
     const startIdx = nowGlobalIndex();
 
-    const tds = table.querySelectorAll('.slot-cell');
-    for (const td of tds) td.classList.remove('dim');
+    for (const td of table.querySelectorAll('.slot-cell')) td.classList.remove('dim');
     if (!totalMembers || needed <= 0) return;
 
     let g = 0;
@@ -423,10 +420,12 @@
   }
 
   function updateLegend() {
+    // Legend optional; skip if container not present (layout keeps availability look)
     const blocks = document.getElementById('legend-blocks');
+    if (!blocks) return;
+
     const n = members.length;
     const chips = [];
-
     document.documentElement.classList.toggle('compress-low', n >= 11);
 
     if (n >= 11) {
@@ -437,47 +436,47 @@
       for (let i = 0; i <= n; i++) chips.push({ raw: i, label: String(i) });
     }
 
-    if (blocks) {
-      blocks.innerHTML = '';
-      const COLS = 5;
-      for (let i = 0; i < chips.length; i += COLS) {
-        const group = chips.slice(i, i + COLS);
+    blocks.innerHTML = '';
+    const COLS = 5;
+    for (let i = 0; i < chips.length; i += COLS) {
+      const group = chips.slice(i, i + COLS);
 
-        const stepsRow = document.createElement('div');
-        stepsRow.className = 'steps-row';
+      const stepsRow = document.createElement('div');
+      stepsRow.className = 'steps-row';
 
-        const labelsRow = document.createElement('div');
-        labelsRow.className = 'labels-row';
+      const labelsRow = document.createElement('div');
+      labelsRow.className = 'labels-row';
 
-        for (const item of group) {
-          const chip = document.createElement('div');
-          chip.className = 'chip slot-cell';
-          chip.style.setProperty('background-color', shadeForCount(item.raw), 'important');
-          if (n >= 11) {
-            const threshold = Math.max(0, n - 10);
-            chip.dataset.c = (item.raw <= threshold) ? '0' : '7';
-          } else {
-            chip.dataset.c = item.raw > 0 ? '7' : '0';
-          }
-          stepsRow.appendChild(chip);
+      for (const item of group) {
+        const chip = document.createElement('div');
+        chip.className = 'chip slot-cell';
+        chip.style.setProperty('background-color', shadeForCount(item.raw), 'important');
 
-          const lab = document.createElement('span');
-          lab.textContent = item.label;
-          labelsRow.appendChild(lab);
+        if (n >= 11) {
+          const threshold = Math.max(0, n - 10);
+          chip.dataset.c = (item.raw <= threshold) ? '0' : '7';
+        } else {
+          chip.dataset.c = item.raw > 0 ? '7' : '0';
         }
 
-        for (let f = group.length; f < COLS; f++) {
-          const spacerChip = document.createElement('div');
-          spacerChip.className = 'chip spacer';
-          stepsRow.appendChild(spacerChip);
-          const spacerLab = document.createElement('span');
-          spacerLab.className = 'spacer';
-          labelsRow.appendChild(spacerLab);
-        }
+        stepsRow.appendChild(chip);
 
-        blocks.appendChild(stepsRow);
-        blocks.appendChild(labelsRow);
+        const lab = document.createElement('span');
+        lab.textContent = item.label;
+        labelsRow.appendChild(lab);
       }
+
+      for (let f = group.length; f < COLS; f++) {
+        const spacerChip = document.createElement('div');
+        spacerChip.className = 'chip spacer';
+        stepsRow.appendChild(spacerChip);
+        const spacerLab = document.createElement('span');
+        spacerLab.className = 'spacer';
+        labelsRow.appendChild(spacerLab);
+      }
+
+      blocks.appendChild(stepsRow);
+      blocks.appendChild(labelsRow);
     }
   }
 
@@ -646,6 +645,7 @@
   }
   function renderMembers() {
     const ul = document.getElementById('member-list');
+    if (!ul) { updateLegend(); return; }  // keep logic safe if list is hidden/omitted
     ul.innerHTML = '';
     for (const name of members) {
       const li = document.createElement('li');
@@ -782,7 +782,7 @@ please confirm`;
 
     // Reposition NOW line with scroll/resize/time
     gridContent.addEventListener('scroll', updateNowMarker, { passive: true });
-    window.addEventListener('resize', () => { updateNowMarker(); syncResultsHeight(); });
+    window.addEventListener('resize', updateNowMarker, { passive: true });
     setInterval(updateNowMarker, 30000);
 
     // Filters
@@ -864,15 +864,6 @@ please confirm`;
     } catch { return null; }
   }
 
-  function syncResultsHeight() {
-    if (!resultsPanel) return;
-    // Match results panel height to bottom of grid
-    const gridRect = document.getElementById('grid').getBoundingClientRect();
-    const panelRect = resultsPanel.getBoundingClientRect();
-    const available = Math.max(120, Math.floor(gridRect.bottom - panelRect.top - 8));
-    resultsPanel.style.minHeight = available + 'px';
-  }
-
   async function init() {
     if (__initDone) return;
     __initDone = true;
@@ -893,7 +884,6 @@ please confirm`;
     nowMarker = document.getElementById('now-marker');
     resultsEl = document.getElementById('results');
     resultsPanel = document.getElementById('results-panel');
-    controlsPane = document.getElementById('filters-pane');
 
     buildTable();
     attachHandlers();
