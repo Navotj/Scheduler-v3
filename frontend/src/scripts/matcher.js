@@ -544,18 +544,13 @@
       for (const v of a) if (!b.has(v)) return false;
       return true;
     };
-    const setIntersect = (a, b) => {
-      const out = new Set();
-      for (const v of a) if (b.has(v)) out.add(v);
-      return out;
-    };
 
-    // --- sweep to build maximal segments with a stable cohort ---
-    let currentCohort = null;   // Set of users for the current segment
-    let segmentStart  = -1;     // g index where the current segment starts
+    // Sweep as runs of **exact cohort equality**.
+    // This captures both outer (e.g., 8h of 4 ppl) and nested stronger cohorts (e.g., 4h of 5 ppl).
+    let currentCohort = null;  // Set of users for the current segment (exact slot cohort)
+    let segmentStart  = -1;    // g index where the current segment starts
 
     const flushSegment = (endG) => {
-      // Emit current segment [segmentStart, endG) if long enough and meets needed
       if (currentCohort && segmentStart >= 0) {
         const length = endG - segmentStart;
         if (length >= minSlots && currentCohort.size >= needed) {
@@ -576,7 +571,7 @@
     for (let g = startIdx; g < WEEK_ROWS; g++) {
       const slotSet = sets[g];
 
-      // No availability at this slot or below threshold: close any open segment.
+      // If no availability or below threshold, close any open segment.
       if (!slotSet || slotSet.size < needed) {
         if (currentCohort) {
           flushSegment(g);
@@ -587,38 +582,31 @@
       }
 
       if (!currentCohort) {
-        // Start a new segment here with this slot's cohort.
+        // Start a new segment with this slot's exact cohort.
         currentCohort = new Set(slotSet);
         segmentStart  = g;
         continue;
       }
 
-      // Continue an existing segment: intersect with current slot's users.
-      const nextCohort = setIntersect(currentCohort, slotSet);
-
-      // If the intersect drops below needed, close the segment before g.
-      if (nextCohort.size < needed) {
+      // If the cohort changed (either shrank or expanded or swapped), close and start anew.
+      if (!setEqual(slotSet, currentCohort)) {
         flushSegment(g);
-        currentCohort = null;
-        segmentStart  = -1;
+        // Start a new segment if the new slot still meets threshold.
+        if (slotSet.size >= needed) {
+          currentCohort = new Set(slotSet);
+          segmentStart  = g;
+        } else {
+          currentCohort = null;
+          segmentStart  = -1;
+        }
         continue;
       }
 
-      // If the cohort identity changed (shrink or any change), close prior segment and start a new one at g.
-      if (!setEqual(nextCohort, currentCohort)) {
-        flushSegment(g);
-        currentCohort = nextCohort;
-        segmentStart  = g;
-        continue;
-      }
-
-      // else: cohort unchanged; keep extending.
+      // else: exact cohort unchanged; keep extending.
     }
 
-    // Close any trailing segment to WEEK_ROWS
-    if (currentCohort) {
-      flushSegment(WEEK_ROWS);
-    }
+    // Close trailing segment
+    if (currentCohort) flushSegment(WEEK_ROWS);
 
     // Sort-mode from either value or visible text
     const sortEl  = document.getElementById('sort-method');
