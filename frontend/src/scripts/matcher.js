@@ -528,35 +528,34 @@
     const minHours   = parseFloat(document.getElementById('min-hours').value || '1');
     const needed     = Math.max(0, totalMembers - maxMissing);
     const minSlots   = Math.max(1, Math.ceil(minHours * SLOTS_PER_HOUR));
-    const startIdx   = nowGlobalIndex();
-    const { baseEpoch } = getWeekStartEpochAndYMD();
 
+    // IMPORTANT: when viewing a future week (weekOffset > 0), scan the whole week.
+    // Only clamp to "now" when viewing the current week.
+    const startIdx   = (weekOffset > 0) ? 0 : nowGlobalIndex();
+
+    const { baseEpoch } = getWeekStartEpochAndYMD();
     const sessions = [];
     if (!totalMembers || needed <= 0) { renderResults(sessions); return; }
 
-    // Scan from every slot, but only emit a session when this slot is the
-    // LEFTMOST boundary for that exact cohort (prevents sliding duplicates).
     for (let g = startIdx; g < WEEK_ROWS; g++) {
-      let curr = sets[g];
-      if (!curr || curr.size < needed) continue;
+      const seed = sets[g];
+      if (!seed || seed.size < needed) continue;
 
-      // Grow forward while the intersection keeps at least `needed` members.
+      // Grow forward keeping the SAME cohort (no swapping).
+      let cohort = new Set(seed);
       let t = g + 1;
-      let cohort = new Set(curr);
       while (t < WEEK_ROWS) {
         const next = sets[t];
         if (!next) break;
-        // Intersect with next; stop when cohort becomes too small.
+        // Intersect to maintain identical attendees over the whole block
         cohort = new Set([...cohort].filter(x => next.has(x)));
         if (cohort.size < needed) break;
         t++;
       }
 
-      // If the block qualifies by length, check that g is the leftmost boundary
-      // for THIS exact cohort; if previous slot also contains all `cohort` users,
-      // then a longer identical-cohort block already started earlier -> skip.
       const length = t - g;
       if (length >= minSlots) {
+        // Emit only if this is the LEFT boundary for this cohort (avoid sliding duplicates)
         const prev = g > 0 ? sets[g - 1] : null;
         let leftExtendable = false;
         if (prev) {
@@ -574,11 +573,14 @@
             participants: usersSorted.length,
             users: usersSorted
           });
+          // Skip ahead to the end of this block; there cannot be another distinct
+          // identical-cohort session starting inside it.
+          g = t - 1;
         }
       }
     }
 
-    // Map sort-mode from either <option value> or visible text
+    // Sort-mode from either value or visible text
     const sortEl  = document.getElementById('sort-method');
     const byVal   = (sortEl && sortEl.value || '').toLowerCase().trim();
     const byText  = (sortEl && sortEl.options && sortEl.selectedIndex >= 0 ? (sortEl.options[sortEl.selectedIndex].text || '') : '').toLowerCase().trim();
@@ -596,7 +598,7 @@
       switch (sortMode) {
         case 'most':
           if (b.participants !== a.participants) return b.participants - a.participants;
-          if (b.duration !== a.duration)         return b.duration - a.duration;
+          if (b.duration     !== a.duration)     return b.duration - a.duration;
           return a.start - b.start;
         case 'earliest-week':
           return a.start - b.start;
@@ -613,7 +615,7 @@
           return a.start - b.start;
         }
         case 'longest':
-          if (b.duration !== a.duration) return b.duration - a.duration;
+          if (b.duration     !== a.duration)     return b.duration - a.duration;
           if (b.participants !== a.participants) return b.participants - a.participants;
           return a.start - b.start;
         default:
@@ -783,6 +785,7 @@
       return false;
     }
   }
+
   function buildDiscordInvite(item) {
     const start = Math.floor(item.start);
     const end = Math.floor(item.end);
