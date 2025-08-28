@@ -567,9 +567,7 @@
       });
     };
 
-    // PASS A: Stable-INTERSECTION segments (outer blocks).
-    // This ensures that any slot within a larger valid block stays "available" for dimming,
-    // even if inner sub-runs (with different exact cohorts) are too short to be emitted.
+    // PASS A: Stable-INTERSECTION segments (outer blocks keep areas bright even if inner exact runs are short)
     (function buildIntersectionSegments() {
       let current = null;   // running intersection cohort
       let segStart = -1;
@@ -593,34 +591,29 @@
         const next = setIntersect(current, slot);
 
         if (next.size < needed) {
-          // close up to g
           addSession(segStart, g, current);
           current = null;
           segStart = -1;
           continue;
         }
 
-        // if intersection changed, close previous segment and start a new one at g
         if (!setEqual(next, current)) {
           addSession(segStart, g, current);
           current = next;
           segStart = g;
         }
-        // else unchanged: keep extending
       }
 
       if (current) addSession(segStart, WEEK_ROWS, current);
     })();
 
-    // PASS B: Exact-cohort runs (inner stronger cohorts).
-    // This adds nested segments like a 4h block of 5 people inside an 8h block of 4 people.
+    // PASS B: Exact-cohort runs (captures nested stronger cohorts, e.g., 5 people inside 4 people)
     (function buildExactRuns() {
       let runCohort = null;
       let runStart = -1;
 
       for (let g = startIdx; g < WEEK_ROWS; g++) {
         const slot = sets[g];
-
         const meets = !!slot && slot.size >= needed;
 
         if (!meets) {
@@ -641,7 +634,6 @@
           runCohort = new Set(slot);
           runStart = g;
         }
-        // else unchanged, continue
       }
 
       if (runCohort) addSession(runStart, WEEK_ROWS, runCohort);
@@ -651,7 +643,38 @@
     const keyOf = (s) => `${s.gStart}:${s.gEnd}:${s.users.join(',')}`;
     const dedupMap = new Map();
     for (const s of sessions) dedupMap.set(keyOf(s), s);
-    const finalSessions = Array.from(dedupMap.values());
+    let finalSessions = Array.from(dedupMap.values());
+
+    // REMOVE DOMINATED DUPLICATES:
+    // If two sessions have the exact same users and one is strictly contained in the other, drop the shorter.
+    // This keeps 16:30–00:00 (4 ppl) while removing 16:30–20:30 (same 4 ppl),
+    // but still keeps 20:30–00:00 (5 ppl) because users differ.
+    {
+      const byUsers = new Map(); // usersKey -> array of sessions
+      for (const s of finalSessions) {
+        const key = s.users.join(',');
+        if (!byUsers.has(key)) byUsers.set(key, []);
+        byUsers.get(key).push(s);
+      }
+      const kept = [];
+      for (const arr of byUsers.values()) {
+        // Sort larger ranges first so they dominate
+        arr.sort((a, b) => {
+          if (a.gStart !== b.gStart) return a.gStart - b.gStart;
+          return b.gEnd - a.gEnd;
+        });
+        const winners = [];
+        for (const s of arr) {
+          let dominated = false;
+          for (const w of winners) {
+            if (w.gStart <= s.gStart && w.gEnd >= s.gEnd) { dominated = true; break; }
+          }
+          if (!dominated) winners.push(s);
+        }
+        kept.push(...winners);
+      }
+      finalSessions = kept;
+    }
 
     // Sort-mode from either value or visible text
     const sortEl  = document.getElementById('sort-method');

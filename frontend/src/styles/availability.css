@@ -125,7 +125,7 @@
 .availability .time-label.hour { display: inline-block; }
 
 /* Selection states */
-.availability .table td.slot-cell.selected { background: rgb(24 128 59 / 25%); }
+.availability .table td.slot-cell.selected { background: rgba(23, 186, 78, 0.5); }
 .availability .table td.slot-cell.preview-add { outline: 2px dashed rgba(15, 185, 72, 0.7); outline-offset: -2px; }
 .availability .table td.slot-cell.preview-sub { outline: 2px dashed rgba(255, 96, 96, 0.8); outline-offset: -2px; }
 /* Past cells: filled light gray, no global opacity */
