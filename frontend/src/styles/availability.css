@@ -21,28 +21,35 @@
   width: 100%;
   height: 100%;
   display: grid;
-  grid-template-rows: 1fr auto; /* grid resizes; controls never force page overflow */
+  grid-template-rows: 1fr auto;
+  gap: 12px;
+  min-height: 0;
+  overflow: hidden;
 }
+
 
 /* Scrollable grid viewport (scoped; no page-level coupling) */
 .availability .grid {
   box-sizing: border-box;
-  min-height: inherit;
+  min-height: 0;
   height: 100%;
+  overflow: hidden;
 }
+
 
 /* Give the scroll container a concrete height so the table is visible */
 .availability .grid-content {
   position: relative;
   overflow-y: auto;
-  overflow-x: hidden; /* never allow horizontal scrollbar */
+  overflow-x: hidden;
   width: 100%;
   height: 100%;
-  min-height: inherit; /* ensures grid fills the container height */
+  min-height: 0;
   background: var(--card, #121315);
   border: 1px solid var(--border, #1a1c20);
   border-radius: var(--radius, 10px);
 }
+
 
 /* Table visuals */
 .availability .table {
@@ -63,12 +70,10 @@
   z-index: 2;
   background: var(--bg-1, #0c0d10);
   border-bottom: 1px solid #2a2f3a;
-  padding: 0 8px; /* vertical size tied to slot height; no overflow */
+  padding: 0 8px;
   height: var(--slot-h);
   line-height: var(--slot-h);
-  display: flex;
-  align-items: center;          /* vertically centered */
-  justify-content: center;      /* horizontally centered for day cells; time col overridden below */
+  vertical-align: middle;
   font-weight: 600;
   white-space: nowrap;
   text-overflow: ellipsis;
