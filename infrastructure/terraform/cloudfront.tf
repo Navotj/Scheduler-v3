@@ -26,8 +26,6 @@ data "aws_cloudfront_response_headers_policy" "security_headers" {
   name = "Managed-SecurityHeadersPolicy"
 }
 
-# Custom origin request policy for API: forward minimal headers, all cookies & query strings.
-# IMPORTANT: We do NOT forward the viewer Host header; CloudFront will set Host to the origin host.
 resource "aws_cloudfront_origin_request_policy" "api_minimal" {
   name    = "${var.app_prefix}-api-origin-policy"
   comment = "Forward minimal headers; all cookies; all query strings; do not forward viewer Host"
@@ -43,7 +41,6 @@ resource "aws_cloudfront_origin_request_policy" "api_minimal" {
         "Accept",
         "Accept-Language",
         "User-Agent",
-        "Cookie",
         "X-Requested-With",
       ]
     }
@@ -57,6 +54,7 @@ resource "aws_cloudfront_origin_request_policy" "api_minimal" {
     query_string_behavior = "all"
   }
 }
+
 
 resource "aws_cloudfront_origin_access_control" "frontend" {
   name                              = "${var.app_prefix}-oac"
