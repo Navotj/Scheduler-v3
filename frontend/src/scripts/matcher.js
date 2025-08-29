@@ -127,6 +127,34 @@
   function buildTable() {
     table.innerHTML = '';
 
+    // Resolve date format from saved settings (fallback to 'mon-dd' like availability.js)
+    let dateFmt = 'mon-dd';
+    try {
+      const raw = localStorage.getItem('nat20_settings');
+      const s = raw ? JSON.parse(raw) : null;
+      if (s && typeof s.dateFormat === 'string' && ['mon-dd', 'dd-mm', 'mm-dd', 'dd-mon'].includes(s.dateFormat)) {
+        dateFmt = s.dateFormat;
+      }
+    } catch {}
+
+    // Helper to render header text per day using chosen date format (with a comma after weekday)
+    function headerLabelFor(epochSec) {
+      const d = new Date(epochSec * 1000);
+      const weekday = new Intl.DateTimeFormat(undefined, { timeZone: tz, weekday: 'short' }).format(d);
+      const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(d);
+      const map = {};
+      for (const p of parts) map[p.type] = p.value;
+      const moNum = String(+map.month);
+      const ddNum = String(+map.day);
+      const monName = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'][+map.month - 1];
+      let dateText;
+      if (dateFmt === 'dd-mm') dateText = `${ddNum}/${moNum}`;
+      else if (dateFmt === 'mm-dd') dateText = `${moNum}/${ddNum}`;
+      else if (dateFmt === 'dd-mon') dateText = `${ddNum} ${monName}`;
+      else dateText = `${monName} ${ddNum}`; // 'mon-dd'
+      return `${weekday}, ${dateText}`;
+    }
+
     const thead = document.createElement('thead');
     const trh = document.createElement('tr');
 
@@ -137,14 +165,11 @@
 
     const { baseEpoch } = getWeekStartEpochAndYMD();
     for (let i = 0; i < 7; i++) {
-        const d = new Date((baseEpoch + i * 86400) * 1000);
-        const label = new Intl.DateTimeFormat('en-US', {
-        timeZone: tz, weekday: 'short', day: '2-digit', month: 'short'
-        }).format(d);
-        const th = document.createElement('th');
-        th.textContent = label;
-        th.className = 'day';
-        trh.appendChild(th);
+      const dayEpoch = baseEpoch + i * 86400;
+      const th = document.createElement('th');
+      th.textContent = headerLabelFor(dayEpoch);
+      th.className = 'day';
+      trh.appendChild(th);
     }
     thead.appendChild(trh);
     table.appendChild(thead);
@@ -153,11 +178,11 @@
     const totalRows = ROWS_PER_DAY;
 
     for (let r = 0; r < totalRows; r++) {
-        const tr = document.createElement('tr');
-        const isHalf = (r % 2) === 1;
-        tr.className = isHalf ? 'row-half' : 'row-hour';
+      const tr = document.createElement('tr');
+      const isHalf = (r % 2) === 1;
+      tr.className = isHalf ? 'row-half' : 'row-hour';
 
-        if (!isHalf) {
+      if (!isHalf) {
         const minutes = (HOURS_START * 60) + r * (60 / SLOTS_PER_HOUR);
         const hh = Math.floor(minutes / 60);
         const th = document.createElement('th');
@@ -168,9 +193,9 @@
         span.textContent = fmtTime(hh, 0);
         th.appendChild(span);
         tr.appendChild(th);
-        }
+      }
 
-        for (let day = 0; day < 7; day++) {
+      for (let day = 0; day < 7; day++) {
         const td = document.createElement('td');
         td.className = 'slot-cell';
         const epoch = getDayStartSec(day) + r * SLOT_SEC;
@@ -181,8 +206,8 @@
         td.addEventListener('mousemove', onCellHoverMove);
         td.addEventListener('mouseleave', hideTooltip);
         tr.appendChild(td);
-        }
-        tbody.appendChild(tr);
+      }
+      tbody.appendChild(tr);
     }
 
     table.appendChild(tbody);
@@ -193,17 +218,17 @@
     updateNowMarker();
 
     requestAnimationFrame(() => {
-        const headH = thead.offsetHeight || 0;
-        const avail = Math.max(0, gridContent.clientHeight - headH - 2);
-        const needed = ROWS_PER_DAY * slotHeight;
-        if (needed > 0) {
+      const headH = thead.offsetHeight || 0;
+      const avail = Math.max(0, gridContent.clientHeight - headH - 2);
+      const needed = ROWS_PER_DAY * slotHeight;
+      if (needed > 0) {
         const fit = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, Math.floor(avail / (needed / slotHeight))));
         if (!Number.isNaN(fit)) {
-            slotHeight = fit;
-            applySlotHeight();
-            updateNowMarker();
+          slotHeight = fit;
+          applySlotHeight();
+          updateNowMarker();
         }
-        }
+      }
     });
 
     updateWeekLabel();
