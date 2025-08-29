@@ -56,6 +56,12 @@ resource "aws_cloudfront_distribution" "frontend" {
     origin_id   = "api-origin"
     domain_name = local.api_domain
 
+    # Only CloudFront knows this header; clients never see it.
+    custom_header {
+      name  = "X-Edge-Secret"
+      value = var.edge_secret
+    }
+
     custom_origin_config {
       http_port              = 80
       https_port             = 443
@@ -69,7 +75,6 @@ resource "aws_cloudfront_distribution" "frontend" {
   ########################################
 
   # Default behavior: HTML documents and anything not matched below
-  # Use conservative caching for HTML (disable caching at edge).
   default_cache_behavior {
     target_origin_id           = "s3-frontend-origin"
     viewer_protocol_policy     = "redirect-to-https"
@@ -134,8 +139,6 @@ resource "aws_cloudfront_distribution" "frontend" {
   ########################################
   # Error responses
   ########################################
-  # S3 REST origin returns 403 for missing keys when using OAC.
-  # Serve a proper 404 page in both 403 and 404 cases.
   custom_error_response {
     error_code            = 403
     response_code         = 404

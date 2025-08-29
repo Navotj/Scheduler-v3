@@ -6,6 +6,9 @@ resource "aws_apigatewayv2_api" "backend_api" {
   name          = "${var.app_prefix}-httpapi"
   protocol_type = "HTTP"
 
+  # Prevent use of the default execute-api endpoint; callers must use your custom domain (or CloudFront).
+  disable_execute_api_endpoint = true
+
   cors_configuration {
     allow_credentials = true
     allow_headers     = ["Content-Type", "X-Requested-With", "Authorization", "Cookie"]
@@ -34,10 +37,13 @@ resource "aws_apigatewayv2_integration" "backend_integration" {
 }
 
 # Route all requests to the backend via the VPC Link/NLB
+# Require the Lambda authorizer that checks X-Edge-Secret
 resource "aws_apigatewayv2_route" "default" {
-  api_id    = aws_apigatewayv2_api.backend_api.id
-  route_key = "$default"
-  target    = "integrations/${aws_apigatewayv2_integration.backend_integration.id}"
+  api_id             = aws_apigatewayv2_api.backend_api.id
+  route_key          = "$default"
+  target             = "integrations/${aws_apigatewayv2_integration.backend_integration.id}"
+  authorization_type = "CUSTOM"
+  authorizer_id      = aws_apigatewayv2_authorizer.edge_header.id
 }
 
 resource "aws_cloudwatch_log_group" "apigw_logs" {

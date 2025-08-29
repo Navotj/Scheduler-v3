@@ -121,6 +121,47 @@ resource "aws_security_group_rule" "database_ingress_from_backend" {
   source_security_group_id = aws_security_group.backend_egress.id
 }
 
+# EC2 Instance Connect Endpoint SG: initiates SSH to backend over port 22.
+resource "aws_security_group" "backend_ssh" {
+  name        = "${var.app_prefix}-backend-ssh"
+  description = "EC2 Instance Connect Endpoint egress for SSH to backend"
+  vpc_id      = aws_vpc.main.id
+
+  egress {
+    description = "SSH to backend in VPC"
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = [aws_vpc.main.cidr_block]
+  }
+
+  ingress = []
+
+  tags = { Name = "${var.app_prefix}-backend-ssh" }
+}
+
+# Allow SSH from the EC2 Instance Connect Endpoint SG into the backend instance.
+resource "aws_security_group_rule" "backend_allow_ssh" {
+  type                     = "ingress"
+  description              = "SSH 22 from EIC endpoint SG"
+  from_port                = 22
+  to_port                  = 22
+  protocol                 = "tcp"
+  security_group_id        = aws_security_group.backend_ingress.id
+  source_security_group_id = aws_security_group.backend_ssh.id
+}
+
+# Allow SSH from the EC2 Instance Connect Endpoint SG into the database instance.
+resource "aws_security_group_rule" "database_allow_ssh" {
+  type                     = "ingress"
+  description              = "SSH 22 from EIC endpoint SG"
+  from_port                = 22
+  to_port                  = 22
+  protocol                 = "tcp"
+  security_group_id        = aws_security_group.database_ingress.id
+  source_security_group_id = aws_security_group.backend_ssh.id
+}
+
 resource "aws_security_group" "apigw_vpc_link" {
   name        = "${var.app_prefix}-apigw-vpc-link"
   description = "API Gateway VPC Link egress to NLB on TCP 3000"

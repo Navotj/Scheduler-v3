@@ -43,3 +43,9 @@ variable "database_host" {
   type        = string
   sensitive   = true
 }
+
+variable "edge_secret" {
+  description = "Shared secret that CloudFront adds as X-Edge-Secret when calling the API origin."
+  type        = string
+  sensitive   = true
+}
