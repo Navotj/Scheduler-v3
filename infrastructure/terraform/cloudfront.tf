@@ -1,7 +1,7 @@
 ##############################
 # CloudFront distribution (static multi-page + API routing)
 # - S3 origin (private) with OAC
-# - API origin routed at /api/*
+# - API origin routed at /api/* (and exact /api)
 # - Default root object: index.html
 # - 404 handling: serve /404.html with 404 status
 ##############################
@@ -38,7 +38,7 @@ resource "aws_cloudfront_origin_access_control" "frontend" {
   signing_protocol                  = "sigv4"
 }
 
-# CloudFront Function to strip the leading "/api" prefix before hitting API Gateway
+# CloudFront Function to strip the leading "/api" prefix before hitting API origin
 resource "aws_cloudfront_function" "strip_api_prefix" {
   name    = "${var.app_prefix}-strip-api-prefix"
   runtime = "cloudfront-js-2.0"
@@ -66,7 +66,8 @@ resource "aws_cloudfront_distribution" "frontend" {
   default_root_object = "index.html"
   http_version        = "http2and3"
 
-  aliases = ["www.${var.root_domain}"]
+  # Serve both apex and www on the same distribution so /api logic applies to both.
+  aliases = [var.root_domain, "www.${var.root_domain}"]
 
   # Origins
   origin {
@@ -145,6 +146,24 @@ resource "aws_cloudfront_distribution" "frontend" {
     cache_policy_id            = data.aws_cloudfront_cache_policy.caching_optimized.id
     origin_request_policy_id   = data.aws_cloudfront_origin_request_policy.cors_s3_origin.id
     response_headers_policy_id = data.aws_cloudfront_response_headers_policy.security_headers.id
+  }
+
+  # IMPORTANT: Explicit behavior for exact "/api" path so the function runs there too.
+  ordered_cache_behavior {
+    path_pattern               = "/api"
+    target_origin_id           = "api-origin"
+    viewer_protocol_policy     = "redirect-to-https"
+    allowed_methods            = ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"]
+    cached_methods             = ["GET", "HEAD", "OPTIONS"]
+    compress                   = true
+    cache_policy_id            = data.aws_cloudfront_cache_policy.caching_disabled.id
+    origin_request_policy_id   = data.aws_cloudfront_origin_request_policy.all_viewer_except_host.id
+    response_headers_policy_id = data.aws_cloudfront_response_headers_policy.cors_with_preflight.id
+
+    function_association {
+      event_type   = "viewer-request"
+      function_arn = aws_cloudfront_function.strip_api_prefix.arn
+    }
   }
 
   # API behavior: pass-through, no caching, CORS with preflight
