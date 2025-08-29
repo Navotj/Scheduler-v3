@@ -2,8 +2,6 @@
 # SSM connectivity without public internet. Minimal interface endpoints + S3 gateway.
 ##############################
 
-data "aws_region" "current" {}
-
 # SG for VPC interface endpoints: allow 443 from instances in VPC, and 443 egress to AWS services.
 resource "aws_security_group" "vpce_ssm" {
   name        = "${var.app_prefix}-vpce-ssm"
