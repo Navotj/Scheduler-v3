@@ -7,7 +7,6 @@ locals {
   edge_auth_name = "${var.app_prefix}-edge-header-authorizer"
 }
 
-data "aws_region" "current" {}
 data "aws_caller_identity" "current" {}
 
 # Execution role for the authorizer Lambda
