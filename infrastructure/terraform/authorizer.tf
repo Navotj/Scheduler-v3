@@ -76,7 +76,7 @@ resource "aws_apigatewayv2_authorizer" "edge_header" {
   authorizer_payload_format_version = "2.0"
   enable_simple_responses           = true
   identity_sources                  = ["route.request.header.X-Edge-Secret"]
-  authorizer_uri                    = "arn:aws:apigateway:${data.aws_region.current.name}:lambda:path/2015-03-31/functions/${aws_lambda_function.edge_header_auth.arn}/invocations"
+  authorizer_uri                    = "arn:aws:apigateway:${data.aws_region.current.id}:lambda:path/2015-03-31/functions/${aws_lambda_function.edge_header_auth.arn}/invocations"
 
   depends_on = [aws_lambda_permission.allow_apigw_invoke_authorizer]
 }
