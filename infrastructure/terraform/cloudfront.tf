@@ -19,42 +19,16 @@ data "aws_cloudfront_origin_request_policy" "cors_s3_origin" {
 data "aws_cloudfront_origin_request_policy" "all_viewer" {
   name = "Managed-AllViewer"
 }
+# Forward all viewer headers EXCEPT Host (prevents host-mismatch at API)
+data "aws_cloudfront_origin_request_policy" "all_viewer_except_host" {
+  name = "Managed-AllViewerExceptHostHeader"
+}
 data "aws_cloudfront_response_headers_policy" "cors_with_preflight" {
   name = "Managed-CORS-With-Preflight"
 }
 data "aws_cloudfront_response_headers_policy" "security_headers" {
   name = "Managed-SecurityHeadersPolicy"
 }
-
-resource "aws_cloudfront_origin_request_policy" "api_minimal" {
-  name    = "${var.app_prefix}-api-origin-policy"
-  comment = "Forward minimal headers; all cookies; all query strings; do not forward viewer Host"
-
-  headers_config {
-    header_behavior = "whitelist"
-    headers {
-      items = [
-        "Authorization",
-        "Content-Type",
-        "Origin",
-        "Referer",
-        "Accept",
-        "Accept-Language",
-        "User-Agent",
-        "X-Requested-With",
-      ]
-    }
-  }
-
-  cookies_config {
-    cookie_behavior = "all"
-  }
-
-  query_strings_config {
-    query_string_behavior = "all"
-  }
-}
-
 
 resource "aws_cloudfront_origin_access_control" "frontend" {
   name                              = "${var.app_prefix}-oac"
@@ -162,13 +136,16 @@ resource "aws_cloudfront_distribution" "frontend" {
     cached_methods             = ["GET", "HEAD", "OPTIONS"]
     compress                   = true
     cache_policy_id            = data.aws_cloudfront_cache_policy.caching_disabled.id
-    origin_request_policy_id   = aws_cloudfront_origin_request_policy.api_minimal.id
+    # Use "AllViewerExceptHostHeader" to avoid forwarding viewer Host
+    origin_request_policy_id   = data.aws_cloudfront_origin_request_policy.all_viewer_except_host.id
     response_headers_policy_id = data.aws_cloudfront_response_headers_policy.cors_with_preflight.id
   }
 
   ########################################
   # Error responses
   ########################################
+  # S3 REST origin returns 403 for missing keys when using OAC.
+  # Serve a proper 404 page in both 403 and 404 cases.
   custom_error_response {
     error_code            = 403
     response_code         = 404
