@@ -110,16 +110,6 @@ app.use((req, res, next) => {
   next();
 });
 
-/* ========= Strip leading /api for all routes ========= */
-app.use((req, _res, next) => {
-  if (req.url === '/api') {
-    req.url = '/';
-  } else if (req.url.startsWith('/api/')) {
-    req.url = req.url.slice(4); // remove only the leading "/api"
-  }
-  next();
-});
-
 /* ========= MongoDB connection =========
    REQUIRE: MONGO_URI provided in .env; we do NOT compose it here.
    The URI must include db name (expected "appdb") and authSource=admin for auth in admin.
@@ -176,13 +166,20 @@ app.get('/__debug/dbping', async (_req, res) => {
 });
 
 /* ========= Routes =========
-   We mount auth routes at both root and /auth to support callers of /login and /auth/check.
+   We mount routes twice: at root and under /api so any leading /api works transparently.
 */
-app.use(authRoutes);
-app.use('/auth', authRoutes);
-app.use('/availability', availabilityRoutes);
-app.use(settingsRoutes);
-app.use('/users', usersRoutes);
+const rootRoutes = express.Router();
+rootRoutes.use(authRoutes);
+rootRoutes.use('/auth', authRoutes);
+rootRoutes.use('/availability', availabilityRoutes);
+rootRoutes.use(settingsRoutes);
+rootRoutes.use('/users', usersRoutes);
+
+// Primary mount (no prefix)
+app.use(rootRoutes);
+
+// Alias mount under /api (acts like "strip /api" behavior)
+app.use('/api', rootRoutes);
 
 /* ========= Final error handler ========= */
 app.use((err, _req, res, _next) => {
