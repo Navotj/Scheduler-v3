@@ -161,7 +161,13 @@
       const th = document.createElement('th');
       th.className = 'day';
       th.dataset.col = String(c);
-      th.textContent = new Intl.DateTimeFormat(undefined, { timeZone: tz, weekday: 'short', month: 'short', day: 'numeric' }).format(new Date(dayEpoch * 1000));
+      th.textContent = new Intl.DateTimeFormat(undefined, { 
+        timeZone: tz, 
+        weekday: 'short', 
+        month: 'short', 
+        day: 'numeric' 
+      }).format(new Date(dayEpoch * 1000))
+        .replace(/^(\d+)\s+(\w+)/, '$2 $1'); // enforce month day order
       trh.appendChild(th);
     }
     thead.appendChild(trh);
