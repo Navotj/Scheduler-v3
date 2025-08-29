@@ -1,4 +1,3 @@
-// replace file (app.js)
 // Nat20 Scheduling - Backend server with verbose logging
 const express = require('express');
 const cors = require('cors');
@@ -111,13 +110,12 @@ app.use((req, res, next) => {
   next();
 });
 
-/* ========= Strip /api prefix (from CloudFront path) ========= */
-// replace function (stripApiPrefix)
+/* ========= Strip leading /api for all routes ========= */
 app.use((req, _res, next) => {
   if (req.url === '/api') {
     req.url = '/';
-  } else if (req.url.length > 4 && req.url.startsWith('/api/')) {
-    req.url = req.url.slice(4);
+  } else if (req.url.startsWith('/api/')) {
+    req.url = req.url.slice(4); // remove only the leading "/api"
   }
   next();
 });
