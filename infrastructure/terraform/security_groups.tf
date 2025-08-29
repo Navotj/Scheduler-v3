@@ -172,7 +172,7 @@ resource "aws_security_group" "apigw_vpc_link" {
     from_port   = 3000
     to_port     = 3000
     protocol    = "tcp"
-    cidr_blocks = [aws_subnet.private_a.cidr_block]
+    cidr_blocks = [aws_vpc.main.cidr_block]
   }
 
   ingress = []
