@@ -169,10 +169,10 @@
           <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
             <select id="dateFormat"
               style="height:36px;border-radius:8px;border:1px solid var(--border,#1a1c20);background:var(--bg-1,#0c0d10);color:var(--fg-0,#e7eaf2);padding:0 10px">
-              <option value="mm-dd">day of week, month (number) / day (number)</option>
-              <option value="dd-mm">day of week, day (number) / month (number)</option>
-              <option value="dd-mon">day of week, day (number) / month (verbal)</option>
-              <option value="mon-dd">day of week, month (verbal) / day (number)</option>
+              <option value="mm-dd">mm-dd</option>
+              <option value="dd-mm">dd-mm</option>
+              <option value="dd-mon">dd-mon</option>
+              <option value="mon-dd">mon-dd</option>
             </select>
             <span style="color:#9aa0a6">Preview:</span>
             <span id="datePreview" style="font-weight:600"></span>
