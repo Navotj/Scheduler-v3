@@ -38,26 +38,6 @@ resource "aws_cloudfront_origin_access_control" "frontend" {
   signing_protocol                  = "sigv4"
 }
 
-# CloudFront Function to strip the leading "/api" prefix before hitting API Gateway
-resource "aws_cloudfront_function" "strip_api_prefix" {
-  name    = "${var.app_prefix}-strip-api-prefix"
-  runtime = "cloudfront-js-2.0"
-  comment = "Rewrite /api/foo -> /foo for API origin"
-  publish = true
-
-  code = <<EOF
-function handler(event) {
-  var req = event.request;
-  if (req.uri === '/api') {
-    req.uri = '/';
-  } else if (req.uri.length > 4 && req.uri.substring(0, 5) === '/api/') {
-    req.uri = req.uri.substring(4);
-  }
-  return req;
-}
-EOF
-}
-
 resource "aws_cloudfront_distribution" "frontend" {
   enabled             = true
   is_ipv6_enabled     = true
@@ -159,12 +139,6 @@ resource "aws_cloudfront_distribution" "frontend" {
     # Use "AllViewerExceptHostHeader" to avoid forwarding viewer Host
     origin_request_policy_id   = data.aws_cloudfront_origin_request_policy.all_viewer_except_host.id
     response_headers_policy_id = data.aws_cloudfront_response_headers_policy.cors_with_preflight.id
-
-    # Strip /api prefix before forwarding to API origin
-    function_association {
-      event_type   = "viewer-request"
-      function_arn = aws_cloudfront_function.strip_api_prefix.arn
-    }
   }
 
   ########################################
