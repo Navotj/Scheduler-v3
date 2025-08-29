@@ -165,6 +165,20 @@
         </fieldset>
 
         <fieldset style="border:0;padding:0;margin:0">
+          <legend style="font-weight:600;margin-bottom:6px">Date format</legend>
+          <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+            <select id="dateFormat"
+              style="height:36px;border-radius:8px;border:1px solid var(--border,#1a1c20);background:var(--bg-1,#0c0d10);color:var(--fg-0,#e7eaf2);padding:0 10px">
+              <option value="mon-dd">aug 27</option>
+              <option value="dd-mm">27/8</option>
+              <option value="mm-dd">8/27</option>
+            </select>
+            <span style="color:#9aa0a6">Preview:</span>
+            <span id="datePreview" style="font-weight:600"></span>
+          </div>
+        </fieldset>
+
+        <fieldset style="border:0;padding:0;margin:0">
           <legend style="font-weight:600;margin-bottom:6px">Display</legend>
           <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
             <span>Default vertical zoom</span>
@@ -208,6 +222,8 @@
     const $clock12 = document.querySelector('input[name="clock"][value="12"]');
     const $weekSun = document.querySelector('input[name="weekStart"][value="sun"]');
     const $weekMon = document.querySelector('input[name="weekStart"][value="mon"]');
+    const $dateFormat = document.getElementById('dateFormat');
+    const $datePreview = document.getElementById('datePreview');
     const $defaultZoom = document.getElementById('defaultZoom');
     const $zoomValue = document.getElementById('zoomValue');
     const $form = document.getElementById('settings-form');
@@ -218,88 +234,132 @@
     populateTimezones($tz);
 
     const HEATMAP_OPTIONS = ['viridis', 'plasma', 'cividis', 'twilight', 'lava'];
+    const DATE_FORMAT_OPTIONS = ['mon-dd', 'dd-mm', 'mm-dd'];
 
     if ($heatmap) $heatmap.value = 'viridis';
     if ($heatmapPreview) $heatmapPreview.style.background = gradientCssFor('viridis');
 
-    const defaults = { timezone: 'auto', clock: '24', weekStart: 'sun', defaultZoom: 1.0, heatmap: 'viridis' };
+    const defaults = { timezone: 'auto', clock: '24', weekStart: 'sun', dateFormat: 'mon-dd', defaultZoom: 1.0, heatmap: 'viridis' };
+
+    function currentYMDInTZ(tz) {
+      const now = new Date();
+      const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: tz,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+      }).formatToParts(now);
+      const m = {};
+      for (const p of parts) m[p.type] = p.value;
+      return { y: +m.year, mo: +m.month, d: +m.day };
+    }
+    function formatDateSample(fmt, tz) {
+      const { mo, d } = currentYMDInTZ(tz);
+      if (fmt === 'dd-mm') return `${d}/${mo}`;
+      if (fmt === 'mm-dd') return `${mo}/${d}`;
+      const names = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+      return `${names[mo - 1]} ${d}`;
+    }
+    function effectiveTZ() {
+      return $tzModeAuto && $tzModeAuto.checked ? getSystemTZ() : ($tz.value || getSystemTZ());
+    }
+    function updateDatePreview() {
+      if (!$datePreview || !$dateFormat) return;
+      const tz = effectiveTZ();
+      const fmt = DATE_FORMAT_OPTIONS.includes($dateFormat.value) ? $dateFormat.value : 'mon-dd';
+      $datePreview.textContent = formatDateSample(fmt, tz);
+    }
 
     (async () => {
-        const remote = await fetchRemote();
-        const local = loadLocal() || {};
-        const s = Object.assign({}, defaults, local, remote || {});
+      const remote = await fetchRemote();
+      const local = loadLocal() || {};
+      const s = Object.assign({}, defaults, local, remote || {});
 
-        const isAuto = !s.timezone || s.timezone === 'auto';
-        $tzModeAuto.checked = isAuto;
-        $tzModeManual.checked = !isAuto;
-        $tz.disabled = isAuto;
-        $tz.value = isAuto ? getSystemTZ() : (s.timezone || getSystemTZ());
-        if ($tz.value === 'auto') $tz.value = getSystemTZ();
+      const isAuto = !s.timezone || s.timezone === 'auto';
+      $tzModeAuto.checked = isAuto;
+      $tzModeManual.checked = !isAuto;
+      $tz.disabled = isAuto;
+      $tz.value = isAuto ? getSystemTZ() : (s.timezone || getSystemTZ());
+      if ($tz.value === 'auto') $tz.value = getSystemTZ();
 
-        (s.clock === '12' ? $clock12 : $clock24).checked = true;
-        (s.weekStart === 'mon' ? $weekMon : $weekSun).checked = true;
+      (s.clock === '12' ? $clock12 : $clock24).checked = true;
+      (s.weekStart === 'mon' ? $weekMon : $weekSun).checked = true;
 
-        const zoom = (typeof s.defaultZoom === 'number') ? s.defaultZoom : 1.0;
-        $defaultZoom.value = String(zoom);
-        $zoomValue.textContent = zoom.toFixed(1);
+      const fmt = (typeof s.dateFormat === 'string' && DATE_FORMAT_OPTIONS.includes(s.dateFormat)) ? s.dateFormat : 'mon-dd';
+      if ($dateFormat) $dateFormat.value = fmt;
 
-        if ($heatmap) {
+      const zoom = (typeof s.defaultZoom === 'number') ? s.defaultZoom : 1.0;
+      $defaultZoom.value = String(zoom);
+      $zoomValue.textContent = zoom.toFixed(1);
+
+      if ($heatmap) {
         let heat = (typeof s.heatmap === 'string') ? s.heatmap : 'viridis';
         if (!HEATMAP_OPTIONS.includes(heat)) heat = 'viridis';
         $heatmap.value = heat;
         if ($heatmap.value !== heat) $heatmap.value = 'viridis';
         if ($heatmapPreview) $heatmapPreview.style.background = gradientCssFor($heatmap.value || 'viridis');
-        }
+      }
+
+      updateDatePreview();
     })();
 
     $defaultZoom.addEventListener('input', () => {
-        const z = Number($defaultZoom.value);
-        $zoomValue.textContent = z.toFixed(1);
+      const z = Number($defaultZoom.value);
+      $zoomValue.textContent = z.toFixed(1);
     });
 
     function updateTzMode() {
-        const manual = $tzModeManual.checked;
-        $tz.disabled = !manual;
-        if (!manual) {
+      const manual = $tzModeManual.checked;
+      $tz.disabled = !manual;
+      if (!manual) {
         const sys = getSystemTZ();
         if (!$tz.querySelector(`option[value="${sys}"]`)) {
-            const opt = document.createElement('option');
-            opt.value = sys;
-            opt.textContent = sys;
-            $tz.appendChild(opt);
+          const opt = document.createElement('option');
+          opt.value = sys;
+          opt.textContent = sys;
+          $tz.appendChild(opt);
         }
         $tz.value = sys;
-        }
+      }
+      updateDatePreview();
     }
     $tzModeAuto.addEventListener('change', updateTzMode);
     $tzModeManual.addEventListener('change', updateTzMode);
+    $tz.addEventListener('change', updateDatePreview);
+
+    if ($dateFormat) $dateFormat.addEventListener('change', updateDatePreview);
 
     if ($heatmap) {
-        $heatmap.addEventListener('change', () => {
+      $heatmap.addEventListener('change', () => {
         if ($heatmapPreview) $heatmapPreview.style.background = gradientCssFor(
-            HEATMAP_OPTIONS.includes($heatmap.value) ? $heatmap.value : 'viridis'
+          HEATMAP_OPTIONS.includes($heatmap.value) ? $heatmap.value : 'viridis'
         );
-        });
+      });
     }
 
     $form.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const obj = {
+      e.preventDefault();
+      const obj = {
         timezone: ($tzModeAuto.checked ? 'auto' : $tz.value),
         clock: ($clock12.checked ? '12' : '24'),
         weekStart: ($weekMon.checked ? 'mon' : 'sun'),
+        dateFormat: ($dateFormat && DATE_FORMAT_OPTIONS.includes($dateFormat.value)) ? $dateFormat.value : 'mon-dd',
         defaultZoom: Number($defaultZoom.value),
         heatmap: ($heatmap && HEATMAP_OPTIONS.includes($heatmap.value)) ? $heatmap.value : 'viridis'
-        };
-        try {
+      };
+      try {
         const saved = await saveRemote(obj);
-        saveLocal(saved);
+        saveLocal(saved && typeof saved === 'object' ? Object.assign({}, obj, saved) : obj);
         $status.textContent = 'Saved ✓';
         setTimeout(() => { $status.textContent = ''; }, 1500);
-        } catch (_err) {
+      } catch (_err) {
         $status.textContent = 'Save failed';
         setTimeout(() => { $status.textContent = ''; }, 2000);
-        }
+      }
     });
   }
 

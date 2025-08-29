@@ -141,6 +141,35 @@
 
     table.innerHTML = '';
 
+    // Resolve date format from saved settings (fallback to 'mon-dd')
+    let dateFmt = 'mon-dd';
+    try {
+      const raw = localStorage.getItem('nat20_settings');
+      const s = raw ? JSON.parse(raw) : null;
+      if (s && typeof s.dateFormat === 'string' && ['mon-dd','dd-mm','mm-dd'].includes(s.dateFormat)) {
+        dateFmt = s.dateFormat;
+      }
+    } catch {}
+
+    // Helper to render header text per day using chosen date format
+    function headerLabelFor(epochSec) {
+      const d = new Date(epochSec * 1000);
+      const weekday = new Intl.DateTimeFormat(undefined, { timeZone: tz, weekday: 'short' }).format(d);
+      const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(d);
+      const map = {};
+      for (const p of parts) map[p.type] = p.value;
+      const mo = String(+map.month);
+      const dd = String(+map.day);
+      let dateText;
+      if (dateFmt === 'dd-mm') dateText = `${dd}/${mo}`;
+      else if (dateFmt === 'mm-dd') dateText = `${mo}/${dd}`;
+      else {
+        const names = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+        dateText = `${names[+map.month - 1]} ${dd}`;
+      }
+      return `${weekday} ${dateText}`;
+    }
+
     // Header
     const thead = document.createElement('thead');
     const trh = document.createElement('tr');
@@ -161,13 +190,7 @@
       const th = document.createElement('th');
       th.className = 'day';
       th.dataset.col = String(c);
-      th.textContent = new Intl.DateTimeFormat(undefined, { 
-        timeZone: tz, 
-        weekday: 'short', 
-        month: 'short', 
-        day: 'numeric' 
-      }).format(new Date(dayEpoch * 1000))
-        .replace(/^(\d+)\s+(\w+)/, '$2 $1'); // enforce month day order
+      th.textContent = headerLabelFor(dayEpoch);
       trh.appendChild(th);
     }
     thead.appendChild(trh);
@@ -235,14 +258,11 @@
 
     table.appendChild(tbody);
 
-    // Load + paint selections for this week
     loadWeekSelections().then(applySelectedClasses);
 
-    // Ensure and place NOW marker
     ensureNowMarker();
     updateNowMarker();
 
-    // Apply current zoom after rebuild
     applySlotHeight();
   }
 
