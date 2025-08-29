@@ -146,7 +146,7 @@
     try {
       const raw = localStorage.getItem('nat20_settings');
       const s = raw ? JSON.parse(raw) : null;
-      if (s && typeof s.dateFormat === 'string' && ['mon-dd','dd-mm','mm-dd'].includes(s.dateFormat)) {
+      if (s && typeof s.dateFormat === 'string' && ['mon-dd','dd-mm','mm-dd','dd-mon'].includes(s.dateFormat)) {
         dateFmt = s.dateFormat;
       }
     } catch {}
@@ -158,16 +158,15 @@
       const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(d);
       const map = {};
       for (const p of parts) map[p.type] = p.value;
-      const mo = String(+map.month);
-      const dd = String(+map.day);
+      const moNum = String(+map.month);
+      const ddNum = String(+map.day);
+      const monName = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'][+map.month - 1];
       let dateText;
-      if (dateFmt === 'dd-mm') dateText = `${dd}/${mo}`;
-      else if (dateFmt === 'mm-dd') dateText = `${mo}/${dd}`;
-      else {
-        const names = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
-        dateText = `${names[+map.month - 1]} ${dd}`;
-      }
-      return `${weekday} ${dateText}`;
+      if (dateFmt === 'dd-mm') dateText = `${ddNum}/${moNum}`;
+      else if (dateFmt === 'mm-dd') dateText = `${moNum}/${ddNum}`;
+      else if (dateFmt === 'dd-mon') dateText = `${ddNum}/${monName}`;
+      else dateText = `${monName}/${ddNum}`; // 'mon-dd'
+      return `${weekday}, ${dateText}`;
     }
 
     // Header

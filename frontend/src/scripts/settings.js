@@ -169,21 +169,13 @@
           <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
             <select id="dateFormat"
               style="height:36px;border-radius:8px;border:1px solid var(--border,#1a1c20);background:var(--bg-1,#0c0d10);color:var(--fg-0,#e7eaf2);padding:0 10px">
-              <option value="mon-dd">aug 27</option>
-              <option value="dd-mm">27/8</option>
-              <option value="mm-dd">8/27</option>
+              <option value="mm-dd">day of week, month (number) / day (number)</option>
+              <option value="dd-mm">day of week, day (number) / month (number)</option>
+              <option value="dd-mon">day of week, day (number) / month (verbal)</option>
+              <option value="mon-dd">day of week, month (verbal) / day (number)</option>
             </select>
             <span style="color:#9aa0a6">Preview:</span>
             <span id="datePreview" style="font-weight:600"></span>
-          </div>
-        </fieldset>
-
-        <fieldset style="border:0;padding:0;margin:0">
-          <legend style="font-weight:600;margin-bottom:6px">Display</legend>
-          <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
-            <span>Default vertical zoom</span>
-            <input type="range" id="defaultZoom" min="0.6" max="2.0" step="0.1" value="1.0">
-            <span id="zoomValue" style="min-width:36px;text-align:right;color:#cfd3d8">1.0</span>
           </div>
         </fieldset>
 
@@ -224,8 +216,6 @@
     const $weekMon = document.querySelector('input[name="weekStart"][value="mon"]');
     const $dateFormat = document.getElementById('dateFormat');
     const $datePreview = document.getElementById('datePreview');
-    const $defaultZoom = document.getElementById('defaultZoom');
-    const $zoomValue = document.getElementById('zoomValue');
     const $form = document.getElementById('settings-form');
     const $status = document.getElementById('saveStatus');
     const $heatmap = document.getElementById('heatmap');
@@ -234,12 +224,12 @@
     populateTimezones($tz);
 
     const HEATMAP_OPTIONS = ['viridis', 'plasma', 'cividis', 'twilight', 'lava'];
-    const DATE_FORMAT_OPTIONS = ['mon-dd', 'dd-mm', 'mm-dd'];
+    const DATE_FORMAT_OPTIONS = ['mon-dd', 'dd-mm', 'mm-dd', 'dd-mon'];
 
     if ($heatmap) $heatmap.value = 'viridis';
     if ($heatmapPreview) $heatmapPreview.style.background = gradientCssFor('viridis');
 
-    const defaults = { timezone: 'auto', clock: '24', weekStart: 'sun', dateFormat: 'mon-dd', defaultZoom: 1.0, heatmap: 'viridis' };
+    const defaults = { timezone: 'auto', clock: '24', weekStart: 'sun', dateFormat: 'mon-dd', heatmap: 'viridis' };
 
     function currentYMDInTZ(tz) {
       const now = new Date();
@@ -257,12 +247,15 @@
       for (const p of parts) m[p.type] = p.value;
       return { y: +m.year, mo: +m.month, d: +m.day };
     }
+    function monthName(mo) {
+      return ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'][mo - 1];
+    }
     function formatDateSample(fmt, tz) {
       const { mo, d } = currentYMDInTZ(tz);
-      if (fmt === 'dd-mm') return `${d}/${mo}`;
-      if (fmt === 'mm-dd') return `${mo}/${d}`;
-      const names = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
-      return `${names[mo - 1]} ${d}`;
+      if (fmt === 'dd-mm') return `Wed, ${d}/${mo}`.replace('Wed', new Intl.DateTimeFormat(undefined, { weekday: 'short', timeZone: tz }).format(new Date()));
+      if (fmt === 'mm-dd') return `Wed, ${mo}/${d}`.replace('Wed', new Intl.DateTimeFormat(undefined, { weekday: 'short', timeZone: tz }).format(new Date()));
+      if (fmt === 'dd-mon') return `Wed, ${d}/${monthName(mo)}`.replace('Wed', new Intl.DateTimeFormat(undefined, { weekday: 'short', timeZone: tz }).format(new Date()));
+      return `Wed, ${monthName(mo)}/${d}`.replace('Wed', new Intl.DateTimeFormat(undefined, { weekday: 'short', timeZone: tz }).format(new Date()));
     }
     function effectiveTZ() {
       return $tzModeAuto && $tzModeAuto.checked ? getSystemTZ() : ($tz.value || getSystemTZ());
@@ -292,10 +285,6 @@
       const fmt = (typeof s.dateFormat === 'string' && DATE_FORMAT_OPTIONS.includes(s.dateFormat)) ? s.dateFormat : 'mon-dd';
       if ($dateFormat) $dateFormat.value = fmt;
 
-      const zoom = (typeof s.defaultZoom === 'number') ? s.defaultZoom : 1.0;
-      $defaultZoom.value = String(zoom);
-      $zoomValue.textContent = zoom.toFixed(1);
-
       if ($heatmap) {
         let heat = (typeof s.heatmap === 'string') ? s.heatmap : 'viridis';
         if (!HEATMAP_OPTIONS.includes(heat)) heat = 'viridis';
@@ -306,11 +295,6 @@
 
       updateDatePreview();
     })();
-
-    $defaultZoom.addEventListener('input', () => {
-      const z = Number($defaultZoom.value);
-      $zoomValue.textContent = z.toFixed(1);
-    });
 
     function updateTzMode() {
       const manual = $tzModeManual.checked;
@@ -348,7 +332,6 @@
         clock: ($clock12.checked ? '12' : '24'),
         weekStart: ($weekMon.checked ? 'mon' : 'sun'),
         dateFormat: ($dateFormat && DATE_FORMAT_OPTIONS.includes($dateFormat.value)) ? $dateFormat.value : 'mon-dd',
-        defaultZoom: Number($defaultZoom.value),
         heatmap: ($heatmap && HEATMAP_OPTIONS.includes($heatmap.value)) ? $heatmap.value : 'viridis'
       };
       try {
