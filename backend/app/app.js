@@ -40,6 +40,17 @@ const usersRoutes = require('./routes/users');               // /users/*
 
 const app = express();
 
+/* ========= Strip leading /api EARLY (before any middleware/routes) ========= */
+app.use((req, _res, next) => {
+  // Keep query string intact
+  if (req.url === '/api' || req.url === '/api/') {
+    req.url = '/';
+  } else if (req.url.startsWith('/api/')) {
+    req.url = req.url.slice(4); // remove leading "/api"
+  }
+  next();
+});
+
 /* ========= Core security & infra ========= */
 app.set('trust proxy', 1); // behind ALB/CloudFront, ensure correct scheme/IP for cookies, etc.
 
@@ -166,20 +177,13 @@ app.get('/__debug/dbping', async (_req, res) => {
 });
 
 /* ========= Routes =========
-   We mount routes twice: at root and under /api so any leading /api works transparently.
+   We mount auth routes at both root and /auth to support callers of /login and /auth/check.
 */
-const rootRoutes = express.Router();
-rootRoutes.use(authRoutes);
-rootRoutes.use('/auth', authRoutes);
-rootRoutes.use('/availability', availabilityRoutes);
-rootRoutes.use(settingsRoutes);
-rootRoutes.use('/users', usersRoutes);
-
-// Primary mount (no prefix)
-app.use(rootRoutes);
-
-// Alias mount under /api (acts like "strip /api" behavior)
-app.use('/api', rootRoutes);
+app.use(authRoutes);
+app.use('/auth', authRoutes);
+app.use('/availability', availabilityRoutes);
+app.use(settingsRoutes);
+app.use('/users', usersRoutes);
 
 /* ========= Final error handler ========= */
 app.use((err, _req, res, _next) => {
