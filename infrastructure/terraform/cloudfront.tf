@@ -26,6 +26,38 @@ data "aws_cloudfront_response_headers_policy" "security_headers" {
   name = "Managed-SecurityHeadersPolicy"
 }
 
+# Custom origin request policy for API: forward minimal headers, all cookies & query strings.
+# IMPORTANT: We do NOT forward the viewer Host header; CloudFront will set Host to the origin host.
+resource "aws_cloudfront_origin_request_policy" "api_minimal" {
+  name    = "${var.app_prefix}-api-origin-policy"
+  comment = "Forward minimal headers; all cookies; all query strings; do not forward viewer Host"
+
+  headers_config {
+    header_behavior = "whitelist"
+    headers {
+      items = [
+        "Authorization",
+        "Content-Type",
+        "Origin",
+        "Referer",
+        "Accept",
+        "Accept-Language",
+        "User-Agent",
+        "Cookie",
+        "X-Requested-With",
+      ]
+    }
+  }
+
+  cookies_config {
+    cookie_behavior = "all"
+  }
+
+  query_strings_config {
+    query_string_behavior = "all"
+  }
+}
+
 resource "aws_cloudfront_origin_access_control" "frontend" {
   name                              = "${var.app_prefix}-oac"
   description                       = "OAC for ${var.app_prefix} S3 origin"
@@ -56,7 +88,7 @@ resource "aws_cloudfront_distribution" "frontend" {
     origin_id   = "api-origin"
     domain_name = local.api_domain
 
-    # Only CloudFront knows this header; clients never see it.
+    # Add a shared secret header so only CloudFront can call the API
     custom_header {
       name  = "X-Origin-Verify"
       value = var.origin_secret
@@ -132,7 +164,7 @@ resource "aws_cloudfront_distribution" "frontend" {
     cached_methods             = ["GET", "HEAD", "OPTIONS"]
     compress                   = true
     cache_policy_id            = data.aws_cloudfront_cache_policy.caching_disabled.id
-    origin_request_policy_id   = data.aws_cloudfront_origin_request_policy.all_viewer.id
+    origin_request_policy_id   = aws_cloudfront_origin_request_policy.api_minimal.id
     response_headers_policy_id = data.aws_cloudfront_response_headers_policy.cors_with_preflight.id
   }
 
