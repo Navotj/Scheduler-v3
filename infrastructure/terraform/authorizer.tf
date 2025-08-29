@@ -31,7 +31,7 @@ resource "aws_iam_role_policy_attachment" "origin_auth_lambda_basic" {
 
 data "archive_file" "origin_authorizer_zip" {
   type        = "zip"
-  source_dir  = "${path.module}/lambda/origin_authorizer.js"
+  source_dir  = "${path.module}/lambda/origin_authorizer"
   output_path = "${path.module}/lambda/origin_authorizer.zip"
 }
 
@@ -46,14 +46,13 @@ resource "aws_lambda_function" "origin_verify_auth" {
   filename         = data.archive_file.origin_authorizer_zip.output_path
   source_code_hash = data.archive_file.origin_authorizer_zip.output_base64sha256
 
-  # index.js exports exports.handler = async (...)
   handler = "index.handler"
   runtime = "nodejs20.x"
   timeout = 5
 
   environment {
     variables = {
-      ORIGIN_VERIFY_SECRET = var.origin_verify_secret
+      ORIGIN_VERIFY_SECRET = var.origin_secret
     }
   }
 

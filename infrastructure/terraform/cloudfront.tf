@@ -59,7 +59,7 @@ resource "aws_cloudfront_distribution" "frontend" {
     # Only CloudFront knows this header; clients never see it.
     custom_header {
       name  = "X-Origin-Verify"
-      value = var.edge_secret
+      value = var.origin_secret
     }
 
     custom_origin_config {
