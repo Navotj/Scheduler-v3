@@ -66,8 +66,7 @@ resource "aws_cloudfront_distribution" "frontend" {
   default_root_object = "index.html"
   http_version        = "http2and3"
 
-  # Serve both apex and www on the same distribution so /api logic applies to both.
-  aliases = [var.root_domain, "www.${var.root_domain}"]
+  aliases = ["www.${var.root_domain}"]
 
   # Origins
   origin {
@@ -148,7 +147,7 @@ resource "aws_cloudfront_distribution" "frontend" {
     response_headers_policy_id = data.aws_cloudfront_response_headers_policy.security_headers.id
   }
 
-  # IMPORTANT: Explicit behavior for exact "/api" path so the function runs there too.
+  # Explicit behavior for exact "/api" path so the function runs there too.
   ordered_cache_behavior {
     path_pattern               = "/api"
     target_origin_id           = "api-origin"
