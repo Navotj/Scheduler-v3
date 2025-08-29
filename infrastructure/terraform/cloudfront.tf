@@ -1,7 +1,7 @@
 ##############################
 # CloudFront distribution (static multi-page + API routing)
 # - S3 origin (private) with OAC
-# - API origin routed at /api/* (and exact /api)
+# - API origin routed at /api/* and exact /api
 # - Default root object: index.html
 # - 404 handling: serve /404.html with 404 status
 ##############################
@@ -147,7 +147,7 @@ resource "aws_cloudfront_distribution" "frontend" {
     response_headers_policy_id = data.aws_cloudfront_response_headers_policy.security_headers.id
   }
 
-  # Explicit behavior for exact "/api" path so the function runs there too.
+  # Explicit behavior for exact "/api" path so the function runs there too
   ordered_cache_behavior {
     path_pattern               = "/api"
     target_origin_id           = "api-origin"
@@ -174,7 +174,6 @@ resource "aws_cloudfront_distribution" "frontend" {
     cached_methods             = ["GET", "HEAD", "OPTIONS"]
     compress                   = true
     cache_policy_id            = data.aws_cloudfront_cache_policy.caching_disabled.id
-    # Use "AllViewerExceptHostHeader" to avoid forwarding viewer Host
     origin_request_policy_id   = data.aws_cloudfront_origin_request_policy.all_viewer_except_host.id
     response_headers_policy_id = data.aws_cloudfront_response_headers_policy.cors_with_preflight.id
 
@@ -188,8 +187,6 @@ resource "aws_cloudfront_distribution" "frontend" {
   ########################################
   # Error responses
   ########################################
-  # S3 REST origin returns 403 for missing keys when using OAC.
-  # Serve a proper 404 page in both 403 and 404 cases.
   custom_error_response {
     error_code            = 403
     response_code         = 404
