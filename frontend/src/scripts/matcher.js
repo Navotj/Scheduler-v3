@@ -286,18 +286,15 @@
 
         const isEmpty = (n >= 11) ? (raw <= threshold) : (raw === 0);
         if (isEmpty) {
-            td.style.removeProperty('background-color'); // let CSS default from availability.css show for empty slots
+        td.style.removeProperty('background-color'); // let CSS default from availability.css show for empty slots
         } else {
-            td.style.setProperty('background-color', shadeForCount(raw), 'important');
+        td.style.setProperty('background-color', shadeForCount(raw), 'important');
         }
 
         if (n >= 11) td.dataset.c = (raw <= threshold) ? '0' : '7';
         else td.dataset.c = raw > 0 ? '7' : '0';
 
-        td.classList.remove('highlight');
-        if (raw > 0) {
-            td.classList.remove('dim');
-        }
+        td.classList.remove('dim', 'highlight');
 
         const day = Number(td.dataset.day);
         const row = Number(td.dataset.row);
@@ -306,14 +303,13 @@
 
         const who = new Set();
         for (const u of members) {
-            const set = userSlotSets.get(u);
-            if (set && set.has(epoch)) who.add(u);
+        const set = userSlotSets.get(u);
+        if (set && set.has(epoch)) who.add(u);
         }
         sets[g] = who;
     }
     WEEK_ROWS = counts.length;
   }
-
 
   function shadePast() {
     if (!table) return;
@@ -732,79 +728,80 @@
 
     const keep = new Array(WEEK_ROWS).fill(false);
     for (const it of list) {
-        for (let g = it.gStart; g < it.gEnd; g++) keep[g] = true;
+      for (let g = it.gStart; g < it.gEnd; g++) keep[g] = true;
     }
 
     const tds = table.querySelectorAll('.slot-cell');
     for (const td of tds) {
-        const day = Number(td.dataset.day);
-        const row = Number(td.dataset.row);
-        if (!Number.isFinite(day) || !Number.isFinite(row)) continue;
-        const g = day * ROWS_PER_DAY + row;
+      const day = Number(td.dataset.day);
+      const row = Number(td.dataset.row);
+      if (!Number.isFinite(day) || !Number.isFinite(row)) continue;
+      const g = day * ROWS_PER_DAY + row;
+      const raw = counts[g] || 0;
 
-        if (keep[g]) {
-          td.classList.remove('dim');
-          td.style.opacity = '';
-          td.style.filter = '';
-        } else {
-          td.classList.add('dim');
-          td.style.opacity = '0.45';
-          td.style.filter = 'grayscale(40%) brightness(0.85)';
-        }
+      if (keep[g] || raw === 0) {
+        td.classList.remove('dim');
+        td.style.opacity = '';
+        td.style.filter = '';
+      } else {
+        td.classList.add('dim');
+        td.style.opacity = '0.45';
+        td.style.filter = 'grayscale(40%) brightness(0.85)';
+      }
     }
 
     if (!list.length) {
-        resultsEl.innerHTML = '<div class="result"><div class="res-sub">No matching sessions. Adjust filters.</div></div>';
-        return;
+      resultsEl.innerHTML = '<div class="result"><div class="res-sub">No matching sessions. Adjust filters.</div></div>';
+      return;
     }
 
     for (const it of list) {
-        const wrap = document.createElement('div');
-        wrap.className = 'result';
+      const wrap = document.createElement('div');
+      wrap.className = 'result';
 
-        const top = document.createElement('div');
-        top.className = 'res-top';
-        top.textContent = fmtRangeSec(it.start, it.end);
+      const top = document.createElement('div');
+      top.className = 'res-top';
+      top.textContent = fmtRangeSec(it.start, it.end);
 
-        const sub = document.createElement('div');
-        sub.className = 'res-sub';
-        sub.textContent = `${it.participants}/${totalMembers} available • ${((it.duration)/SLOTS_PER_HOUR).toFixed(1)}h`;
+      const sub = document.createElement('div');
+      sub.className = 'res-sub';
+      sub.textContent = `${it.participants}/${totalMembers} available • ${((it.duration)/SLOTS_PER_HOUR).toFixed(1)}h`;
 
-        const usersLine = document.createElement('div');
-        usersLine.className = 'res-users';
-        usersLine.textContent = `Users: ${it.users.join(', ')}`;
+      const usersLine = document.createElement('div');
+      usersLine.className = 'res-users';
+      usersLine.textContent = `Users: ${it.users.join(', ')}`;
 
-        const actions = document.createElement('div');
-        const copyBtn = document.createElement('button');
-        copyBtn.type = 'button';
-        copyBtn.textContent = 'Copy Discord invitation';
-        copyBtn.addEventListener('click', async (e) => {
-          e.stopPropagation();
-          const text = buildDiscordInvite(it);
-          const ok = await copyToClipboard(text);
-          const old = copyBtn.textContent;
-          copyBtn.textContent = ok ? 'Copied to clipboard' : 'Failed to copy';
-          setTimeout(() => { copyBtn.textContent = old; }, 1200);
-        });
-        actions.appendChild(copyBtn);
+      const actions = document.createElement('div');
+      const copyBtn = document.createElement('button');
+      copyBtn.type = 'button';
+      copyBtn.textContent = 'Copy Discord invitation';
+      copyBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const text = buildDiscordInvite(it);
+        const ok = await copyToClipboard(text);
+        const old = copyBtn.textContent;
+        copyBtn.textContent = ok ? 'Copied to clipboard' : 'Failed to copy';
+        setTimeout(() => { copyBtn.textContent = old; }, 1200);
+      });
+      actions.appendChild(copyBtn);
 
-        wrap.appendChild(top);
-        wrap.appendChild(sub);
-        wrap.appendChild(usersLine);
-        wrap.appendChild(actions);
+      wrap.appendChild(top);
+      wrap.appendChild(sub);
+      wrap.appendChild(usersLine);
+      wrap.appendChild(actions);
 
-        wrap.addEventListener('mouseenter', () => {
-          highlightRangeGlobal(it.gStart, it.gEnd, true);
-          wrap.classList.add('hovered');
-          if (resultsPanel) resultsPanel.classList.add('glow');
-        });
-        wrap.addEventListener('mouseleave', () => {
-          highlightRangeGlobal(it.gStart, it.gEnd, false);
-          wrap.classList.remove('hovered');
-          if (resultsPanel) resultsPanel.classList.remove('glow');
-        });
+      wrap.addEventListener('mouseenter', () => {
+        highlightRangeGlobal(it.gStart, it.gEnd, true);
+        wrap.classList.add('hovered');
+        if (resultsPanel) resultsPanel.classList.add('glow');
+      });
+      wrap.addEventListener('mouseleave', () => {
+        highlightRangeGlobal(it.gStart, it.gEnd, false);
+        wrap.classList.remove('hovered');
+        if (resultsPanel) resultsPanel.classList.remove('glow');
+      });
 
-        resultsEl.appendChild(wrap);
+      resultsEl.appendChild(wrap);
     }
   }
 
