@@ -252,10 +252,11 @@
     }
     function formatDateSample(fmt, tz) {
       const { mo, d } = currentYMDInTZ(tz);
-      if (fmt === 'dd-mm') return `Wed, ${d}/${mo}`.replace('Wed', new Intl.DateTimeFormat(undefined, { weekday: 'short', timeZone: tz }).format(new Date()));
-      if (fmt === 'mm-dd') return `Wed, ${mo}/${d}`.replace('Wed', new Intl.DateTimeFormat(undefined, { weekday: 'short', timeZone: tz }).format(new Date()));
-      if (fmt === 'dd-mon') return `Wed, ${d}/${monthName(mo)}`.replace('Wed', new Intl.DateTimeFormat(undefined, { weekday: 'short', timeZone: tz }).format(new Date()));
-      return `Wed, ${monthName(mo)}/${d}`.replace('Wed', new Intl.DateTimeFormat(undefined, { weekday: 'short', timeZone: tz }).format(new Date()));
+      const weekday = new Intl.DateTimeFormat(undefined, { weekday: 'short', timeZone: tz }).format(new Date());
+      if (fmt === 'dd-mm') return `${weekday}, ${d}/${mo}`;
+      if (fmt === 'mm-dd') return `${weekday}, ${mo}/${d}`;
+      if (fmt === 'dd-mon') return `${weekday}, ${d} ${monthName(mo)}`;
+      return `${weekday}, ${monthName(mo)} ${d}`; // 'mon-dd'
     }
     function effectiveTZ() {
       return $tzModeAuto && $tzModeAuto.checked ? getSystemTZ() : ($tz.value || getSystemTZ());
