@@ -31,7 +31,7 @@ resource "aws_iam_role_policy_attachment" "edge_auth_lambda_basic" {
 # Package authorizer code
 data "archive_file" "edge_authorizer_zip" {
   type        = "zip"
-  source_dir  = "${path.module}/lambda/edge_authorizer"
+  source_file = "${path.module}/lambda/edge_authorizer.js"
   output_path = "${path.module}/lambda/edge_authorizer.zip"
 }
 
