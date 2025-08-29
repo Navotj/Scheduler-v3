@@ -286,15 +286,18 @@
 
         const isEmpty = (n >= 11) ? (raw <= threshold) : (raw === 0);
         if (isEmpty) {
-        td.style.removeProperty('background-color'); // let CSS default from availability.css show for empty slots
+            td.style.removeProperty('background-color'); // let CSS default from availability.css show for empty slots
         } else {
-        td.style.setProperty('background-color', shadeForCount(raw), 'important');
+            td.style.setProperty('background-color', shadeForCount(raw), 'important');
         }
 
         if (n >= 11) td.dataset.c = (raw <= threshold) ? '0' : '7';
         else td.dataset.c = raw > 0 ? '7' : '0';
 
-        td.classList.remove('dim', 'highlight');
+        td.classList.remove('highlight');
+        if (raw > 0) {
+            td.classList.remove('dim');
+        }
 
         const day = Number(td.dataset.day);
         const row = Number(td.dataset.row);
@@ -303,13 +306,14 @@
 
         const who = new Set();
         for (const u of members) {
-        const set = userSlotSets.get(u);
-        if (set && set.has(epoch)) who.add(u);
+            const set = userSlotSets.get(u);
+            if (set && set.has(epoch)) who.add(u);
         }
         sets[g] = who;
     }
     WEEK_ROWS = counts.length;
   }
+
 
   function shadePast() {
     if (!table) return;
