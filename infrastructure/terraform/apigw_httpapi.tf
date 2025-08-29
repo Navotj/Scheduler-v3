@@ -37,13 +37,13 @@ resource "aws_apigatewayv2_integration" "backend_integration" {
 }
 
 # Route all requests to the backend via the VPC Link/NLB
-# Require the Lambda authorizer that checks X-Edge-Secret
+# Require the Lambda authorizer that checks X-Origin-Secret
 resource "aws_apigatewayv2_route" "default" {
   api_id             = aws_apigatewayv2_api.backend_api.id
   route_key          = "$default"
   target             = "integrations/${aws_apigatewayv2_integration.backend_integration.id}"
   authorization_type = "CUSTOM"
-  authorizer_id      = aws_apigatewayv2_authorizer.edge_header.id
+  authorizer_id      = aws_apigatewayv2_authorizer.origin_header.id
 }
 
 resource "aws_cloudwatch_log_group" "apigw_logs" {

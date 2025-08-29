@@ -58,7 +58,7 @@ resource "aws_cloudfront_distribution" "frontend" {
 
     # Only CloudFront knows this header; clients never see it.
     custom_header {
-      name  = "X-Edge-Secret"
+      name  = "X-Origin-Verify"
       value = var.edge_secret
     }
 

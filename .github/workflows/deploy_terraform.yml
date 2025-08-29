@@ -37,7 +37,7 @@ jobs:
       TF_VAR_database_password: ${{ secrets.database_password }}
       TF_VAR_database_host: ${{ vars.DATABASE_HOST }}
       
-      TF_VAR_edge_secret: ${{ secrets.EDGE_SECRET }}
+      TF_VAR_origin_secret: ${{ secrets.ORIGIN_SECRET }}
       
       TF_IN_AUTOMATION: true
 
