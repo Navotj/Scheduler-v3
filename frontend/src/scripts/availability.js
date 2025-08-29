@@ -164,8 +164,8 @@
       let dateText;
       if (dateFmt === 'dd-mm') dateText = `${ddNum}/${moNum}`;
       else if (dateFmt === 'mm-dd') dateText = `${moNum}/${ddNum}`;
-      else if (dateFmt === 'dd-mon') dateText = `${ddNum}/${monName}`;
-      else dateText = `${monName}/${ddNum}`; // 'mon-dd'
+      else if (dateFmt === 'dd-mon') dateText = `${ddNum} ${monName}`;
+      else dateText = `${monName} ${ddNum}`; // 'mon-dd'
       return `${weekday}, ${dateText}`;
     }
 
