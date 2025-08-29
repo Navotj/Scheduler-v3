@@ -1,3 +1,4 @@
+// replace file (app.js)
 // Nat20 Scheduling - Backend server with verbose logging
 const express = require('express');
 const cors = require('cors');
@@ -39,17 +40,6 @@ const settingsRoutes = require('./routes/settings');         // /settings (GET/P
 const usersRoutes = require('./routes/users');               // /users/*
 
 const app = express();
-
-/* ========= Strip leading /api EARLY (before any middleware/routes) ========= */
-app.use((req, _res, next) => {
-  // Keep query string intact
-  if (req.url === '/api' || req.url === '/api/') {
-    req.url = '/';
-  } else if (req.url.startsWith('/api/')) {
-    req.url = req.url.slice(4); // remove leading "/api"
-  }
-  next();
-});
 
 /* ========= Core security & infra ========= */
 app.set('trust proxy', 1); // behind ALB/CloudFront, ensure correct scheme/IP for cookies, etc.
