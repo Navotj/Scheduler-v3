@@ -12,7 +12,8 @@ resource "aws_apigatewayv2_domain_name" "api_domain" {
 }
 
 resource "aws_apigatewayv2_api_mapping" "api_map" {
-  api_id      = aws_apigatewayv2_api.backend_api.id
-  domain_name = aws_apigatewayv2_domain_name.api_domain.domain_name
-  stage       = aws_apigatewayv2_stage.prod.name
+  api_id          = aws_apigatewayv2_api.backend_api.id
+  domain_name     = aws_apigatewayv2_domain_name.api_domain.domain_name
+  stage           = aws_apigatewayv2_stage.prod.name
+  api_mapping_key = "api"
 }
