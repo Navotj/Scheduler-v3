@@ -10,6 +10,7 @@
   let weekOffset = 0;                   // in weeks relative to current
   const selected = new Set();           // epoch seconds of selected slots (current page’s week)
   let slotHeight = 18;                  // px; controls vertical zoom of slots
+  let unsaved = false;                  // track unsaved changes
 
   // DOM refs
   let gridContent, table;
@@ -30,6 +31,27 @@
       updateNowMarker();
     }
   });
+
+  // --- Unsaved-change helpers ---
+  function onBeforeUnload(e) {
+    e.preventDefault();
+    e.returnValue = 'You have unsaved changes.'; // some browsers ignore custom text
+  }
+  function markDirty() {
+    if (!unsaved) {
+      unsaved = true;
+      window.addEventListener('beforeunload', onBeforeUnload);
+    }
+  }
+  function markSaved() {
+    if (unsaved) {
+      unsaved = false;
+      window.removeEventListener('beforeunload', onBeforeUnload);
+    }
+  }
+  function confirmLeaveIfDirty() {
+    return !unsaved || window.confirm('You have unsaved changes. Leave without saving?');
+  }
 
   // --- Labels ---
   function renderWeekLabel(startEpoch, tz) {
@@ -138,6 +160,7 @@
         cell.classList.remove('selected');
       }
     });
+    markDirty();
   }
   function applySelectedClasses() {
     const cells = table.querySelectorAll('td.slot-cell');
@@ -232,6 +255,7 @@
         alert(`Save failed: ${res.status} ${text}`);
         return;
       }
+      markSaved();
       alert('Saved!');
     } catch {
       alert('Connection error while saving');
@@ -245,14 +269,40 @@
     const subBtn = document.getElementById('mode-subtract');
     const saveBtn = document.getElementById('save');
 
-    // Allow navigation regardless of auth
-    if (prev) prev.addEventListener('click', () => { weekOffset -= 1; buildGrid(); });
-    if (next) next.addEventListener('click', () => { weekOffset += 1; buildGrid(); });
+    // Allow navigation regardless of auth, but guard unsaved
+    if (prev) prev.addEventListener('click', () => {
+      if (!confirmLeaveIfDirty()) return;
+      markSaved();
+      weekOffset -= 1;
+      buildGrid();
+    });
+    if (next) next.addEventListener('click', () => {
+      if (!confirmLeaveIfDirty()) return;
+      markSaved();
+      weekOffset += 1;
+      buildGrid();
+    });
 
     // Editing actions remain gated by auth
     if (addBtn) addBtn.addEventListener('click', () => { if (!isAuthenticated) return; setMode('add'); });
     if (subBtn) subBtn.addEventListener('click', () => { if (!isAuthenticated) return; setMode('subtract'); });
     if (saveBtn) saveBtn.addEventListener('click', saveWeek);
+  }
+
+  // Intercept in-page link navigation to guard unsaved changes (custom confirm)
+  function interceptLinkNavigation() {
+    document.addEventListener('click', function(e) {
+      const a = e.target && e.target.closest ? e.target.closest('a[href]') : null;
+      if (!a) return;
+      const href = a.getAttribute('href');
+      if (!href || href.startsWith('#') || href.startsWith('javascript:')) return;
+      const tgt = (a.getAttribute('target') || '').toLowerCase();
+      if (tgt && tgt !== '_self') return; // let new tab/window pass through
+      if (!confirmLeaveIfDirty()) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    }, true);
   }
 
   // --- Zoom (Shift + Scroll) via shared ---
@@ -280,6 +330,7 @@
 
     setMode('add');
     attachControls();
+    interceptLinkNavigation();
 
     // Start fully zoomed out like matcher
     slotHeight = 12;
@@ -366,6 +417,7 @@
     dragStart = null;
     dragEnd = null;
     selected.clear();
+    markSaved();
 
     // Re-render grid to reflect new auth state and reload data
     buildGrid();
