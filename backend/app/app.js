@@ -176,7 +176,7 @@ app.use('/availability', availabilityRoutes);
 app.use(settingsRoutes);
 app.use('/users', usersRoutes);
 app.use('/templates', templatesRouter);
-
+app.use('/api', apiRouter);
 
 /* ========= Final error handler ========= */
 app.use((err, _req, res, _next) => {
