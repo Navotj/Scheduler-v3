@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const Template = require('../models/template');
+const Template = require('../models/templates');
 const { verifyToken } = require('../utils/jwt');
 const { body, query, validationResult } = require('express-validator');
 

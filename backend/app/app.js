@@ -47,7 +47,7 @@ app.set('trust proxy', 1); // behind ALB/CloudFront, ensure correct scheme/IP fo
 
 // CORS (explicit, credentials-enabled)
 const corsOptions = {
-  origin: ['https://www.nat20scheduling.com', 'https://nat20scheduling.com'],
+  origin: ['https://www.nat20scheduling.com'],
   credentials: true,
   methods: ['GET', 'HEAD', 'OPTIONS', 'POST', 'PUT', 'PATCH', 'DELETE'],
   allowedHeaders: ['Content-Type', 'X-Requested-With'],
