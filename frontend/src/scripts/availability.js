@@ -311,7 +311,21 @@
     })();
   }
 
-  function setAuth(v) { isAuthenticated = !!v; }
+  function setAuth(v) {
+    const next = !!v;
+    if (next === isAuthenticated) return;
+
+    isAuthenticated = next;
+
+    // Reset state to avoid leaking previous user's selections/preview
+    isDragging = false;
+    dragStart = null;
+    dragEnd = null;
+    selected.clear();
+
+    // Re-render grid to reflect new auth state and reload data
+    buildGrid();
+  }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
   else init();
