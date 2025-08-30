@@ -384,28 +384,33 @@
     if (gridContent) gridContent.style.setProperty('--slot-h', `${px}px`);
   }
 
-    function createWheelZoomHandler(o) {
+  function createWheelZoomHandler(o) {
     const requireShift = (o.requireShift !== false);
-    return function onWheelZoom(e) {
-        if (!o.gridContent) return;
+    const fn = function onWheelZoom(e) {
+        const gc = fn.gridContent || o.gridContent;
+        if (!gc) return;
         if (requireShift && !e.shiftKey) return;
         e.preventDefault();
 
         const primary = Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
-        const dir = Math.sign(primary || 0);
+        const dir = primary > 0 ? 1 : (primary < 0 ? -1 : 0);
         if (!dir) return;
 
         const cur = Number(o.get());
+        if (!Number.isFinite(cur)) return;
+
         const next = cur - dir * o.step;
         const clamped = Math.min(o.max, Math.max(o.min, next));
 
         if (clamped !== cur) {
         o.set(clamped);
-        setSlotHeight(o.gridContent, clamped);
+        setSlotHeight(gc, clamped);
         if (typeof o.onChange === 'function') o.onChange();
         }
     };
-    }
+    fn.gridContent = o.gridContent || null; // allow late binding via handler.gridContent = element
+    return fn;
+  }
 
   // ===============================
   // Expose
