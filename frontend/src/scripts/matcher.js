@@ -12,7 +12,7 @@
 
   const DEFAULT_SETTINGS = { timezone: 'auto', clock: '24', weekStart: 'sun', heatmap: 'viridis' };
   let settings = { ...DEFAULT_SETTINGS };
-  let tz = resolveTimezone(settings.timezone);
+  let tz = shared.resolveTimezone(settings.timezone);
   let hour12 = settings.clock === '12';
   let weekStartIdx = settings.weekStart === 'mon' ? 1 : 0;
   let heatmapName = settings.heatmap || 'viridis';
@@ -35,69 +35,8 @@
   let __addingUser = false;
   let __addingMe = false;
 
-  function resolveTimezone(val) {
-    if (!val || val === 'auto') return (Intl.DateTimeFormat().resolvedOptions().timeZone) || 'UTC';
-    return val;
-  }
-
-  function tzOffsetMinutes(tzName, date) {
-    const parts = new Intl.DateTimeFormat('en-US', {
-      timeZone: tzName, hour12: false,
-      year: 'numeric', month: '2-digit', day: '2-digit',
-      hour: '2-digit', minute: '2-digit', second: '2-digit'
-    }).formatToParts(date);
-    const map = {};
-    for (const p of parts) map[p.type] = p.value;
-    const asUTC = Date.UTC(Number(map.year), Number(map.month) - 1, Number(map.day), Number(map.hour), Number(map.minute), Number(map.second));
-    return Math.round((asUTC - date.getTime()) / 60000);
-  }
-
-  function epochFromZoned(y, m, d, hh, mm, tzName) {
-    const guess = Date.UTC(y, m - 1, d, hh, mm, 0, 0);
-    let off = tzOffsetMinutes(tzName, new Date(guess));
-    let ts = guess - off * 60000;
-    off = tzOffsetMinutes(tzName, new Date(ts));
-    ts = guess - off * 60000;
-    return Math.floor(ts / 1000);
-  }
-
-  function getYMDInTZ(date, tzName) {
-    const parts = new Intl.DateTimeFormat('en-US', { timeZone: tzName, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(date);
-    const map = {};
-    for (const p of parts) map[p.type] = p.value;
-    return { y: Number(map.year), m: Number(map.month), d: Number(map.day) };
-  }
-
-  function getTodayYMDInTZ(tzName) { return getYMDInTZ(new Date(), tzName); }
-  function ymdAddDays(ymd, add) {
-    const tmp = new Date(Date.UTC(ymd.y, ymd.m - 1, ymd.d));
-    tmp.setUTCDate(tmp.getUTCDate() + add);
-    return { y: tmp.getUTCFullYear(), m: tmp.getUTCMonth() + 1, d: tmp.getUTCDate() };
-  }
-
-  function weekdayIndexInTZ(epochSec, tzName) {
-    const wd = new Intl.DateTimeFormat('en-US', { timeZone: tzName, weekday: 'short' }).format(new Date(epochSec * 1000));
-    return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(wd);
-  }
-
   function getWeekStartEpochAndYMD() {
-    const today = getTodayYMDInTZ(tz);
-    const todayMid = epochFromZoned(today.y, today.m, today.d, 0, 0, tz);
-    const todayIdx = weekdayIndexInTZ(todayMid, tz);
-    const diff = (todayIdx - weekStartIdx + 7) % 7;
-    const baseYMD = ymdAddDays(today, -diff + weekOffset * 7);
-    const baseEpoch = epochFromZoned(baseYMD.y, baseYMD.m, baseYMD.d, 0, 0, tz);
-    return { baseEpoch, baseYMD };
-  }
-
-  function fmtTime(h, m) {
-    if (hour12) {
-      const ampm = h >= 12 ? 'pm' : 'am';
-      let hr = h % 12; if (hr === 0) hr = 12;
-      const mm = String(m).padStart(2, '0');
-      return `${hr}:${mm} ${ampm}`;
-    }
-    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+    return shared.getWeekStartEpochAndYMD(tz, (weekStartIdx === 1 ? 'mon' : 'sun'), weekOffset);
   }
 
   function fmtRangeSec(startSec, endSec) {
@@ -181,8 +120,7 @@
     if (!m) return { r: 0, g: 0, b: 0 };
     return { r: parseInt(m[1], 16), g: parseInt(m[2], 16), b: parseInt(m[3], 16) };
   }
-  function rgbToCss({ r, g, b }) { return `rgb(${r}, ${b ? b : 0}, ${g})`.replace(/,\s*([0-9]+)\)$/, (_, gval) => `, ${gval})`).replace(/([0-9]+),\s*([0-9]+)\)$/, (m, r2, g2) => `rgb(${r}, ${g}, ${b})`); } // keep exact output format stable
-  // Correction: provide real rgbToCss
+  function rgbToCss({ r, g, b }) { return `rgb(${r}, ${b ? b : 0}, ${g})`.replace(/,\s*([0-9]+)\)$/, (_, gval) => `, ${gval})`).replace(/([0-9]+),\s*([0-9]+)\)$/, (m, r2, g2) => `rgb(${r}, ${g}, ${b})`); }
   function _rgbToCss(rgb) { return `rgb(${rgb.r}, ${rgb.g}, ${rgb.b})`; }
 
   function interpStops(stops, t) {
@@ -240,7 +178,7 @@
 
       const isEmpty = (n >= 11) ? (raw <= threshold) : (raw === 0);
       if (isEmpty) {
-        td.style.removeProperty('background-color'); // let CSS default show for empty slots
+        td.style.removeProperty('background-color');
       } else {
         td.style.setProperty('background-color', shadeForCount(raw), 'important');
       }
@@ -279,7 +217,6 @@
 
   function updateNowMarker() {
     if (!gridContent || !table) return;
-    // keep past shading fresh
     shadePast();
 
     const weekStart = (weekStartIdx === 1 ? 'mon' : 'sun');
@@ -802,8 +739,8 @@
     }
 
     const { baseEpoch, baseYMD } = getWeekStartEpochAndYMD();
-    const endYMD = ymdAddDays(baseYMD, 7);
-    const endEpoch = epochFromZoned(endYMD.y, endYMD.m, endYMD.d, 0, 0, tz);
+    const endYMD = shared.addDays(baseYMD.y, baseYMD.m, baseYMD.d, 7);
+    const endEpoch = shared.epochFromZoned(endYMD.y, endYMD.m, endYMD.d, 0, 0, tz);
 
     const payload = { from: baseEpoch, to: endEpoch, usernames: members };
     const tryPaths = [
@@ -852,11 +789,7 @@
     const el = document.getElementById('week-label');
     if (!el) return;
     const { baseEpoch } = getWeekStartEpochAndYMD();
-    const end = baseEpoch + 7 * 86400;
-    const a = new Date(baseEpoch * 1000);
-    const b = new Date((end - 1) * 1000);
-    const fmt = new Intl.DateTimeFormat('en-GB', { timeZone: tz, month: 'short', day: '2-digit' });
-    el.textContent = `${fmt.format(a)} – ${fmt.format(b)}`;
+    shared.renderWeekRangeLabel(el, baseEpoch, tz);
   }
 
   function setAuth(ok, username) {
@@ -872,7 +805,6 @@
   }
 
   function attachHandlers() {
-    // bind handler target now that gridContent exists
     wheelZoomHandler.gridContent = gridContent;
     gridContent.addEventListener('wheel', wheelZoomHandler, { passive: false });
 
@@ -901,7 +833,7 @@
         if (next) {
           const prevTz = tz;
           settings = { ...DEFAULT_SETTINGS, ...next };
-          tz = resolveTimezone(settings.timezone);
+          tz = shared.resolveTimezone(settings.timezone);
           hour12 = settings.clock === '12';
           weekStartIdx = settings.weekStart === 'mon' ? 1 : 0;
           heatmapName = settings.heatmap || 'viridis';
@@ -959,7 +891,7 @@
     const local = loadLocalSettings();
     if (local) {
       settings = { ...DEFAULT_SETTINGS, ...local };
-      tz = resolveTimezone(settings.timezone);
+      tz = shared.resolveTimezone(settings.timezone);
       hour12 = settings.clock === '12';
       weekStartIdx = settings.weekStart === 'mon' ? 1 : 0;
       heatmapName = settings.heatmap || 'viridis';
