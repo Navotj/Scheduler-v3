@@ -311,7 +311,6 @@ h1,h2,h3,p{margin:0}
   transition:background .12s ease,border-color .12s ease,transform .12s ease;
 }
 
-
 .home-card h2{
   margin: 0;
   text-align: center;           /* center horizontally */

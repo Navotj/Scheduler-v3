@@ -1,0 +1,64 @@
+<!-- @include ../partials/dochead.html -->
+<title>templates</title>
+<link rel="stylesheet" href="/styles/shared.css" />
+<link rel="stylesheet" href="/styles/availability.css" />
+</head>
+<body>
+  <div class="shell">
+    <!-- @include ../partials/topbar.html -->
+
+    <div class="layout">
+      <!-- @include ../partials/rail.html -->
+
+      <main id="page" class="main" tabindex="-1" aria-label="Main content">
+        <section class="availability">
+          <div class="availability-layout">
+            <section class="availability-left">
+              <div id="grid" class="grid">
+                <div id="grid-content" class="grid-content">
+                  <table id="schedule-table" class="table" aria-label="Template weekly grid"></table>
+                </div>
+              </div>
+
+              <div class="controls-pane">
+                <div class="picker-controls">
+                  <div class="mode-controls">
+                    <button id="mode-add" type="button" aria-pressed="true">Add</button>
+                    <button id="mode-subtract" type="button" aria-pressed="false">Subtract</button>
+                  </div>
+
+                  <div class="template-controls">
+                    <input id="template-name" type="text" placeholder="Template name" aria-label="Template name" />
+                    <button id="template-save" type="button">Save</button>
+                  </div>
+
+                  <div class="manage-controls">
+                    <select id="template-select" aria-label="Choose template">
+                      <option value="">(choose template)</option>
+                    </select>
+                    <button id="template-delete" type="button">Delete</button>
+                    <button id="template-clear" type="button">Clear</button>
+                    <button id="template-export" type="button">Copy JSON</button>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <aside class="availability-right" aria-hidden="true"></aside>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <script src="/scripts/config.js" defer></script>
+  <script src="/scripts/clock.js" defer></script>
+  <script src="/scripts/modal.js" defer></script>
+  <script src="/scripts/auth.js" defer></script>
+  <script src="/scripts/login.js" defer></script>
+  <script src="/scripts/register.js" defer></script>
+  <script src="/scripts/settings.js" defer></script>
+  <script src="/scripts/shared.js" defer></script>
+  <script src="/scripts/templates.js" defer></script>
+</body>
+</html>
