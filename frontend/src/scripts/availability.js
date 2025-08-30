@@ -60,7 +60,12 @@
         if (ctx.epoch < Math.floor(Date.now() / 1000)) td.classList.add('past');
 
         td.addEventListener('mousedown', (e) => {
-          if (!isAuthenticated) { showToast('not logged in', 'error'); return; }
+          // Block interaction when not authenticated and show toast
+          if (!isAuthenticated) {
+            e.preventDefault();
+            shared.showToast('You must be logged in to edit your availability.', 'info');
+            return;
+          }
           if (td.classList.contains('past')) return;
           e.preventDefault();
           dragStart = { row: ctx.row, col: ctx.day };
