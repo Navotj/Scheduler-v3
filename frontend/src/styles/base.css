@@ -285,3 +285,35 @@ h1,h2,h3,p{margin:0}
 @media (max-width: 860px){
   .brand-title{ display:none }
 }
+
+.home-grid{
+  display:grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap:var(--gap);
+}
+
+.home-card{
+  display:grid;
+  gap:8px;
+  padding:16px;
+  border:1px solid var(--border);
+  border-radius:var(--radius);
+  background:rgba(255,255,255,0.02);
+  transition:background .12s ease,border-color .12s ease,transform .12s ease;
+}
+
+.home-card:hover{
+  background:rgba(124,92,255,.08);
+  border-color:rgba(124,92,255,.5);
+  transform:translateY(-1px);
+}
+
+.home-card h2{
+  font-size:18px;
+  color:var(--fg-0);
+}
+
+.home-card p{
+  font-size:14px;
+  color:var(--fg-1);
+}
