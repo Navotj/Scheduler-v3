@@ -9,7 +9,7 @@
   console.log("[config.js] API_BASE_URL set to:", API_BASE_URL);
 
   // Patch fetch to route app API calls to /api/* even if code uses relative paths.
-  const TARGET_PREFIXES = ['/auth', '/settings', '/availability', '/users'];
+  const TARGET_PREFIXES = ['/auth', '/settings', '/availability', '/users', '/templates'];
   const origFetch = window.fetch.bind(window);
 
   function needsApiPrefix(pathname) {

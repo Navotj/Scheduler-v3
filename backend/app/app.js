@@ -4,7 +4,7 @@ const express = require('express');
 const cors = require('cors');
 const mongoose = require('mongoose');
 const cookieParser = require('cookie-parser');
-const templatesRouter = require('./routes/templates');
+
 
 // replace function (dotenv load + validation)
 (() => {
@@ -39,7 +39,7 @@ const authRoutes = require('./routes/auth');                 // /login, /auth/*,
 const availabilityRoutes = require('./routes/availability'); // /availability/*
 const settingsRoutes = require('./routes/settings');         // /settings (GET/POST)
 const usersRoutes = require('./routes/users');               // /users/*
-
+const templatesRouter = require('./routes/templates');
 const app = express();
 
 /* ========= Core security & infra ========= */
