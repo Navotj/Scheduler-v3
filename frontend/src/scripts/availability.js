@@ -12,28 +12,17 @@
   let slotHeight = 18;                  // px; controls vertical zoom of slots
 
   // DOM refs
-  let gridContent, table, nowMarker;
+  let gridContent, table;
 
-  // --- Settings bridge (reads settings.js saved state) ---
+  // --- Settings bridge ---
   const SETTINGS_KEY = 'nat20_settings';
-  const DEFAULTS = { timezone: 'auto', clock: '24', weekStart: 'sun' };
-
   function readSettings() {
-    let s = {};
-    try {
-      const raw = localStorage.getItem(SETTINGS_KEY);
-      s = raw ? JSON.parse(raw) : {};
-    } catch {}
-    const sysTZ = (Intl.DateTimeFormat().resolvedOptions().timeZone) || 'UTC';
-    const tz = (s.timezone && s.timezone !== 'auto') ? s.timezone : sysTZ;
-    const clock = (s.clock === '12') ? '12' : '24';
-    const weekStart = (s.weekStart === 'mon') ? 'mon' : 'sun';
-    return { tz, clock, weekStart };
+    // Delegate to shared to keep consistency
+    const s = shared.readSettings();
+    return { tz: s.tz, clock: s.clock, weekStart: s.weekStart };
   }
-
   let cfg = readSettings();
 
-  // React live to settings changes (settings.js dispatches a StorageEvent)
   window.addEventListener('storage', (e) => {
     if (e && e.key === SETTINGS_KEY) {
       cfg = readSettings();
@@ -42,224 +31,64 @@
     }
   });
 
-  // --- Time helpers ---
-  function zonedEpoch(y, m, d, hh, mm, tz) {
-    // Convert a wall time in IANA tz to a UTC epoch (seconds), DST-safe via offset iteration
-    function wallUTCFromInstant(ms) {
-      const dtf = new Intl.DateTimeFormat('en-US', {
-        timeZone: tz,
-        hour12: false,
-        year: 'numeric', month: '2-digit', day: '2-digit',
-        hour: '2-digit', minute: '2-digit', second: '2-digit'
-      });
-      const parts = dtf.formatToParts(new Date(ms));
-      const map = {};
-      for (const p of parts) map[p.type] = p.value;
-      return Date.UTC(+map.year, +map.month - 1, +map.day, +map.hour, +map.minute, +map.second);
-    }
-
-    // Start with the naive UTC of the provided wall components
-    const naive = Date.UTC(y, m - 1, d, hh, mm, 0);
-
-    // First guess: subtract the offset observed at the naive instant
-    const offset1 = wallUTCFromInstant(naive) - naive;
-    let instant = naive - offset1;
-
-    // Refine once: recompute offset at the candidate instant (handles DST edges)
-    const offset2 = wallUTCFromInstant(instant) - instant;
-    instant = naive - offset2;
-
-    return Math.floor(instant / 1000);
-  }
-
-  function todayYMD(tz) {
-    const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
-    const map = {};
-    for (const p of parts) map[p.type] = p.value;
-    return { y: +map.year, m: +map.month, d: +map.day };
-  }
-  function addDays(y, m, d, add) {
-    const t = new Date(Date.UTC(y, m - 1, d));
-    t.setUTCDate(t.getUTCDate() + add);
-    return { y: t.getUTCFullYear(), m: t.getUTCMonth() + 1, d: t.getUTCDate() };
-  }
-  function getWeekStartYMD(tz) {
-    // Respect settings.js: Sunday or Monday start, computed in the chosen TZ
-    const t = todayYMD(tz);
-    const todayMid = zonedEpoch(t.y, t.m, t.d, 0, 0, tz);
-
-    // Weekday index in the target timezone (0=Sun..6=Sat)
-    const wdName = new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'short' }).format(new Date(todayMid * 1000));
-    const wdLocal = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(wdName);
-
-    // Offset from configured week start
-    const weekStartIdx = (cfg.weekStart === 'mon') ? 1 : 0;
-    const diff = (wdLocal - weekStartIdx + 7) % 7;
-
-    // Move back to the configured week's start, then apply weekOffset
-    return addDays(t.y, t.m, t.d, -diff + weekOffset * 7);
-  }
-
-  function minutesOfDayInTZ(tz) {
-    const now = new Date();
-    const parts = new Intl.DateTimeFormat('en-US', {
-      timeZone: tz, hour12: false,
-      year: 'numeric', month: '2-digit', day: '2-digit',
-      hour: '2-digit', minute: '2-digit', second: '2-digit'
-    }).formatToParts(now);
-    const map = {};
-    for (const p of parts) map[p.type] = p.value;
-    return (+map.hour) * 60 + (+map.minute) + (+map.second) / 60;
-  }
-
   // --- Labels ---
   function renderWeekLabel(startEpoch, tz) {
-    const startDate = new Date(startEpoch * 1000);
-    const endDate = new Date((startEpoch + 6 * 86400) * 1000);
-    const fmt = (dt) => new Intl.DateTimeFormat(undefined, { timeZone: tz, month: 'short', day: 'numeric' }).format(dt);
-    const startYear = new Intl.DateTimeFormat('en-US', { timeZone: tz, year: 'numeric' }).format(startDate);
-    const endYear = new Intl.DateTimeFormat('en-US', { timeZone: tz, year: 'numeric' }).format(endDate);
-    const year = (startYear === endYear) ? startYear : `${startYear}–${endYear}`;
-    const el = document.getElementById('week-label');
-    if (el) el.textContent = `${fmt(startDate)} – ${fmt(endDate)}, ${year}`;
+    shared.renderWeekRangeLabel('week-label', startEpoch, tz);
   }
 
-  // --- Build grid ---
-  function formatHourLabel(hour) {
-    if (cfg.clock === '12') {
-      const h12 = (hour % 12) === 0 ? 12 : (hour % 12);
-      const ampm = hour < 12 ? 'AM' : 'PM';
-      return `${h12}:00 ${ampm}`;
-    }
-    return String(hour).padStart(2, '0') + ':00';
-  }
-
+  // --- Build grid via shared skeleton ---
   function buildGrid() {
-    cfg = readSettings(); // refresh once at build time
+    cfg = readSettings();
     const tz = cfg.tz;
     if (!table) return;
 
-    table.innerHTML = '';
+    // date format from shared settings
+    const dateFmt = shared.getSavedDateFormat();
 
-    // Resolve date format from saved settings (fallback to 'mon-dd')
-    let dateFmt = 'mon-dd';
-    try {
-      const raw = localStorage.getItem('nat20_settings');
-      const s = raw ? JSON.parse(raw) : null;
-      if (s && typeof s.dateFormat === 'string' && ['mon-dd','dd-mm','mm-dd','dd-mon'].includes(s.dateFormat)) {
-        dateFmt = s.dateFormat;
-      }
-    } catch {}
-
-    // Helper to render header text per day using chosen date format
-    function headerLabelFor(epochSec) {
-      const d = new Date(epochSec * 1000);
-      const weekday = new Intl.DateTimeFormat(undefined, { timeZone: tz, weekday: 'short' }).format(d);
-      const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(d);
-      const map = {};
-      for (const p of parts) map[p.type] = p.value;
-      const moNum = String(+map.month);
-      const ddNum = String(+map.day);
-      const monName = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'][+map.month - 1];
-      let dateText;
-      if (dateFmt === 'dd-mm') dateText = `${ddNum}/${moNum}`;
-      else if (dateFmt === 'mm-dd') dateText = `${moNum}/${ddNum}`;
-      else if (dateFmt === 'dd-mon') dateText = `${ddNum} ${monName}`;
-      else dateText = `${monName} ${ddNum}`; // 'mon-dd'
-      return `${weekday}, ${dateText}`;
-    }
-
-    // Header
-    const thead = document.createElement('thead');
-    const trh = document.createElement('tr');
-    const thTime = document.createElement('th');
-    thTime.className = 'time-col';
-    thTime.textContent = 'Time';
-    trh.appendChild(thTime);
-
-    const base = getWeekStartYMD(tz);
-    const baseEpoch = zonedEpoch(base.y, base.m, base.d, 0, 0, tz);
-    renderWeekLabel(baseEpoch, tz);
-
-    const dayEpochs = [];
-    for (let c = 0; c < 7; c++) {
-      const ymd = addDays(base.y, base.m, base.d, c);
-      const dayEpoch = zonedEpoch(ymd.y, ymd.m, ymd.d, 0, 0, tz);
-      dayEpochs.push({ ymd, epoch: dayEpoch });
-      const th = document.createElement('th');
-      th.className = 'day';
-      th.dataset.col = String(c);
-      th.textContent = headerLabelFor(dayEpoch);
-      trh.appendChild(th);
-    }
-    thead.appendChild(trh);
-    table.appendChild(thead);
-
-    // Body
-    const tbody = document.createElement('tbody');
-    const nowEpoch = Math.floor(Date.now() / 1000);
-    const totalRows = (HOURS_END - HOURS_START) * SLOTS_PER_HOUR;
-
-    for (let r = 0; r < totalRows; r++) {
-      const tr = document.createElement('tr');
-      const hour = Math.floor(r / SLOTS_PER_HOUR) + HOURS_START;
-      const half = r % SLOTS_PER_HOUR === 1;
-      tr.className = half ? 'row-half' : 'row-hour';
-
-      if (!half) {
-        const th = document.createElement('th');
-        th.className = 'time-col hour';
-        th.rowSpan = 2;
-        const span = document.createElement('span');
-        span.className = 'time-label hour';
-        span.textContent = formatHourLabel(hour);
-        th.appendChild(span);
-        tr.appendChild(th);
-      }
-
-      for (let c = 0; c < 7; c++) {
-        const ymd = dayEpochs[c].ymd;
-        const epoch = zonedEpoch(ymd.y, ymd.m, ymd.d, hour, half ? 30 : 0, tz);
-        const td = document.createElement('td');
-        td.className = 'slot-cell';
-        td.dataset.row = String(r);
-        td.dataset.col = String(c);
-        td.dataset.epoch = String(epoch);
-        if (epoch < nowEpoch) td.classList.add('past');
+    // Build table via shared skeleton
+    const out = shared.buildWeekTableSkeleton(table, {
+      tz,
+      clock: cfg.clock,
+      weekStart: cfg.weekStart,
+      weekOffset,
+      hoursStart: HOURS_START,
+      hoursEnd: HOURS_END,
+      slotsPerHour: SLOTS_PER_HOUR,
+      dateFormat: dateFmt,
+      onCellCreate: (td, ctx) => {
+        // "past" marking at build time (also refreshed on updateNowMarker)
+        if (ctx.epoch < Math.floor(Date.now() / 1000)) td.classList.add('past');
 
         td.addEventListener('mousedown', (e) => {
           if (!isAuthenticated || td.classList.contains('past')) return;
           e.preventDefault();
-          dragStart = { row: r, col: c };
-          dragEnd = { row: r, col: c };
+          dragStart = { row: ctx.row, col: ctx.day };
+          dragEnd = { row: ctx.row, col: ctx.day };
           isDragging = true;
           updatePreview();
         });
+
         td.addEventListener('mouseenter', () => {
           if (!isAuthenticated || !isDragging || td.classList.contains('past')) return;
-          dragEnd = { row: r, col: c };
+          dragEnd = { row: ctx.row, col: ctx.day };
           updatePreview();
         });
+
         td.addEventListener('mouseup', () => {
           if (!isAuthenticated || !isDragging || td.classList.contains('past')) return;
-          dragEnd = { row: r, col: c };
+          dragEnd = { row: ctx.row, col: ctx.day };
           applyBoxSelection();
           clearPreview();
           isDragging = false;
           dragStart = dragEnd = null;
         });
-
-        tr.appendChild(td);
       }
+    });
 
-      tbody.appendChild(tr);
-    }
-
-    table.appendChild(tbody);
+    renderWeekLabel(out.baseEpoch, tz);
 
     loadWeekSelections().then(applySelectedClasses);
 
-    ensureNowMarker();
     updateNowMarker();
 
     applySlotHeight();
@@ -312,69 +141,15 @@
     });
   }
 
-  // --- NOW marker ---
-  function ensureNowMarker() {
-    if (nowMarker) return;
-    nowMarker = document.getElementById('now-marker');
-    if (!nowMarker && gridContent) {
-      nowMarker = document.createElement('div');
-      nowMarker.id = 'now-marker';
-      nowMarker.className = 'now-marker';
-      const bubble = document.createElement('span');
-      bubble.className = 'bubble';
-      bubble.textContent = 'NOW';
-      nowMarker.appendChild(bubble);
-      gridContent.appendChild(nowMarker);
-    }
-  }
+  // --- NOW marker / past shading (shared) ---
   function updateNowMarker() {
-    if (!table) return;
-    ensureNowMarker();
-
-    if (!updateNowMarker._bound) {
-      try {
-        window.addEventListener('resize', updateNowMarker, { passive: true });
-        if (gridContent) gridContent.addEventListener('scroll', updateNowMarker, { passive: true });
-      } catch {}
-      updateNowMarker._bound = true;
-    }
-
-    const tbody = table.tBodies && table.tBodies[0];
-    if (!tbody || !nowMarker || !gridContent) { if (nowMarker) nowMarker.style.display = 'none'; return; }
-
-    const tz = cfg.tz;
-
-    const base = getWeekStartYMD(tz);
-    const baseEpoch = zonedEpoch(base.y, base.m, base.d, 0, 0, tz);
-    const t = todayYMD(tz);
-    const todayMid = zonedEpoch(t.y, t.m, t.d, 0, 0, tz);
-    const dayOffset = Math.floor((todayMid - baseEpoch) / 86400);
-
-    if (dayOffset < 0 || dayOffset > 6) { nowMarker.style.display = 'none'; return; }
-
-    const totalRows = (HOURS_END - HOURS_START) * SLOTS_PER_HOUR;
-    const firstCell = table.querySelector('td.slot-cell[data-col="' + dayOffset + '"][data-row="0"]');
-    const lastCell  = table.querySelector('td.slot-cell[data-col="' + dayOffset + '"][data-row="' + (totalRows - 1) + '"]');
-    if (!firstCell || !lastCell) { nowMarker.style.display = 'none'; return; }
-
-    function cumTop(el, stop) { let y = 0; while (el && el !== stop) { y += el.offsetTop; el = el.offsetParent; } return y; }
-    function cumLeft(el, stop) { let x = 0; while (el && el !== stop) { x += el.offsetLeft; el = el.offsetParent; } return x; }
-
-    const minutes = minutesOfDayInTZ(tz);
-
-    const topStart = cumTop(firstCell, gridContent);
-    const topEnd = cumTop(lastCell, gridContent) + lastCell.offsetHeight;
-    const dayHeight = topEnd - topStart;
-    const top = topStart + (minutes / (24 * 60)) * dayHeight;
-
-    const left = cumLeft(firstCell, gridContent);
-    const width = firstCell.offsetWidth;
-
-    nowMarker.style.display = 'block';
-    nowMarker.style.top = top + 'px';
-    nowMarker.style.left = left + 'px';
-    nowMarker.style.right = '';
-    nowMarker.style.width = width + 'px';
+    if (!table || !gridContent) return;
+    // keep "past" class refreshed as time passes
+    shared.shadePastCells(table, { clearInlineBg: false });
+    // bind and position NOW
+    const weekStart = (cfg.weekStart === 'mon') ? 'mon' : 'sun';
+    shared.bindNowMarker(gridContent, table, { tz: cfg.tz, weekStart, weekOffset });
+    shared.positionNowMarker({ gridContent, table, tz: cfg.tz, weekStart, weekOffset });
   }
 
   // --- Controls ---
@@ -388,17 +163,15 @@
 
   async function loadWeekSelections() {
     const tz = cfg.tz;
-    const base = getWeekStartYMD(tz);
-    const baseEpoch = zonedEpoch(base.y, base.m, base.d, 0, 0, tz);
-    const end = addDays(base.y, base.m, base.d, 7);
-    const endEpoch = zonedEpoch(end.y, end.m, end.d, 0, 0, tz);
+    const { baseEpoch } = shared.getWeekStartEpochAndYMD(tz, cfg.weekStart, weekOffset);
+    const endEpoch = baseEpoch + 7 * 86400;
 
     // Keep only selections outside this week; clear inside-week, re-fill from server
     for (const t of Array.from(selected)) if (t >= baseEpoch && t < endEpoch) selected.delete(t);
 
     try {
       const api = (typeof window.API_BASE_URL === 'string' && window.API_BASE_URL) ? window.API_BASE_URL : '';
-      if (!api) return; // offline mode: skip fetch, keep local state only
+      if (!api) return; // offline mode
       const res = await fetch(`${api}/availability/get?from=${baseEpoch}&to=${endEpoch}`, {
         credentials: 'include',
         cache: 'no-cache'
@@ -413,9 +186,7 @@
           }
         }
       }
-    } catch {
-      // ignore network errors; user can still edit locally
-    }
+    } catch {}
   }
 
   function compressToIntervals(sortedEpochs) {
@@ -435,10 +206,8 @@
   async function saveWeek() {
     if (!isAuthenticated) return;
     const tz = cfg.tz;
-    const base = getWeekStartYMD(tz);
-    const baseEpoch = zonedEpoch(base.y, base.m, base.d, 0, 0, tz);
-    const end = addDays(base.y, base.m, base.d, 7);
-    const endEpoch = zonedEpoch(end.y, end.m, end.d, 0, 0, tz);
+    const { baseEpoch } = shared.getWeekStartEpochAndYMD(tz, cfg.weekStart, weekOffset);
+    const endEpoch = baseEpoch + 7 * 86400;
 
     const inside = Array.from(selected).filter(t => t >= baseEpoch && t < endEpoch).sort((a,b) => a-b);
     const intervals = compressToIntervals(inside);
@@ -477,35 +246,41 @@
     if (saveBtn) saveBtn.addEventListener('click', saveWeek);
   }
 
-  // --- Zoom (Shift + Scroll) ---
+  // --- Zoom (Shift + Scroll) via shared ---
   function applySlotHeight() {
-    if (gridContent) gridContent.style.setProperty('--slot-h', `${slotHeight}px`);
+    shared.setSlotHeight(gridContent, slotHeight);
   }
-  function onWheelZoom(e) {
-    if (!e.shiftKey) return;
-    if (!gridContent) return;
-    e.preventDefault();
-    const step = 2;
-    const dir = Math.sign(e.deltaY);       // up: -1, down: +1 (varies per device)
-    const next = slotHeight - dir * step;  // invert so wheel-up zooms in (larger rows)
-    slotHeight = Math.min(48, Math.max(12, next)); // clamp
-    applySlotHeight();
-    updateNowMarker();
-  }
+  const wheelZoomHandler = shared.createWheelZoomHandler({
+    get: () => slotHeight,
+    set: (v) => { slotHeight = v; },
+    gridContent: null, // set in init
+    min: 12,
+    max: 48,
+    step: 2,
+    onChange: () => { updateNowMarker(); }
+  });
 
   // --- Init / Public API ---
   function init() {
     gridContent = document.getElementById('grid-content');
     table = document.getElementById('schedule-table');
     if (!gridContent || !table) return;
+
+    // bind handler target now that gridContent exists
+    wheelZoomHandler.gridContent = gridContent;
+
     setMode('add');
     attachControls();
+
     // Start fully zoomed out like matcher
     slotHeight = 12;
     applySlotHeight();
-    gridContent.addEventListener('wheel', onWheelZoom, { passive: false });
+
+    gridContent.addEventListener('wheel', wheelZoomHandler, { passive: false });
+
     buildGrid();
-    // Keep the NOW marker in sync
+
+    // Keep the NOW marker in sync & update past shading
     setInterval(updateNowMarker, 60000);
   }
 

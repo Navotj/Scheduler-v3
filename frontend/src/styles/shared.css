@@ -1,0 +1,208 @@
+/* =========================
+   Shared styles for scheduler
+   Used by BOTH availability & matcher
+   ========================= */
+
+:root {
+  /* Theme tokens (safe defaults; can be overridden by page/theme) */
+  --radius: 10px;
+  --border: #1a1c20;
+  --card: #121315;
+  --bg-1: #0c0d10;
+  --fg-0: #e7eaf2;
+  --fg-1: #b6bfd4;
+  --accent: #7c5cff;
+
+  /* Slot height; JS updates this via inline style on the scroll container */
+  --slot-h: 18px;
+}
+
+/* ---- Scrollable grid viewport (shared) ---- */
+#grid-content,
+.availability .grid-content {
+  position: relative;
+  overflow-y: auto;
+  overflow-x: hidden;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  background: var(--card, #121315);
+  border: 1px solid var(--border, #1a1c20);
+  border-radius: var(--radius, 10px);
+}
+
+/* ---- Schedule table base ---- */
+#schedule-table,
+.availability .table {
+  width: 100%;
+  height: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed; /* columns shrink to fit; no horizontal overflow */
+  font-size: 12px;
+  color: var(--fg-0, #e7eaf2);
+  background: var(--card, #121315);
+}
+
+/* Sticky header row */
+#schedule-table thead th,
+.availability .table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--bg-1, #0c0d10);
+  border-bottom: 1px solid #2a2f3a;
+  padding: 0 8px;
+  height: 26px;
+  line-height: 26px;
+  vertical-align: middle;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+}
+
+/* Time column header + cells */
+#schedule-table th.time-col,
+.availability .table th.time-col {
+  width: 76px;
+  text-align: center;
+  color: var(--fg-1, #b6bfd4);
+  background: var(--bg-1, #0c0d10);
+  border-right: 1px solid #2a2f3a;
+  padding: 0 8px;
+  justify-content: center;
+}
+
+/* Day header cells */
+#schedule-table thead th.day,
+.availability .table thead th.day {
+  text-align: center;
+  border-left: 1px solid #353944;
+}
+
+/* Sticky time column for body */
+#schedule-table tbody th.time-col,
+.availability .table tbody th.time-col {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  border-top: 1px solid #353944;
+}
+
+/* Grid lines */
+#schedule-table tbody tr.row-hour td.slot-cell,
+.availability .table tbody tr.row-hour td.slot-cell {
+  border-top: 1px solid #353944;
+}
+#schedule-table tbody tr.row-half td.slot-cell,
+.availability .table tbody tr.row-half td.slot-cell {
+  border-top: 1px dashed #353944;
+}
+#schedule-table tbody td.slot-cell,
+.availability .table tbody td.slot-cell {
+  border-left: 1px solid #353944;
+}
+
+/* Slot sizing */
+#schedule-table tbody td.slot-cell,
+.availability .table tbody td.slot-cell {
+  height: var(--slot-h);
+  line-height: var(--slot-h);
+  padding: 0;
+  cursor: default;
+}
+
+/* Time label span on hour header cells */
+.time-label.hour { display: inline-block; }
+
+/* Selection & painting states (used by availability and highlight by matcher) */
+#schedule-table td.slot-cell.selected,
+.availability .table td.slot-cell.selected {
+  background: rgba(23, 186, 78, 0.5);
+}
+#schedule-table td.slot-cell.preview-add,
+.availability .table td.slot-cell.preview-add {
+  outline: 2px dashed rgba(15, 185, 72, 0.7);
+  outline-offset: -2px;
+}
+#schedule-table td.slot-cell.preview-sub,
+.availability .table td.slot-cell.preview-sub {
+  outline: 2px dashed rgba(255, 96, 96, 0.8);
+  outline-offset: -2px;
+}
+
+/* Past cells: filled light gray, no global opacity (clicks disabled by JS logic) */
+#schedule-table td.slot-cell.past,
+.availability .table td.slot-cell.past {
+  background: rgb(132 139 147 / 14%);
+}
+
+/* ---- NOW marker (shared) ---- */
+.now-marker {
+  position: absolute;
+  left: 0;
+  right: 0;
+  /* top is set by JS in px relative to the scroll container */
+  pointer-events: none;
+  display: none;
+  height: 0; /* do not affect layout; draw the line via ::before */
+  z-index: 1;
+}
+.now-marker::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 2px;
+  background: var(--accent, #7c5cff);
+}
+.now-marker .bubble {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  transform: translate(-50%, -50%); /* center horizontally and vertically on the line */
+  padding: 2px 6px;
+  font-size: 10px;
+  background: var(--accent, #7c5cff);
+  color: #000;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+
+/* ---- Baseline control styles (page-specific files can override) ---- */
+.availability .picker-controls button {
+  appearance: none;
+  border: 1px solid var(--border, #1a1c20);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--fg-0, #e7eaf2);
+  padding: 12px 18px;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1;
+  border-radius: var(--radius, 10px);
+  box-shadow: none;
+  cursor: pointer;
+  transition: background-color 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+}
+.availability .picker-controls button:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: #2a2f3a;
+}
+.availability .picker-controls button:active {
+  background: rgba(255, 255, 255, 0.09);
+  border-color: #2a2f3a;
+  box-shadow: inset 0 0 0 1px rgba(0,0,0,0.12);
+}
+.availability .picker-controls button:focus-visible {
+  outline: 2px solid var(--accent, #7c5cff);
+  outline-offset: 2px;
+}
+
+/* Toggle state (used by availability add/subtract) */
+.availability .picker-controls button[aria-pressed="true"] {
+  border-color: var(--accent, #7c5cff);
+  background: rgba(124, 92, 255, 0.18);
+  box-shadow: 0 0 0 3px rgba(124, 92, 255, 0.18);
+}

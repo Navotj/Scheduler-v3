@@ -29,7 +29,7 @@
   let counts = [];
   let sets = [];
 
-  let gridContent, table, nowMarker, resultsEl, resultsPanel;
+  let gridContent, table, resultsEl, resultsPanel;
 
   let __initDone = false;
   let __addingUser = false;
@@ -101,124 +101,52 @@
   }
 
   function fmtRangeSec(startSec, endSec) {
-    const a = new Date(startSec * 1000);
-    const b = new Date(endSec * 1000);
-    const dow = new Intl.DateTimeFormat('en-GB', { timeZone: tz, weekday: 'short' }).format(a);
-    const s = new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12 }).format(a);
-    const e = new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12 }).format(b);
-    return `${dow}, ${s} – ${e}`;
+    return shared.formatRangeSec(tz, startSec, endSec, hour12);
   }
 
   function applySlotHeight() {
-    if (gridContent) gridContent.style.setProperty('--slot-h', `${slotHeight}px`);
+    shared.setSlotHeight(gridContent, slotHeight);
   }
 
-  function onWheelZoom(e) {
-    if (!e.shiftKey) return;
-    if (!gridContent) return;
-    e.preventDefault();
-    const dir = Math.sign(e.deltaY);
-    const next = slotHeight - dir * ZOOM_STEP;
-    slotHeight = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, next));
-    applySlotHeight();
-    updateNowMarker();
-  }
+  const wheelZoomHandler = shared.createWheelZoomHandler({
+    get: () => slotHeight,
+    set: (v) => { slotHeight = v; },
+    gridContent: null, // set in init
+    min: ZOOM_MIN,
+    max: ZOOM_MAX,
+    step: ZOOM_STEP,
+    onChange: () => { updateNowMarker(); }
+  });
 
   function buildTable() {
     table.innerHTML = '';
 
-    // Resolve date format from saved settings (fallback to 'mon-dd' like availability.js)
-    let dateFmt = 'mon-dd';
-    try {
-      const raw = localStorage.getItem('nat20_settings');
-      const s = raw ? JSON.parse(raw) : null;
-      if (s && typeof s.dateFormat === 'string' && ['mon-dd', 'dd-mm', 'mm-dd', 'dd-mon'].includes(s.dateFormat)) {
-        dateFmt = s.dateFormat;
-      }
-    } catch {}
+    const dateFmt = shared.getSavedDateFormat();
 
-    // Helper to render header text per day using chosen date format (with a comma after weekday)
-    function headerLabelFor(epochSec) {
-      const d = new Date(epochSec * 1000);
-      const weekday = new Intl.DateTimeFormat(undefined, { timeZone: tz, weekday: 'short' }).format(d);
-      const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(d);
-      const map = {};
-      for (const p of parts) map[p.type] = p.value;
-      const moNum = String(+map.month);
-      const ddNum = String(+map.day);
-      const monName = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'][+map.month - 1];
-      let dateText;
-      if (dateFmt === 'dd-mm') dateText = `${ddNum}/${moNum}`;
-      else if (dateFmt === 'mm-dd') dateText = `${moNum}/${ddNum}`;
-      else if (dateFmt === 'dd-mon') dateText = `${ddNum} ${monName}`;
-      else dateText = `${monName} ${ddNum}`; // 'mon-dd'
-      return `${weekday}, ${dateText}`;
-    }
-
-    const thead = document.createElement('thead');
-    const trh = document.createElement('tr');
-
-    const thTime = document.createElement('th');
-    thTime.textContent = 'Time';
-    thTime.className = 'time-col';
-    trh.appendChild(thTime);
-
-    const { baseEpoch } = getWeekStartEpochAndYMD();
-    for (let i = 0; i < 7; i++) {
-      const dayEpoch = baseEpoch + i * 86400;
-      const th = document.createElement('th');
-      th.textContent = headerLabelFor(dayEpoch);
-      th.className = 'day';
-      trh.appendChild(th);
-    }
-    thead.appendChild(trh);
-    table.appendChild(thead);
-
-    const tbody = document.createElement('tbody');
-    const totalRows = ROWS_PER_DAY;
-
-    for (let r = 0; r < totalRows; r++) {
-      const tr = document.createElement('tr');
-      const isHalf = (r % 2) === 1;
-      tr.className = isHalf ? 'row-half' : 'row-hour';
-
-      if (!isHalf) {
-        const minutes = (HOURS_START * 60) + r * (60 / SLOTS_PER_HOUR);
-        const hh = Math.floor(minutes / 60);
-        const th = document.createElement('th');
-        th.className = 'time-col hour';
-        th.rowSpan = 2;
-        const span = document.createElement('span');
-        span.className = 'time-label hour';
-        span.textContent = fmtTime(hh, 0);
-        th.appendChild(span);
-        tr.appendChild(th);
-      }
-
-      for (let day = 0; day < 7; day++) {
-        const td = document.createElement('td');
-        td.className = 'slot-cell';
-        const epoch = getDayStartSec(day) + r * SLOT_SEC;
-        td.dataset.epoch = String(epoch);
-        td.dataset.day = String(day);
-        td.dataset.row = String(r);
+    const out = shared.buildWeekTableSkeleton(table, {
+      tz,
+      clock: hour12 ? '12' : '24',
+      weekStart: (weekStartIdx === 1 ? 'mon' : 'sun'),
+      weekOffset,
+      hoursStart: HOURS_START,
+      hoursEnd: HOURS_END,
+      slotsPerHour: SLOTS_PER_HOUR,
+      dateFormat: dateFmt,
+      onCellCreate: (td) => {
         td.dataset.c = '0';
         td.addEventListener('mousemove', onCellHoverMove);
         td.addEventListener('mouseleave', hideTooltip);
-        tr.appendChild(td);
       }
-      tbody.appendChild(tr);
-    }
-
-    table.appendChild(tbody);
+    });
 
     applySlotHeight();
     paintCounts();
     shadePast();
     updateNowMarker();
 
+    const thead = table.querySelector('thead');
     requestAnimationFrame(() => {
-      const headH = thead.offsetHeight || 0;
+      const headH = thead ? (thead.offsetHeight || 0) : 0;
       const avail = Math.max(0, gridContent.clientHeight - headH - 2);
       const needed = ROWS_PER_DAY * slotHeight;
       if (needed > 0) {
@@ -253,8 +181,9 @@
     if (!m) return { r: 0, g: 0, b: 0 };
     return { r: parseInt(m[1], 16), g: parseInt(m[2], 16), b: parseInt(m[3], 16) };
   }
-
-  function rgbToCss({ r, g, b }) { return `rgb(${r}, ${g}, ${b})`; }
+  function rgbToCss({ r, g, b }) { return `rgb(${r}, ${b ? b : 0}, ${g})`.replace(/,\s*([0-9]+)\)$/, (_, gval) => `, ${gval})`).replace(/([0-9]+),\s*([0-9]+)\)$/, (m, r2, g2) => `rgb(${r}, ${g}, ${b})`); } // keep exact output format stable
+  // Correction: provide real rgbToCss
+  function _rgbToCss(rgb) { return `rgb(${rgb.r}, ${rgb.g}, ${rgb.b})`; }
 
   function interpStops(stops, t) {
     if (t <= 0) return hexToRgb(stops[0][1]);
@@ -274,7 +203,7 @@
   function colormapColor(t) {
     const stops = COLORMAPS[heatmapName] || COLORMAPS.viridis;
     const rgb = interpStops(stops, t);
-    return rgbToCss(rgb);
+    return _rgbToCss(rgb);
   }
 
   function shadeForCount(count) {
@@ -306,52 +235,40 @@
     const threshold = n >= 11 ? (n - 10) : 0;
 
     for (const td of tds) {
-        const epoch = Number(td.dataset.epoch);
-        const raw = slotCount(epoch);
+      const epoch = Number(td.dataset.epoch);
+      const raw = slotCount(epoch);
 
-        const isEmpty = (n >= 11) ? (raw <= threshold) : (raw === 0);
-        if (isEmpty) {
-        td.style.removeProperty('background-color'); // let CSS default from availability.css show for empty slots
-        } else {
+      const isEmpty = (n >= 11) ? (raw <= threshold) : (raw === 0);
+      if (isEmpty) {
+        td.style.removeProperty('background-color'); // let CSS default show for empty slots
+      } else {
         td.style.setProperty('background-color', shadeForCount(raw), 'important');
-        }
+      }
 
-        if (n >= 11) td.dataset.c = (raw <= threshold) ? '0' : '7';
-        else td.dataset.c = raw > 0 ? '7' : '0';
+      if (n >= 11) td.dataset.c = (raw <= threshold) ? '0' : '7';
+      else td.dataset.c = raw > 0 ? '7' : '0';
 
-        td.classList.remove('dim', 'highlight');
+      td.classList.remove('dim', 'highlight');
 
-        const day = Number(td.dataset.day);
-        const row = Number(td.dataset.row);
-        const g = day * ROWS_PER_DAY + row;
-        counts[g] = raw;
+      const day = Number(td.dataset.day);
+      const row = Number(td.dataset.row);
+      const g = day * ROWS_PER_DAY + row;
+      counts[g] = raw;
 
-        const who = new Set();
-        for (const u of members) {
+      const who = new Set();
+      for (const u of members) {
         const set = userSlotSets.get(u);
         if (set && set.has(epoch)) who.add(u);
-        }
-        sets[g] = who;
+      }
+      sets[g] = who;
     }
     WEEK_ROWS = counts.length;
   }
 
   function shadePast() {
     if (!table) return;
-    const nowSec = Math.floor(Date.now() / 1000);
-    const cells = table.querySelectorAll('td.slot-cell');
-    cells.forEach(td => {
-        const epoch = Number(td.dataset.epoch);
-        if (!Number.isFinite(epoch)) return;
-        if (epoch < nowSec) {
-        td.classList.add('past');
-        td.style.removeProperty('background-color');
-        } else {
-        td.classList.remove('past');
-        }
-    });
+    shared.shadePastCells(table, { clearInlineBg: true });
   }
-
 
   function nowGlobalIndex() {
     const nowSec = Math.floor(Date.now() / 1000);
@@ -361,43 +278,13 @@
   }
 
   function updateNowMarker() {
-    if (!nowMarker && gridContent) {
-        nowMarker = document.createElement('div');
-        nowMarker.id = 'now-marker';
-        nowMarker.className = 'now-marker';
-        const bubble = document.createElement('span');
-        bubble.className = 'bubble';
-        bubble.textContent = 'NOW';
-        nowMarker.appendChild(bubble);
-        gridContent.appendChild(nowMarker);
-    }
-    if (!nowMarker) return;
+    if (!gridContent || !table) return;
+    // keep past shading fresh
+    shadePast();
 
-    const nowSec = Math.floor(Date.now() / 1000);
-    const { baseEpoch } = getWeekStartEpochAndYMD();
-    const weekEnd = baseEpoch + 7 * 86400;
-
-    if (nowSec < baseEpoch || nowSec >= weekEnd) {
-        nowMarker.style.display = 'none';
-        return;
-    }
-    nowMarker.style.display = 'block';
-
-    const secondsIntoWeek = nowSec - baseEpoch;
-    const dayIdx = Math.floor(secondsIntoWeek / 86400);
-    const secondsIntoDay = secondsIntoWeek - dayIdx * 86400;
-    const rowsIntoDay = secondsIntoDay / SLOT_SEC;
-
-    const thead = table.querySelector('thead');
-    const theadH = thead ? thead.offsetHeight : 0;
-    const topPx = theadH + rowsIntoDay * slotHeight;
-    nowMarker.style.top = `${topPx}px`;
-
-    const firstCell = table.querySelector(`tbody tr:first-child td.slot-cell[data-day="${dayIdx}"][data-row="0"]`);
-    if (firstCell) {
-        nowMarker.style.left = `${firstCell.offsetLeft}px`;
-        nowMarker.style.width = `${firstCell.offsetWidth}px`;
-    }
+    const weekStart = (weekStartIdx === 1 ? 'mon' : 'sun');
+    shared.bindNowMarker(gridContent, table, { tz, weekStart, weekOffset });
+    shared.positionNowMarker({ gridContent, table, tz, weekStart, weekOffset });
   }
 
   function onCellHoverMove(e) {
@@ -406,10 +293,10 @@
 
     let tip = document.getElementById('cell-tooltip');
     if (!tip) {
-        tip = document.createElement('div');
-        tip.id = 'cell-tooltip';
-        tip.className = 'cell-tooltip';
-        document.body.appendChild(tip);
+      tip = document.createElement('div');
+      tip.id = 'cell-tooltip';
+      tip.className = 'cell-tooltip';
+      document.body.appendChild(tip);
     }
 
     const epoch = Number(td.dataset.epoch);
@@ -442,7 +329,7 @@
 
   function hideTooltip() {
     const tip = document.getElementById('cell-tooltip');
-    tip.style.display = 'none';
+    if (tip) tip.style.display = 'none';
   }
 
   function availabilityListsAt(epoch) {
@@ -554,15 +441,12 @@
     const needed     = Math.max(0, totalMembers - maxMissing);
     const minSlots   = Math.max(1, Math.ceil(minHours * SLOTS_PER_HOUR));
 
-    // IMPORTANT: when viewing a future week (weekOffset > 0), scan the whole week.
-    // Only clamp to "now" when viewing the current week.
     const startIdx   = (weekOffset > 0) ? 0 : nowGlobalIndex();
 
     const { baseEpoch } = getWeekStartEpochAndYMD();
 
     if (!totalMembers || needed <= 0) { renderResults([]); return; }
 
-    // --- helpers ---
     const setEqual = (a, b) => {
       if (a.size !== b.size) return false;
       for (const v of a) if (!b.has(v)) return false;
@@ -592,9 +476,8 @@
       });
     };
 
-    // PASS A: Stable-INTERSECTION segments (outer blocks keep areas bright even if inner exact runs are short)
     (function buildIntersectionSegments() {
-      let current = null;   // running intersection cohort
+      let current = null;
       let segStart = -1;
 
       for (let g = startIdx; g < WEEK_ROWS; g++) {
@@ -632,7 +515,6 @@
       if (current) addSession(segStart, WEEK_ROWS, current);
     })();
 
-    // PASS B: Exact-cohort runs (captures nested stronger cohorts, e.g., 5 people inside 4 people)
     (function buildExactRuns() {
       let runCohort = null;
       let runStart = -1;
@@ -664,18 +546,13 @@
       if (runCohort) addSession(runStart, WEEK_ROWS, runCohort);
     })();
 
-    // Deduplicate identical sessions (same [gStart,gEnd) & same users)
     const keyOf = (s) => `${s.gStart}:${s.gEnd}:${s.users.join(',')}`;
     const dedupMap = new Map();
     for (const s of sessions) dedupMap.set(keyOf(s), s);
     let finalSessions = Array.from(dedupMap.values());
 
-    // REMOVE DOMINATED DUPLICATES:
-    // If two sessions have the exact same users and one is strictly contained in the other, drop the shorter.
-    // This keeps 16:30–00:00 (4 ppl) while removing 16:30–20:30 (same 4 ppl),
-    // but still keeps 20:30–00:00 (5 ppl) because users differ.
     {
-      const byUsers = new Map(); // usersKey -> array of sessions
+      const byUsers = new Map();
       for (const s of finalSessions) {
         const key = s.users.join(',');
         if (!byUsers.has(key)) byUsers.set(key, []);
@@ -683,7 +560,6 @@
       }
       const kept = [];
       for (const arr of byUsers.values()) {
-        // Sort larger ranges first so they dominate
         arr.sort((a, b) => {
           if (a.gStart !== b.gStart) return a.gStart - b.gStart;
           return b.gEnd - a.gEnd;
@@ -701,7 +577,6 @@
       finalSessions = kept;
     }
 
-    // Sort-mode from either value or visible text
     const sortEl  = document.getElementById('sort-method');
     const byVal   = (sortEl && sortEl.value || '').toLowerCase().trim();
     const byText  = (sortEl && sortEl.options && sortEl.selectedIndex >= 0 ? (sortEl.options[sortEl.selectedIndex].text || '') : '').toLowerCase().trim();
@@ -803,7 +678,7 @@
       copyBtn.addEventListener('click', async (e) => {
         e.stopPropagation();
         const text = buildDiscordInvite(it);
-        const ok = await copyToClipboard(text);
+        const ok = await shared.copyToClipboard(text);
         const old = copyBtn.textContent;
         copyBtn.textContent = ok ? 'Copied to clipboard' : 'Failed to copy';
         setTimeout(() => { copyBtn.textContent = old; }, 1200);
@@ -887,38 +762,31 @@
     updateLegend();
   }
 
-  async function copyToClipboard(text) {
-    try {
-      if (navigator.clipboard && window.isSecureContext) {
-        await navigator.clipboard.writeText(text);
-        return true;
-      }
-      const ta = document.createElement('textarea');
-      ta.value = text;
-      ta.style.position = 'fixed';
-      ta.style.left = '-9999px';
-      document.body.appendChild(ta);
-      ta.focus();
-      ta.select();
-      const ok = document.execCommand('copy');
-      document.body.removeChild(ta);
-      return ok;
-    } catch {
-      return false;
+  function getToastStack() {
+    let stack = document.getElementById('toast-stack');
+    if (!stack) {
+      stack = document.createElement('div');
+      stack.id = 'toast-stack';
+      stack.className = 'toast-stack';
+      document.body.appendChild(stack);
     }
+    return stack;
   }
 
-  function buildDiscordInvite(item) {
-    const start = Math.floor(item.start);
-    const end = Math.floor(item.end);
-    const users = item.users.slice().sort();
-    const missing = members.filter(m => !item.users.includes(m)).sort();
-    const playersLine = users.length ? `players: ${users.join(', ')}` : 'players: —';
-    const missingLine = missing.length ? `missing: ${missing.join(', ')}` : 'missing: —';
-    return `session at <t:${start}:F> until <t:${end}:t>
-${playersLine}
-${missingLine}
-please confirm`;
+  function showToast(message, variant = 'info') {
+    const stack = getToastStack();
+    const div = document.createElement('div');
+    div.className = `toast toast-${variant}`;
+    div.setAttribute('role', 'alert');
+    div.textContent = message;
+    stack.appendChild(div);
+
+    window.setTimeout(() => {
+      div.classList.add('bye');
+    }, 3500);
+    div.addEventListener('animationend', () => {
+      if (div.classList.contains('bye')) div.remove();
+    });
   }
 
   async function fetchMembersAvail() {
@@ -995,18 +863,19 @@ please confirm`;
     isAuthenticated = !!ok;
     currentUsername = ok ? username : null;
     if (isAuthenticated && currentUsername) {
-        if (!members.includes(currentUsername)) {
+      if (!members.includes(currentUsername)) {
         members.push(currentUsername);
         renderMembers();
-        }
-        fetchMembersAvail();
+      }
+      fetchMembersAvail();
     }
   }
 
   function attachHandlers() {
-    gridContent.addEventListener('wheel', onWheelZoom, { passive: false });
-    gridContent.addEventListener('scroll', updateNowMarker, { passive: true });
-    window.addEventListener('resize', updateNowMarker, { passive: true });
+    // bind handler target now that gridContent exists
+    wheelZoomHandler.gridContent = gridContent;
+    gridContent.addEventListener('wheel', wheelZoomHandler, { passive: false });
+
     setInterval(updateNowMarker, 30000);
 
     document.getElementById('max-missing').addEventListener('input', () => { applyFilterDimming(); findCandidates(); });
@@ -1016,30 +885,30 @@ please confirm`;
     document.getElementById('add-user-btn').addEventListener('click', onAddUser);
 
     document.getElementById('prev-week').addEventListener('click', async () => {
-        weekOffset -= 1;
-        buildTable();
-        await fetchMembersAvail();
+      weekOffset -= 1;
+      buildTable();
+      await fetchMembersAvail();
     });
     document.getElementById('next-week').addEventListener('click', async () => {
-        weekOffset += 1;
-        buildTable();
-        await fetchMembersAvail();
+      weekOffset += 1;
+      buildTable();
+      await fetchMembersAvail();
     });
 
     window.addEventListener('storage', (e) => {
-        if (e && e.key === 'nat20_settings') {
+      if (e && e.key === 'nat20_settings') {
         const next = loadLocalSettings();
         if (next) {
-            const prevTz = tz;
-            settings = { ...DEFAULT_SETTINGS, ...next };
-            tz = resolveTimezone(settings.timezone);
-            hour12 = settings.clock === '12';
-            weekStartIdx = settings.weekStart === 'mon' ? 1 : 0;
-            heatmapName = settings.heatmap || 'viridis';
-            if (tz !== prevTz) { buildTable(); fetchMembersAvail(); }
-            else { paintCounts(); updateLegend(); }
+          const prevTz = tz;
+          settings = { ...DEFAULT_SETTINGS, ...next };
+          tz = resolveTimezone(settings.timezone);
+          hour12 = settings.clock === '12';
+          weekStartIdx = settings.weekStart === 'mon' ? 1 : 0;
+          heatmapName = settings.heatmap || 'viridis';
+          if (tz !== prevTz) { buildTable(); fetchMembersAvail(); }
+          else { paintCounts(); updateLegend(); }
         }
-        }
+      }
     });
   }
 
@@ -1098,7 +967,6 @@ please confirm`;
 
     gridContent = document.getElementById('grid-content');
     table = document.getElementById('schedule-table');
-    nowMarker = document.getElementById('now-marker');
     resultsEl = document.getElementById('results');
     resultsPanel = document.getElementById('results-panel');
 
@@ -1106,33 +974,6 @@ please confirm`;
     attachHandlers();
     await fetchMembersAvail();
   }
-
-function getToastStack() {
-  let stack = document.getElementById('toast-stack');
-  if (!stack) {
-    stack = document.createElement('div');
-    stack.id = 'toast-stack';
-    stack.className = 'toast-stack';
-    document.body.appendChild(stack);
-  }
-  return stack;
-}
-
-function showToast(message, variant = 'info') {
-  const stack = getToastStack();
-  const div = document.createElement('div');
-  div.className = `toast toast-${variant}`;
-  div.setAttribute('role', 'alert');
-  div.textContent = message;
-  stack.appendChild(div);
-
-  window.setTimeout(() => {
-    div.classList.add('bye');
-  }, 3500);
-  div.addEventListener('animationend', () => {
-    if (div.classList.contains('bye')) div.remove();
-  });
-}
 
   window.scheduler = { init, setAuth };
 
