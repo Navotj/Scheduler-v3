@@ -282,12 +282,33 @@
     slotHeight = 12;
     applySlotHeight();
 
+    // Block all table interactions when not authenticated and surface a toast
+    const authGuard = (e) => {
+      if (!isAuthenticated) {
+        e.preventDefault();
+        e.stopPropagation();
+        shared.showToast('You must be logged in to edit your availability.', 'info');
+      }
+    };
+    gridContent.addEventListener('pointerdown', authGuard, true);
+    gridContent.addEventListener('contextmenu', authGuard, true);
+
     gridContent.addEventListener('wheel', wheelZoomHandler, { passive: false });
 
     buildGrid();
 
     // Keep the NOW marker in sync & update past shading
     setInterval(updateNowMarker, 60000);
+
+    // Detect auth state on load so the guard reflects real login status
+    (async () => {
+      try {
+        const api = (typeof window.API_BASE_URL === 'string' && window.API_BASE_URL) ? window.API_BASE_URL : '';
+        if (!api) return;
+        const res = await fetch(`${api}/auth/check`, { credentials: 'include', cache: 'no-cache' });
+        isAuthenticated = res.ok;
+      } catch {}
+    })();
   }
 
   function setAuth(v) { isAuthenticated = !!v; }
