@@ -245,8 +245,11 @@
     const subBtn = document.getElementById('mode-subtract');
     const saveBtn = document.getElementById('save');
 
-    if (prev) prev.addEventListener('click', () => { if (!isAuthenticated) return; weekOffset -= 1; buildGrid(); });
-    if (next) next.addEventListener('click', () => { if (!isAuthenticated) return; weekOffset += 1; buildGrid(); });
+    // Allow navigation regardless of auth
+    if (prev) prev.addEventListener('click', () => { weekOffset -= 1; buildGrid(); });
+    if (next) next.addEventListener('click', () => { weekOffset += 1; buildGrid(); });
+
+    // Editing actions remain gated by auth
     if (addBtn) addBtn.addEventListener('click', () => { if (!isAuthenticated) return; setMode('add'); });
     if (subBtn) subBtn.addEventListener('click', () => { if (!isAuthenticated) return; setMode('subtract'); });
     if (saveBtn) saveBtn.addEventListener('click', saveWeek);
