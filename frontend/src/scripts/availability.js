@@ -3,6 +3,7 @@
   const HOURS_START = 0;
   const HOURS_END = 24;
   const SLOT_SEC = 30 * 60;
+  const ROWS_PER_DAY = (HOURS_END - HOURS_START) * SLOTS_PER_HOUR;
 
   // State
   let isAuthenticated = true;
@@ -13,7 +14,7 @@
   let unsaved = false;                  // track unsaved changes
 
   // DOM refs
-  let gridContent, table;
+  let gridContent, table, rightPane;
 
   // --- Settings bridge ---
   const SETTINGS_KEY = 'nat20_settings';
@@ -29,6 +30,8 @@
       cfg = readSettings();
       buildGrid();
       updateNowMarker();
+      // Templates list does not depend on weekOffset, but repaint previews on font/zoom changes
+      renderTemplatesPanel(); // safe to call; it will noop if right pane not present
     }
   });
 
@@ -290,7 +293,7 @@
   }
 
   // Intercept in-page link navigation to guard unsaved changes (custom confirm)
-function interceptLinkNavigation() {
+  function interceptLinkNavigation() {
     document.addEventListener('click', function(e) {
       const a = e.target && e.target.closest ? e.target.closest('a[href]') : null;
       if (!a) return;
@@ -330,10 +333,220 @@ function interceptLinkNavigation() {
     onChange: () => { updateNowMarker(); }
   });
 
+  // ===============================
+  // Templates side panel (right)
+  // ===============================
+  async function fetchTemplatesList() {
+    try {
+      const api = (typeof window.API_BASE_URL === 'string' && window.API_BASE_URL) ? window.API_BASE_URL : '';
+      if (!api) return [];
+      const res = await fetch(`${api}/templates/list`, { credentials: 'include', cache: 'no-store' });
+      if (!res.ok) return [];
+      const data = await res.json();
+      return Array.isArray(data.templates) ? data.templates : [];
+    } catch { return []; }
+  }
+
+  async function fetchTemplate(id) {
+    try {
+      const api = (typeof window.API_BASE_URL === 'string' && window.API_BASE_URL) ? window.API_BASE_URL : '';
+      if (!api) return null;
+      const res = await fetch(`${api}/templates/get?id=${encodeURIComponent(id)}`, { credentials: 'include', cache: 'no-store' });
+      if (!res.ok) return null;
+      const data = await res.json();
+      return data && data.template ? data.template : null;
+    } catch { return null; }
+  }
+
+  function ensureRightPaneSkeleton() {
+    if (!rightPane) return null;
+    rightPane.innerHTML = '';
+
+    const wrap = document.createElement('div');
+    wrap.className = 'tpl-pane';
+
+    const h = document.createElement('h3');
+    h.textContent = 'Templates';
+    h.className = 'tpl-title';
+
+    const list = document.createElement('div');
+    list.id = 'tpl-list';
+    list.className = 'tpl-list';
+
+    const hint = document.createElement('div');
+    hint.className = 'tpl-hint';
+    hint.textContent = 'Drag a template onto the week to apply it.';
+
+    wrap.appendChild(h);
+    wrap.appendChild(list);
+    wrap.appendChild(hint);
+    rightPane.appendChild(wrap);
+
+    return list;
+  }
+
+  function drawTinyPreview(canvas, tpl) {
+    const w = 84, h = 42; // intentionally tiny / “near incomprehensible”
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, w, h);
+
+    // grid
+    ctx.globalAlpha = 0.25;
+    ctx.strokeStyle = '#888';
+    const cols = 7;
+    const rows = 12; // compress 24h into 12 rows (2h per row) for tiny view
+    const cw = Math.floor(w / cols);
+    const rh = Math.floor(h / rows);
+    for (let c = 0; c <= cols; c++) {
+      ctx.beginPath(); ctx.moveTo(c * cw + 0.5, 0); ctx.lineTo(c * cw + 0.5, h); ctx.stroke();
+    }
+    for (let r = 0; r <= rows; r++) {
+      ctx.beginPath(); ctx.moveTo(0, r * rh + 0.5); ctx.lineTo(w, r * rh + 0.5); ctx.stroke();
+    }
+
+    // fill intervals
+    ctx.globalAlpha = 0.9;
+    ctx.fillStyle = '#7c5cff'; // accent-ish
+    const days = Array.isArray(tpl.days) ? tpl.days : [];
+    for (let day = 0; day < 7; day++) {
+      const intervals = Array.isArray(days[day]) ? days[day] : [];
+      for (const pair of intervals) {
+        const fromMin = Number(pair[0]);
+        const toMin = Number(pair[1]);
+        if (!Number.isFinite(fromMin) || !Number.isFinite(toMin) || toMin <= fromMin) continue;
+        const fromY = Math.floor((fromMin / 1440) * h);
+        const toY = Math.ceil((toMin / 1440) * h);
+        const x = day * cw + 1;
+        ctx.fillRect(x, fromY, cw - 2, Math.max(1, toY - fromY));
+      }
+    }
+  }
+
+  async function renderTemplatesPanel() {
+    if (!rightPane) return;
+    const listEl = ensureRightPaneSkeleton();
+    if (!listEl) return;
+    listEl.textContent = 'Loading…';
+
+    const items = await fetchTemplatesList();
+    listEl.textContent = '';
+
+    if (!items.length) {
+      const empty = document.createElement('div');
+      empty.className = 'tpl-empty';
+      empty.textContent = 'No templates yet.';
+      listEl.appendChild(empty);
+      return;
+    }
+
+    for (const meta of items) {
+      const card = document.createElement('div');
+      card.className = 'tpl-card';
+      card.setAttribute('draggable', 'true');
+      card.dataset.id = String(meta.id);
+
+      const name = document.createElement('div');
+      name.className = 'tpl-name';
+      name.textContent = meta.name;
+
+      const canvas = document.createElement('canvas');
+      canvas.className = 'tpl-mini';
+
+      card.appendChild(name);
+      card.appendChild(canvas);
+      listEl.appendChild(card);
+
+      // Load full template for preview (days)
+      fetchTemplate(meta.id).then((tpl) => { if (tpl) drawTinyPreview(canvas, tpl); }).catch(() => {});
+
+      card.addEventListener('dragstart', (e) => {
+        e.dataTransfer.setData('text/plain', String(meta.id));
+        try { e.dataTransfer.setData('application/x-template-id', String(meta.id)); } catch {}
+        e.dataTransfer.effectAllowed = 'copy';
+      });
+    }
+  }
+
+  function bindDropZone() {
+    if (!gridContent) return;
+    gridContent.addEventListener('dragover', (e) => {
+      if (!isAuthenticated) return;
+      const hasId = e.dataTransfer && (e.dataTransfer.types.includes('application/x-template-id') || e.dataTransfer.types.includes('text/plain'));
+      if (!hasId) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+    });
+    gridContent.addEventListener('drop', async (e) => {
+      if (!isAuthenticated) {
+        shared.showToast('You must be logged in to edit your availability.', 'info');
+        return;
+      }
+      const id = (e.dataTransfer && (e.dataTransfer.getData('application/x-template-id') || e.dataTransfer.getData('text/plain'))) || '';
+      if (!id) return;
+      e.preventDefault();
+      await applyTemplateById(id);
+    });
+  }
+
+  async function applyTemplateById(id) {
+    const tpl = await fetchTemplate(id);
+    if (!tpl) { shared.showToast('Failed to load template.', 'error'); return; }
+
+    const tz = cfg.tz;
+    const { baseEpoch } = shared.getWeekStartEpochAndYMD(tz, cfg.weekStart, weekOffset);
+    const endEpoch = baseEpoch + 7 * 86400;
+
+    const hasExisting = Array.from(selected).some(t => t >= baseEpoch && t < endEpoch);
+    if (hasExisting) {
+      const ok = window.confirm('This will overwrite this week’s data. Continue?');
+      if (!ok) return;
+    }
+
+    // Clear current week
+    for (const t of Array.from(selected)) { if (t >= baseEpoch && t < endEpoch) selected.delete(t); }
+
+    // Apply template into current week
+    const days = Array.isArray(tpl.days) ? tpl.days : [];
+    for (let day = 0; day < 7; day++) {
+      const ymd = shared.addDays(shared.getWeekStartEpochAndYMD(tz, cfg.weekStart, weekOffset).baseYMD.y,
+                                 shared.getWeekStartEpochAndYMD(tz, cfg.weekStart, weekOffset).baseYMD.m,
+                                 shared.getWeekStartEpochAndYMD(tz, cfg.weekStart, weekOffset).baseYMD.d, day);
+      const intervals = Array.isArray(days[day]) ? days[day] : [];
+      for (const pair of intervals) {
+        const fromMin = Number(pair[0]);
+        const toMin = Number(pair[1]);
+        if (!Number.isFinite(fromMin) || !Number.isFinite(toMin) || toMin <= fromMin) continue;
+        const fromRow = minuteToRow(fromMin);
+        const toRow = minuteToRow(toMin); // exclusive
+        for (let r = Math.max(0, fromRow); r < Math.min(ROWS_PER_DAY, toRow); r++) {
+          const hour = Math.floor(r / SLOTS_PER_HOUR) + HOURS_START;
+          const minute = Math.round((r % SLOTS_PER_HOUR) * (60 / SLOTS_PER_HOUR));
+          const epoch = shared.epochFromZoned(ymd.y, ymd.m, ymd.d, hour, minute, tz);
+          if (epoch >= baseEpoch && epoch < endEpoch) selected.add(epoch);
+        }
+      }
+    }
+
+    applySelectedClasses();
+    markDirty();
+    shared.showToast('Template applied to this week.', 'success');
+  }
+
+  function minuteToRow(minute) {
+    const slotMin = 60 / SLOTS_PER_HOUR; // 30
+    const h = Math.floor(minute / 60);
+    const m = minute % 60;
+    const row = (h - HOURS_START) * SLOTS_PER_HOUR + Math.floor(m / slotMin + 1e-6);
+    return row;
+  }
+
   // --- Init / Public API ---
   function init() {
     gridContent = document.getElementById('grid-content');
     table = document.getElementById('schedule-table');
+    rightPane = document.querySelector('.availability-right');
     if (!gridContent || !table) return;
 
     // bind handler target now that gridContent exists
@@ -406,6 +619,10 @@ function interceptLinkNavigation() {
     // Keep the NOW marker in sync & update past shading
     setInterval(updateNowMarker, 60000);
 
+    // Right pane templates
+    renderTemplatesPanel();
+    bindDropZone();
+
     // Final fallback to server-side auth (covers hard refresh / first load)
     (async () => {
       try {
@@ -413,6 +630,8 @@ function interceptLinkNavigation() {
         if (!api) return;
         const res = await fetch(`${api}/auth/check`, { credentials: 'include', cache: 'no-store' });
         setAuth(res.ok);
+        // After auth known, refresh templates (list may be auth-gated)
+        renderTemplatesPanel();
       } catch {}
     })();
   }
@@ -432,6 +651,9 @@ function interceptLinkNavigation() {
 
     // Re-render grid to reflect new auth state and reload data
     buildGrid();
+
+    // Re-render templates panel (auth may change list visibility)
+    renderTemplatesPanel();
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
