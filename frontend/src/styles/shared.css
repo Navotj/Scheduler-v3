@@ -13,19 +13,22 @@
   --fg-1: #b6bfd4;
   --accent: #7c5cff;
 
+  /* Controls + spacing (shared) */
+  --ctrl-h: 40px;  /* unified control height */
+  --gap-sm: 8px;
+  --gap-md: 16px;
+
   /* Slot height; JS updates this via inline style on the scroll container */
   --slot-h: 18px;
 }
 
 /* =========================
-   Shared APP LAYOUT (both pages use the same DOM structure)
+   Shared APP LAYOUT (DOM structure common to both pages)
    ========================= */
 
-.availability {
-  height: 100%;
-}
+.availability { height: 100%; }
 
-/* Layout: two columns (left grid, right sidebar) plus controls row under both */
+/* Two columns (left grid, right sidebar) + controls row under both */
 .availability .availability-layout {
   display: grid;
   grid-template-columns: 4fr 1fr; /* 80 / 20 */
@@ -45,11 +48,11 @@
 /* Left column passes its children to the parent grid areas */
 .availability .availability-left { display: contents; }
 
-/* Right column explicitly placed (leave actual panel styling to page/other CSS) */
-.availability .availability-right { grid-area: main-right; }
+/* Right column (panel container) */
+.availability .availability-right { grid-area: main-right; height:100%; min-height:0; overflow:hidden; }
 
 /* Scrollable grid viewport (left/main) */
-.availability .grid { 
+.availability .grid {
   grid-area: main-left;
   box-sizing: border-box;
   min-height: 0;
@@ -57,29 +60,119 @@
   overflow: hidden;
 }
 
-/* Controls container spans full width under the grid & right panel */
+/* Controls container spans full width under grid & right panel */
 .availability .controls-pane {
   grid-area: controls;
   min-height: 0;
   display: flex;
   flex-direction: column;
   justify-content: center;
+  overflow: visible; /* allow focus outlines/labels above without shifting layout */
 }
 
-/* Baseline controls layout (pages can override) */
+/* Unified controls bar: single row, clipped (no internal scrollbars) */
 .availability .picker-controls {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  align-items: center;
+  display: flex;
+  flex-wrap: nowrap;               /* one line */
+  align-items: flex-end;           /* bottoms align */
+  gap: var(--gap-md);
   margin: 0;
-  gap: 16px;
+  overflow: hidden;                /* clip excess at container edge */
 }
-.availability .week-controls { display: flex; gap: 8px; align-items: center; }
-.availability .mode-controls { display: flex; gap: 8px; }
-.availability .save-controls { display: flex; gap: 8px; }
+.availability .picker-controls > * { flex: 0 0 auto; }
+
+/* Common clusters inside the bar */
+.availability .picker-controls .cluster {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: var(--gap-sm);
+}
+.availability .week-controls { gap: 6px; align-items: center; }
+.availability .mode-controls { gap: 8px; }
+.availability .save-controls { gap: 8px; }
+
+/* Hide dynamic week label by default (JS may still update text) */
+#week-label { display: none; }
+
+/* Save group stands out slightly (shared) */
+.availability .save-controls button {
+  font-weight: 700;
+  padding: 14px 20px;
+  border-radius: var(--radius, 10px);
+}
+
+/* Helper text under controls (optional, shared) */
+.availability .signin-tooltip {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--fg-1, #b6bfd4);
+}
+
+/* Baseline control elements sizing/looks (shared) */
+.availability .availability-left .picker-controls button {
+  appearance: none;
+  border: 1px solid var(--border, #1a1c20);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--fg-0, #e7eaf2);
+  padding: 0 18px;                      /* width driven by padding */
+  font-size: 14px;
+  font-weight: 600;
+  line-height: calc(var(--ctrl-h) - 2px);
+  height: var(--ctrl-h);                /* unified control height */
+  border-radius: var(--radius, 10px);
+  box-shadow: none;
+  cursor: pointer;
+  transition: background-color 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+}
+.availability .availability-left .picker-controls button:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: #2a2f3a;
+}
+.availability .availability-left .picker-controls button:active {
+  background: rgba(255, 255, 255, 0.09);
+  border-color: #2a2f3a;
+  box-shadow: inset 0 0 0 1px rgba(0,0,0,0.12);
+}
+.availability .availability-left .picker-controls button:focus-visible {
+  outline: 2px solid var(--accent, #7c5cff);
+  outline-offset: 2px;
+}
+
+/* Inputs/selects share height with buttons */
+.availability .availability-left .picker-controls input[type="text"],
+.availability .availability-left .picker-controls input[type="number"],
+.availability .availability-left .picker-controls select {
+  background: #0f0f11;
+  color: #e7eaf2;
+  border: 1px solid var(--border, #1a1c20);
+  border-radius: 8px;
+  height: var(--ctrl-h);
+  padding: 0 6px;
+  box-sizing: border-box;
+}
+.availability .availability-left .picker-controls input:focus-visible,
+.availability .availability-left .picker-controls select:focus-visible {
+  outline-offset: 2px;
+}
+
+/* Generic field pattern (labels above inputs without shifting layout) */
+.field {
+  position: relative;
+  display: inline-flex;
+  align-items: flex-end;
+  height: var(--ctrl-h);
+}
+.field label {
+  position: absolute;
+  bottom: calc(100% + 2px);
+  left: 0;
+  font-size: 12px;
+  color: var(--fg-1, #b6bfd4);
+  white-space: nowrap;
+}
 
 /* =========================
-   Scrollable grid viewport (shared)
+   Scroll container (shared)
    ========================= */
 #grid-content,
 .availability .grid-content {
@@ -95,7 +188,7 @@
 }
 
 /* =========================
-   Schedule table base
+   Schedule table base (shared)
    ========================= */
 #schedule-table,
 .availability .table {
@@ -103,7 +196,7 @@
   height: 100%;
   border-collapse: separate;
   border-spacing: 0;
-  table-layout: fixed; /* columns shrink to fit; no horizontal overflow */
+  table-layout: fixed;
   font-size: 12px;
   color: var(--fg-0, #e7eaf2);
   background: var(--card, #121315);
@@ -141,33 +234,19 @@
 
 /* Day header cells */
 #schedule-table thead th.day,
-.availability .table thead th.day {
-  text-align: center;
-  border-left: 1px solid #353944;
-}
+.availability .table thead th.day { text-align: center; border-left: 1px solid #353944; }
 
 /* Sticky time column for body */
 #schedule-table tbody th.time-col,
-.availability .table tbody th.time-col {
-  position: sticky;
-  left: 0;
-  z-index: 1;
-  border-top: 1px solid #353944;
-}
+.availability .table tbody th.time-col { position: sticky; left: 0; z-index: 1; border-top: 1px solid #353944; }
 
 /* Grid lines */
 #schedule-table tbody tr.row-hour td.slot-cell,
-.availability .table tbody tr.row-hour td.slot-cell {
-  border-top: 1px solid #353944;
-}
+.availability .table tbody tr.row-hour td.slot-cell { border-top: 1px solid #353944; }
 #schedule-table tbody tr.row-half td.slot-cell,
-.availability .table tbody tr.row-half td.slot-cell {
-  border-top: 1px dashed #353944;
-}
+.availability .table tbody tr.row-half td.slot-cell { border-top: 1px dashed #353944; }
 #schedule-table tbody td.slot-cell,
-.availability .table tbody td.slot-cell {
-  border-left: 1px solid #353944;
-}
+.availability .table tbody td.slot-cell { border-left: 1px solid #353944; }
 
 /* Slot sizing */
 #schedule-table tbody td.slot-cell,
@@ -181,26 +260,18 @@
 /* Time label span on hour header cells */
 .time-label.hour { display: inline-block; }
 
-/* Selection & painting states */
-#schedule-table td.slot-cell.selected,
-.availability .table td.slot-cell.selected {
-  background: rgba(23, 186, 78, 0.5);
-}
-#schedule-table td.slot-cell.preview-add,
-.availability .table td.slot-cell.preview-add {
-  outline: 2px dashed rgba(15, 185, 72, 0.7);
-  outline-offset: -2px;
-}
-#schedule-table td.slot-cell.preview-sub,
-.availability .table td.slot-cell.preview-sub {
-  outline: 2px dashed rgba(255, 96, 96, 0.8);
-  outline-offset: -2px;
-}
-
-/* Past cells: filled light gray, no global opacity (clicks disabled by JS logic) */
+/* Past cells */
 #schedule-table td.slot-cell.past,
-.availability .table td.slot-cell.past {
-  background: rgb(132 139 147 / 14%);
+.availability .table td.slot-cell.past { background: rgb(132 139 147 / 14%); }
+
+/* Table cell glow for hovered result ranges */
+#schedule-table td.slot-cell.highlight,
+.availability .table td.slot-cell.highlight {
+  outline: 2px solid var(--accent, #7c5cff);
+  outline-offset: -2px;
+  box-shadow: 0 0 10px rgba(124,92,255,0.35) inset, 0 0 6px rgba(124,92,255,0.25);
+  position: relative;
+  z-index: 1;
 }
 
 /* =========================
@@ -208,28 +279,23 @@
    ========================= */
 .now-marker {
   position: absolute;
-  left: 0;
-  right: 0;
-  /* top is set by JS in px relative to the scroll container */
+  left: 0; right: 0;
   pointer-events: none;
   display: none;
-  height: 0; /* do not affect layout; draw the line via ::before */
+  height: 0; /* draw the line via ::before */
   z-index: 1;
 }
 .now-marker::before {
   content: "";
   position: absolute;
-  left: 0;
-  right: 0;
-  top: 0;
+  left: 0; right: 0; top: 0;
   height: 2px;
   background: var(--accent, #7c5cff);
 }
 .now-marker .bubble {
   position: absolute;
-  left: 50%;
-  top: 0;
-  transform: translate(-50%, -50%); /* center horizontally and vertically on the line */
+  left: 50%; top: 0;
+  transform: translate(-50%, -50%);
   padding: 2px 6px;
   font-size: 10px;
   background: var(--accent, #7c5cff);
@@ -239,40 +305,68 @@
 }
 
 /* =========================
-   Baseline control styles (page-specific files can override)
+   Right-panel (results) shared styling
    ========================= */
 
-.availability .picker-controls button {
-  appearance: none;
+/* Panel container uses full column height with header + scrollable body */
+.availability .availability-right .panel {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  height: 100%;
+  min-height: 0;
+}
+.panel {
+  background: var(--card, #121315);
   border: 1px solid var(--border, #1a1c20);
-  background: rgba(255, 255, 255, 0.03);
-  color: var(--fg-0, #e7eaf2);
-  padding: 12px 18px;
-  font-size: 14px;
-  font-weight: 600;
-  line-height: 1;
   border-radius: var(--radius, 10px);
-  box-shadow: none;
-  cursor: pointer;
-  transition: background-color 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+  padding: 12px;
 }
-.availability .picker-controls button:hover {
-  background: rgba(255, 255, 255, 0.06);
-  border-color: #2a2f3a;
-}
-.availability .picker-controls button:active {
-  background: rgba(255, 255, 255, 0.09);
-  border-color: #2a2f3a;
-  box-shadow: inset 0 0 0 1px rgba(0,0,0,0.12);
-}
-.availability .picker-controls button:focus-visible {
-  outline: 2px solid var(--accent, #7c5cff);
-  outline-offset: 2px;
-}
+.panel h3 { margin: 0 0 8px 0; font-size: 15px; }
 
-/* Toggle state (used by availability add/subtract) */
-.availability .picker-controls button[aria-pressed="true"] {
-  border-color: var(--accent, #7c5cff);
-  background: rgba(124, 92, 255, 0.18);
-  box-shadow: 0 0 0 3px rgba(124, 92, 255, 0.18);
+/* Scrollable results body */
+#results { overflow: auto; min-height: 0; max-height: 100%; }
+
+/* Result cards */
+.results { max-height: 100%; overflow: auto; padding-right: 4px; }
+.results .result {
+  position: relative;
+  background: #121212;
+  border: 1px solid #2a2a2a;
+  border-radius: 10px;
+  padding: 8px 10px 26px 10px;
+  margin: 8px 0;
+  transition: border-color .12s ease;
+}
+.results .res-top { font-weight: 600; margin-bottom: 3px; font-size: 13px; }
+.results .res-sub { font-size: 11px; color: #bbb; margin-bottom: 3px; }
+.results .res-users { font-size: 11px; color: #cfe9cf; word-break: break-word; }
+.results .result.hovered { border-color: var(--accent, #7c5cff); box-shadow: 0 0 0 2px rgba(124,92,255,0.35); }
+.results .result button {
+  position: absolute; right: 10px; bottom: 8px;
+  background: none; border: none; padding: 0; cursor: pointer;
+  color: transparent; font-size: 0;
+}
+.results .result button::before { content: "Copy"; font-weight: 700; font-size: 12px; color: #e6e6e6; }
+
+/* =========================
+   Floating cell tooltip (shared)
+   ========================= */
+.cell-tooltip,
+#cell-tooltip {
+  position: fixed;
+  z-index: 9999;
+  pointer-events: none;
+  display: none;
+
+  font-size: 12px;
+  line-height: 1.2;
+  color: var(--fg-1, #b6bfd4);
+
+  background: rgba(18, 19, 21, 0.75);
+  border: 1px solid var(--border, #1a1c20);
+  border-radius: 8px;
+  padding: 6px 8px;
+  max-width: 280px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+  white-space: normal;
 }

@@ -1,134 +1,87 @@
 /* =========================
-   Matcher page styles
-   Relies on shared.css for layout/table/marker/base controls
+   Matcher page overrides
+   Only visuals/controls unique to the Matcher page.
+   Core layout/table/marker/panels/results live in shared.css
    ========================= */
 
-/* --- Controls row: single horizontal line and unified sizing --- */
+/* Tokens used only on the matcher page */
 :root{
-  --matcher-ctrl-h: 40px;   /* exact height for ALL controls (matches Prev/Next) */
-  --gap-sm: 8px;            /* small gap inside clusters */
-  --gap-md: 16px;           /* medium gap between clusters */
-  --mmw: 11ch;              /* width equal to “Max missing” text */
+  --mmw: 6.5ch;            /* width for #max-missing / #min-hours */
 }
 
-/* Ensure outlines/labels can render outside without moving layout */
-.availability .availability-left .controls-pane{overflow:visible;}
-.availability .availability-left .controls-pane .picker-controls{
-  display:flex;
-  flex-wrap:nowrap;                 /* never wrap to a second row */
-  align-items:flex-end;             /* bottoms of controls align */
-  gap:var(--gap-md);                /* medium gap between clusters */
-  overflow-x:auto;                  /* allow horizontal scroll on tiny screens */
-  overflow-y:visible;               /* let focus outlines/titles show above */
-  scrollbar-width:thin;
-}
-.availability .availability-left .controls-pane .picker-controls>*{flex:0 0 auto;}
+/* Short username field and compact Add button (matcher-only elements) */
+#add-username{ width:12ch; min-width:10ch; }
+#add-user-btn{ padding:0 8px; }
 
-.availability .availability-left .picker-controls .cluster{
-  display:inline-flex;
-  align-items:flex-end;
-  gap:var(--gap-sm);
+/* Filters: two-line labels placed beside compact inputs (matcher-only pattern) */
+.availability .picker-controls .filters .field{
+  position: static;
+  display: grid;
+  grid-template-columns: auto var(--mmw);
+  align-items: center;
+  height: var(--ctrl-h);
 }
-.availability .availability-left .picker-controls .week-controls{gap:6px;} /* small gap */
-.availability .availability-left .picker-controls .add-user{gap:4px;}      /* very small gap */
-.availability .availability-left .picker-controls .filters{gap:var(--gap-sm);}
-.availability .availability-left .picker-controls .week-controls .week-label{display:none;}
-
-/* Unify button height (Prev/Next/Add) */
-.availability .availability-left .picker-controls button{
-  height:var(--matcher-ctrl-h);
-  padding:0 18px;                             /* width from padding only */
-  line-height:calc(var(--matcher-ctrl-h) - 2px);
+.availability .picker-controls .filters .field label{
+  position: static;
+  margin-right: 6px;
+  font-size: 14px;
+  line-height: 1.1;
+  white-space: pre-line; /* respect <br> in titles */
+  color: var(--fg-1, #b6bfd4);
 }
 
-/* Inputs/selects: same height as buttons */
-.availability .availability-left .picker-controls input[type="text"],
-.availability .availability-left .picker-controls input[type="number"],
-.availability .availability-left .picker-controls select{
-  background:#0f0f11;
-  color:#e7eaf2;
-  border:1px solid var(--border,#1a1c20);
-  border-radius:8px;
-  height:var(--matcher-ctrl-h);
-  padding:0 6px;
-  box-sizing:border-box;
+/* Numeric widths + center text */
+#max-missing,
+#min-hours{
+  width: var(--mmw) !important;
+  min-width: var(--mmw) !important;
+  text-align: center;
 }
 
-/* Focus outline should be visible outside the container */
-.availability .availability-left .picker-controls button:focus-visible,
-.availability .availability-left .picker-controls input:focus-visible,
-.availability .availability-left .picker-controls select:focus-visible{
-  outline-offset:2px;
-}
-
-/* Short username box */
-#add-username{width:12ch;min-width:10ch;}
-/* Make Add button as small as its text; height is unified via rule above */
-#add-user-btn{padding:0 8px;}
-
-/* Labels above inputs WITHOUT pushing boxes down; titles line up across clusters */
-.field{
-  position:relative;
-  display:inline-flex;
-  align-items:flex-end;
-  height:var(--matcher-ctrl-h);
-}
-.field label{
-  position:absolute;
-  bottom:calc(100% + 2px);         /* push label up */
-  left:0;
-  font-size:12px;
-  color:var(--fg-1,#b6bfd4);
-  white-space:nowrap;
-}
-
-/* Required widths: both numeric boxes exactly as wide as “Max missing” text */
-#max-missing,#min-hours{
-  width:var(--mmw) !important;
-  min-width:var(--mmw) !important;
-  text-align:center;
-}
-
-/* Select width behaves like inputs; keep compact but legible */
-.select-field select{min-width:14ch;}
-
-/* Ensure number inputs don’t distort width across browsers */
-input[type="number"]{-moz-appearance:textfield;appearance:textfield;}
+/* Normalize number inputs across browsers, then re-enable arrows on specific fields */
+input[type="number"]{ -moz-appearance:textfield; appearance:textfield; }
 input[type="number"]::-webkit-outer-spin-button,
-input[type="number"]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}
+input[type="number"]::-webkit-inner-spin-button{ -webkit-appearance:none; margin:0; }
 
-/* Legend: fits within the same height as controls (1 or 2 compact rows) */
-.legend-field{position:relative;display:inline-flex;align-items:stretch;height:var(--matcher-ctrl-h);}
-.legend-field > label{position:absolute;bottom:calc(100% + 2px);left:0;}
+#max-missing, #min-hours{
+  appearance: auto;
+  -moz-appearance: auto;
+}
+#max-missing::-webkit-inner-spin-button,
+#max-missing::-webkit-outer-spin-button,
+#min-hours::-webkit-inner-spin-button,
+#min-hours::-webkit-outer-spin-button{
+  -webkit-appearance: auto;
+  margin: 0;
+}
+
+/* Legend blocks (compact, two-row) */
+.legend-field{ position:relative; display:inline-flex; align-items:stretch; height:var(--ctrl-h); }
+.legend-field > label{ position:absolute; bottom:calc(100% + 2px); left:0; }
 .legend-blocks{
   display:grid;
-  grid-template-rows: 1fr 1fr;     /* chips row (top) + numbers row (bottom) */
+  grid-template-rows: 1fr 1fr; /* chips row + numbers row */
   gap:4px;
-  height:100%;                     /* exactly the control height */
+  height:100%;
   min-width:10ch;
 }
-.legend-blocks .steps-row{
-  display:grid;
-  grid-auto-flow:column;
-  gap:4px;
-  align-items:start;               /* top aligns with control tops */
-}
-.legend-blocks .labels-row{
-  display:grid;
-  grid-auto-flow:column;
-  gap:6px;
-  align-items:end;                 /* bottom aligns with control bottoms */
-  font-size:12px; line-height:1;
-}
-.legend-blocks .chip{width:100%;height:10px;border-radius:6px;border:1px solid var(--border,#1a1c20);}
-.legend-blocks .spacer{visibility:hidden;}
+.legend-blocks .steps-row{ display:grid; grid-auto-flow:column; gap:4px; align-items:start; }
+.legend-blocks .labels-row{ display:grid; grid-auto-flow:column; gap:6px; align-items:end; font-size:12px; line-height:1; }
+.legend-blocks .chip{ width:100%; height:10px; border-radius:6px; border:1px solid var(--border,#1a1c20); }
+.legend-blocks .spacer{ visibility:hidden; }
 
-/* Hide any inline error text; we use toast instead */
-#member-error{display:none !important;}
+/* Inline error hidden (use toast) */
+#member-error{ display:none !important; }
 
 /* Toast notifications (fixed; no layout shift) */
 .toast-stack{
-  position:fixed;right:16px;bottom:16px;display:grid;gap:8px;z-index:9999;pointer-events:none;
+  position:fixed;
+  right:16px;
+  bottom:16px;
+  display:grid;
+  gap:8px;
+  z-index:9999;
+  pointer-events:none;
 }
 .toast{
   pointer-events:auto;
@@ -142,117 +95,16 @@ input[type="number"]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0
   transform:translateY(8px);
   opacity:0;
   animation:toast-in 160ms ease-out forwards;
-  font-size:14px;line-height:1.2;
-}
-.toast-error{background:rgba(255,64,64,0.22);border-color:rgba(255,64,64,0.65);color:#ffe2e2;}
-.toast.bye{animation:toast-out 200ms ease-in forwards;}
-@keyframes toast-in{from{transform:translateY(8px);opacity:0;}to{transform:translateY(0);opacity:1;}}
-@keyframes toast-out{to{transform:translateY(8px);opacity:0;}}
-
-/* Results panel (right column) */
-.panel{background:var(--card,#121315);border:1px solid var(--border,#1a1c20);border-radius:var(--radius,10px);padding:12px;}
-.panel h3{margin:0 0 8px 0;font-size:15px;}
-.results{max-height:100%;overflow:auto;padding-right:4px;}
-.results .result{position:relative;background:#121212;border:1px solid #2a2a2a;border-radius:10px;padding:8px 10px 26px 10px;margin:8px 0;transition:border-color .12s ease;}
-.results .res-top{font-weight:600;margin-bottom:3px;font-size:13px;}
-.results .res-sub{font-size:11px;color:#bbb;margin-bottom:3px;}
-.results .res-users{font-size:11px;color:#cfe9cf;word-break:break-word;}
-.results .result.hovered{border-color:#ffd54a;}
-.results .result button{position:absolute;right:10px;bottom:8px;background:none;border:none;padding:0;cursor:pointer;color:transparent;font-size:0;}
-.results .result button::before{content:"Copy";font-weight:700;font-size:12px;color:#e6e6e6;}
-
-/* --- Overrides for filters layout, widths, arrows, and bottom pane overflow --- */
-
-/* Make numeric boxes more compact */
-:root{
-  --mmw: 6.5ch; /* narrower input width for max missing / min hours */
-}
-
-/* Bottom pane must not overflow or scroll; cutoff anything that doesn't fit */
-.availability .availability-left .controls-pane{
-  overflow:hidden;
-}
-.availability .availability-left .controls-pane .picker-controls{
-  overflow:hidden;     /* no scrollbars, single row, clipped at container edge */
-  flex-wrap:nowrap;    /* ensure single row */
-}
-
-/* Show titles next to the boxes (two-line text) for filters only */
-.availability .availability-left .picker-controls .filters .field{
-  position:static;
-  display:grid;
-  grid-template-columns:auto var(--mmw);
-  align-items:center;
-  height:var(--matcher-ctrl-h);
-}
-.availability .availability-left .picker-controls .filters .field label{
-  position:static;
-  margin-right:6px;
   font-size:14px;
-  line-height:1.1;
-  white-space:pre-line; /* respect the <br> to force two lines */
-  color:var(--fg-1,#b6bfd4);
+  line-height:1.2;
 }
+.toast-error{ background:rgba(255,64,64,0.22); border-color:rgba(255,64,64,0.65); color:#ffe2e2; }
+.toast.bye{ animation:toast-out 200ms ease-in forwards; }
 
-/* Keep boxes compact and centered text */
-#max-missing,
-#min-hours{
-  width:var(--mmw);
-  min-width:var(--mmw);
-  text-align:center;
+@keyframes toast-in{
+  from{ transform:translateY(8px); opacity:0; }
+  to{ transform:translateY(0); opacity:1; }
 }
-
-/* Re-enable native number input arrows specifically for these fields */
-#max-missing,
-#min-hours{
-  appearance:auto;
-  -moz-appearance:auto;
-}
-#max-missing::-webkit-inner-spin-button,
-#max-missing::-webkit-outer-spin-button,
-#min-hours::-webkit-inner-spin-button,
-#min-hours::-webkit-outer-spin-button{
-  -webkit-appearance:auto;
-  margin:0;
-}
-
-.availability .availability-right{height:100%;min-height:0;overflow:hidden}
-.availability .availability-right .panel{display:grid;grid-template-rows:auto 1fr;height:100%;min-height:0}
-#results{overflow:auto;min-height:0;max-height:100%}
-
-/* Floating cell tooltip that follows the mouse (no layout shift) */
-.cell-tooltip,
-#cell-tooltip{
-  position: fixed;
-  z-index: 9999;
-  pointer-events: none;
-  display: none;
-
-  font-size: 12px;
-  line-height: 1.2;
-  color: var(--fg-1, #b6bfd4);
-
-  background: rgba(18, 19, 21, 0.75);
-  border: 1px solid var(--border, #1a1c20);
-  border-radius: 8px;
-  padding: 6px 8px;
-  max-width: 280px;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.35);
-  white-space: normal; /* allow wrapping for long names */
-}
-
-/* --- Hover glow for individual result cards only (not the panel) --- */
-.results .result.hovered{
-  border-color: var(--accent, #7c5cff);
-  box-shadow: 0 0 0 2px rgba(124,92,255,0.35);
-}
-
-/* --- Table cell glow for hovered result ranges --- */
-#schedule-table td.slot-cell.highlight,
-.availability .table td.slot-cell.highlight{
-  outline: 2px solid var(--accent, #7c5cff);
-  outline-offset: -2px;
-  box-shadow: 0 0 10px rgba(124,92,255,0.35) inset, 0 0 6px rgba(124,92,255,0.25);
-  position: relative;
-  z-index: 1;
+@keyframes toast-out{
+  to{ transform:translateY(8px); opacity:0; }
 }

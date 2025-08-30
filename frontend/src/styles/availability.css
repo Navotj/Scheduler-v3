@@ -1,78 +1,36 @@
 /* =========================
-   Availability page styles
-   Depends on shared.css for table/marker/base controls
+   Availability page overrides
+   Only visuals unique to the Availability picker
+   (selection paint, drag previews, toggle state, paint UX)
+   Core layout/table/marker/control styles are in shared.css
    ========================= */
 
-.availability {
-  height: 100%;
+/* Selected (painted) slots */
+.availability .table td.slot-cell.selected {
+  background: rgba(23, 186, 78, 0.5);
 }
 
-/* Layout: two columns (left grid, right sidebar) plus controls row under both */
-.availability .availability-layout {
-  display: grid;
-  grid-template-columns: 4fr 1fr; /* 80 / 20 */
-  grid-template-rows: 1fr auto;   /* main row + controls row */
-  grid-template-areas:
-    "main-left main-right"
-    "controls  controls";
-  gap: 16px;
-  align-items: start;
-  width: 100%;
-  height: 100%;
-  margin: 0;
-  padding: 0;
-  min-height: inherit;
+/* Drag/hover preview outlines while painting */
+.availability .table td.slot-cell.preview-add {
+  outline: 2px dashed rgba(15, 185, 72, 0.7);
+  outline-offset: -2px;
+}
+.availability .table td.slot-cell.preview-sub {
+  outline: 2px dashed rgba(255, 96, 96, 0.8);
+  outline-offset: -2px;
 }
 
-/* Left column passes its children to the parent grid areas */
-.availability .availability-left { display: contents; }
-
-/* Right column explicitly placed (leave actual panel styling to page/other CSS) */
-.availability .availability-right { grid-area: main-right; }
-
-/* Scrollable grid viewport (left/main) */
-.availability .grid { 
-  grid-area: main-left;
-  box-sizing: border-box;
-  min-height: 0;
-  height: 100%;
-  overflow: hidden;
+/* Toggle state styling for Add/Subtract buttons (availability-only) */
+.availability .picker-controls button[aria-pressed="true"] {
+  border-color: var(--accent, #7c5cff);
+  background: rgba(124, 92, 255, 0.18);
+  box-shadow: 0 0 0 3px rgba(124, 92, 255, 0.18);
 }
 
-/* Controls container spans full width under the grid & right panel */
-.availability .controls-pane {
-  grid-area: controls;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-}
-
-/* Controls layout (simple; can be overridden by matcher.css) */
-.availability .picker-controls {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  align-items: center;
-  margin: 0;
-  gap: 16px;
-}
-.availability .week-controls { display: flex; gap: 8px; align-items: center; }
-.availability .mode-controls { display: flex; gap: 8px; }
-.availability .save-controls { display: flex; gap: 8px; }
-
-/* Hide the dynamic week label (JS may still write to it safely) */
-.availability #week-label { display: none; }
-
-/* Save group stands out slightly */
-.availability .save-controls button {
-  font-weight: 700;
-  padding: 14px 20px;
-  border-radius: var(--radius, 10px);
-}
-
-/* Small helper text under controls (optional) */
-.availability .signin-tooltip {
-  margin-top: 8px;
-  font-size: 12px;
-  color: var(--fg-1, #b6bfd4);
+/* Prevent text selection while painting on the grid (availability-only) */
+.availability .grid-content,
+.availability .table {
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  user-select: none;
 }
