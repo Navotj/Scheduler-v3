@@ -286,40 +286,36 @@ h1,h2,h3,p{margin:0}
   .brand-title{ display:none }
 }
 
-.home-grid{
-  display:grid;
-  height:100%;
-  min-height:0;
-  grid-template-columns: 1fr 1fr;
-  grid-template-rows: 1fr 1fr;
-  gap:var(--gap);
-}
-
 .home-card{
   display:grid;
-  gap:8px;
-  padding:16px;
+  align-content:start;
+  gap:6px;
+  padding:12px 14px;
   border:1px solid var(--border);
-  border-radius:var(--radius);
-  background:color-mix(in srgb, var(--fg-0) 2%, transparent);
+  border-radius:var(--radius-sm);
+  background:var(--card);
   transition:background .12s ease,border-color .12s ease,transform .12s ease;
 }
 
 .home-card:hover{
-  background:color-mix(in srgb, var(--accent) 8%, transparent);
+  background:color-mix(in srgb, var(--accent) 6%, var(--card) 94%);
   border-color:color-mix(in srgb, var(--accent) 50%, var(--border) 50%);
   transform:translateY(-1px);
 }
 
 .home-card h2{
-  font-size:18px;
+  font-size:20px;
+  line-height:1.2;
+  font-weight:600;
   color:var(--fg-0);
 }
 
 .home-card p{
-  font-size:14px;
+  font-size:15px;
+  line-height:1.35;
   color:var(--fg-1);
 }
+
 
 /* stack to a single column on small monitors and keep equal-height quarters */
 @media (max-width: 991px){
