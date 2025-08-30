@@ -290,18 +290,29 @@
   }
 
   // Intercept in-page link navigation to guard unsaved changes (custom confirm)
-  function interceptLinkNavigation() {
+function interceptLinkNavigation() {
     document.addEventListener('click', function(e) {
       const a = e.target && e.target.closest ? e.target.closest('a[href]') : null;
       if (!a) return;
+
       const href = a.getAttribute('href');
       if (!href || href.startsWith('#') || href.startsWith('javascript:')) return;
+
       const tgt = (a.getAttribute('target') || '').toLowerCase();
-      if (tgt && tgt !== '_self') return; // let new tab/window pass through
-      if (!confirmLeaveIfDirty()) {
-        e.preventDefault();
-        e.stopPropagation();
+      if (tgt && tgt !== '_self') return; // let new tab/window proceed without prompts
+
+      if (unsaved) {
+        const ok = window.confirm('You have unsaved changes. Leave without saving?');
+        if (!ok) {
+          e.preventDefault();
+          e.stopPropagation();
+          return;
+        }
+        // User chose to leave: suppress the native beforeunload prompt for this navigation
+        window.removeEventListener('beforeunload', onBeforeUnload);
+        unsaved = false;
       }
+      // allow navigation to proceed
     }, true);
   }
 
