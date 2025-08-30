@@ -289,10 +289,10 @@ h1,h2,h3,p{margin:0}
 .home-card{
   display:grid;
   align-content:start;
-  gap:6px;
-  padding:12px 14px;
+  gap:8px;
+  padding:16px;
   border:1px solid var(--border);
-  border-radius:var(--radius-sm);
+  border-radius:var(--radius);
   background:var(--card);
   transition:background .12s ease,border-color .12s ease,transform .12s ease;
 }
@@ -304,15 +304,15 @@ h1,h2,h3,p{margin:0}
 }
 
 .home-card h2{
-  font-size:20px;
-  line-height:1.2;
+  font-size:22px;
+  line-height:1.25;
   font-weight:600;
   color:var(--fg-0);
 }
 
 .home-card p{
-  font-size:15px;
-  line-height:1.35;
+  font-size:16px;
+  line-height:1.4;
   color:var(--fg-1);
 }
 
