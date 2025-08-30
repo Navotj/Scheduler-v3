@@ -293,6 +293,47 @@
     gridContent.addEventListener('pointerdown', authGuard, true);
     gridContent.addEventListener('contextmenu', authGuard, true);
 
+    // ——— Sync auth state from topbar/auth.js without reloading ———
+    function observeAuthButton() {
+      const btn = document.getElementById('auth-btn');
+      if (!btn) return;
+      // set initial from current button state
+      setAuth(btn.dataset.state === 'authenticated');
+      // watch for changes driven by auth.js
+      const mo = new MutationObserver((mutList) => {
+        for (const m of mutList) {
+          if (m.type === 'attributes' && m.attributeName === 'data-state') {
+            setAuth(btn.dataset.state === 'authenticated');
+          }
+        }
+      });
+      mo.observe(btn, { attributes: true, attributeFilter: ['data-state'] });
+    }
+
+    // Hook into auth.js' setAuthState if available (and if it appears later)
+    function hookSetAuthState() {
+      if (window.__setAuthStateHooked) return;
+      if (typeof window.setAuthState === 'function') {
+        const original = window.setAuthState;
+        window.setAuthState = function(isAuthed, username) {
+          const r = original.apply(this, arguments);
+          try { setAuth(!!isAuthed); } catch {}
+          return r;
+        };
+        window.__setAuthStateHooked = true;
+      }
+    }
+
+    observeAuthButton();
+    hookSetAuthState();
+    // Retry hooking a few times in case auth.js loads after this script
+    let hookTries = 0;
+    const hookTimer = setInterval(() => {
+      hookTries += 1;
+      hookSetAuthState();
+      if (window.__setAuthStateHooked || hookTries > 20) clearInterval(hookTimer);
+    }, 250);
+
     gridContent.addEventListener('wheel', wheelZoomHandler, { passive: false });
 
     buildGrid();
@@ -300,13 +341,13 @@
     // Keep the NOW marker in sync & update past shading
     setInterval(updateNowMarker, 60000);
 
-    // Detect auth state on load so the guard reflects real login status
+    // Final fallback to server-side auth (covers hard refresh / first load)
     (async () => {
       try {
         const api = (typeof window.API_BASE_URL === 'string' && window.API_BASE_URL) ? window.API_BASE_URL : '';
         if (!api) return;
-        const res = await fetch(`${api}/auth/check`, { credentials: 'include', cache: 'no-cache' });
-        isAuthenticated = res.ok;
+        const res = await fetch(`${api}/auth/check`, { credentials: 'include', cache: 'no-store' });
+        setAuth(res.ok);
       } catch {}
     })();
   }
