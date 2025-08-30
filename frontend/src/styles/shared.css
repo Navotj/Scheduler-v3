@@ -17,7 +17,70 @@
   --slot-h: 18px;
 }
 
-/* ---- Scrollable grid viewport (shared) ---- */
+/* =========================
+   Shared APP LAYOUT (both pages use the same DOM structure)
+   ========================= */
+
+.availability {
+  height: 100%;
+}
+
+/* Layout: two columns (left grid, right sidebar) plus controls row under both */
+.availability .availability-layout {
+  display: grid;
+  grid-template-columns: 4fr 1fr; /* 80 / 20 */
+  grid-template-rows: 1fr auto;   /* main row + controls row */
+  grid-template-areas:
+    "main-left main-right"
+    "controls  controls";
+  gap: 16px;
+  align-items: start;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  min-height: inherit;
+}
+
+/* Left column passes its children to the parent grid areas */
+.availability .availability-left { display: contents; }
+
+/* Right column explicitly placed (leave actual panel styling to page/other CSS) */
+.availability .availability-right { grid-area: main-right; }
+
+/* Scrollable grid viewport (left/main) */
+.availability .grid { 
+  grid-area: main-left;
+  box-sizing: border-box;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* Controls container spans full width under the grid & right panel */
+.availability .controls-pane {
+  grid-area: controls;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+/* Baseline controls layout (pages can override) */
+.availability .picker-controls {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  margin: 0;
+  gap: 16px;
+}
+.availability .week-controls { display: flex; gap: 8px; align-items: center; }
+.availability .mode-controls { display: flex; gap: 8px; }
+.availability .save-controls { display: flex; gap: 8px; }
+
+/* =========================
+   Scrollable grid viewport (shared)
+   ========================= */
 #grid-content,
 .availability .grid-content {
   position: relative;
@@ -31,7 +94,9 @@
   border-radius: var(--radius, 10px);
 }
 
-/* ---- Schedule table base ---- */
+/* =========================
+   Schedule table base
+   ========================= */
 #schedule-table,
 .availability .table {
   width: 100%;
@@ -116,7 +181,7 @@
 /* Time label span on hour header cells */
 .time-label.hour { display: inline-block; }
 
-/* Selection & painting states (used by availability and highlight by matcher) */
+/* Selection & painting states */
 #schedule-table td.slot-cell.selected,
 .availability .table td.slot-cell.selected {
   background: rgba(23, 186, 78, 0.5);
@@ -138,7 +203,9 @@
   background: rgb(132 139 147 / 14%);
 }
 
-/* ---- NOW marker (shared) ---- */
+/* =========================
+   NOW marker (shared)
+   ========================= */
 .now-marker {
   position: absolute;
   left: 0;
@@ -171,7 +238,10 @@
   white-space: nowrap;
 }
 
-/* ---- Baseline control styles (page-specific files can override) ---- */
+/* =========================
+   Baseline control styles (page-specific files can override)
+   ========================= */
+
 .availability .picker-controls button {
   appearance: none;
   border: 1px solid var(--border, #1a1c20);
