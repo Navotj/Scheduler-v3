@@ -167,7 +167,7 @@ app.get('/__debug/dbping', async (_req, res) => {
 });
 
 /* ========= Routes =========
-   Note: Do NOT mount the auth router at root without a path filter; some auth routers end with a catch-all 404 which would swallow other routes.
+   Note: Do NOT mount the auth router at root without a path llkkkfilter; some auth routers end with a catch-all 404 which would swallow other routes.
 */
 app.use('/auth', authRoutes);
 app.use('/availability', availabilityRoutes);
