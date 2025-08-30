@@ -1,4 +1,3 @@
-// replace file (app.js)
 // Nat20 Scheduling - Backend server with verbose logging
 const express = require('express');
 const cors = require('cors');
@@ -168,15 +167,16 @@ app.get('/__debug/dbping', async (_req, res) => {
 });
 
 /* ========= Routes =========
-   We mount auth routes at both root and /auth to support callers of /login and /auth/check.
+   Note: Do NOT mount the auth router at root without a path filter; some auth routers end with a catch-all 404 which would swallow other routes.
 */
-app.use(authRoutes);
 app.use('/auth', authRoutes);
 app.use('/availability', availabilityRoutes);
 app.use(settingsRoutes);
 app.use('/users', usersRoutes);
 app.use('/templates', templatesRouter);
-app.use('/api', apiRouter);
+
+// Root-level compatibility for specific auth endpoints only
+app.use(['/login', '/logout', '/check'], authRoutes);
 
 /* ========= Final error handler ========= */
 app.use((err, _req, res, _next) => {
