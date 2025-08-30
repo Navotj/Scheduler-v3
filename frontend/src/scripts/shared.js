@@ -384,25 +384,28 @@
     if (gridContent) gridContent.style.setProperty('--slot-h', `${px}px`);
   }
 
-  function createWheelZoomHandler(o) {
+    function createWheelZoomHandler(o) {
     const requireShift = (o.requireShift !== false);
     return function onWheelZoom(e) {
-      if (!o.gridContent) return;
-      if (requireShift && !e.shiftKey) return;
-      e.preventDefault();
+        if (!o.gridContent) return;
+        if (requireShift && !e.shiftKey) return;
+        e.preventDefault();
 
-      const cur = Number(o.get());
-      const dir = Math.sign(e.deltaY);
-      const next = cur - dir * o.step;
-      const clamped = Math.min(o.max, Math.max(o.min, next));
+        const primary = Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
+        const dir = Math.sign(primary || 0);
+        if (!dir) return;
 
-      if (clamped !== cur) {
+        const cur = Number(o.get());
+        const next = cur - dir * o.step;
+        const clamped = Math.min(o.max, Math.max(o.min, next));
+
+        if (clamped !== cur) {
         o.set(clamped);
         setSlotHeight(o.gridContent, clamped);
         if (typeof o.onChange === 'function') o.onChange();
-      }
+        }
     };
-  }
+    }
 
   // ===============================
   // Expose
