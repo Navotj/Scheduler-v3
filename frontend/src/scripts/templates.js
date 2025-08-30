@@ -1,25 +1,20 @@
 (function () {
   'use strict';
 
-  // ===============================
-  // Config (same slot system as availability)
-  // ===============================
+  // ===== Config (match availability) =====
   const SLOTS_PER_HOUR = 2;            // 30-minute slots
   const HOURS_START = 0;
   const HOURS_END = 24;
   const SLOT_MIN = 60 / SLOTS_PER_HOUR; // 30
   const ROWS_PER_DAY = (HOURS_END - HOURS_START) * SLOTS_PER_HOUR;
 
-  // ===============================
-  // State
-  // ===============================
+  // ===== State =====
   let isAuthenticated = true;
   let paintMode = 'add';
   let slotHeight = 18;                  // px; Shift+Wheel adjusts
   let unsaved = false;                  // track unsaved changes
 
-  // Selection model: subjective, no epochs
-  // Each selected slot is encoded as key = day * ROWS_PER_DAY + row
+  // Subjective selection: key = day * ROWS_PER_DAY + row
   const selected = new Set();
 
   // DOM refs
@@ -40,9 +35,7 @@
     }
   });
 
-  // ===============================
-  // Unsaved-change helpers
-  // ===============================
+  // ===== Unsaved-change helpers =====
   function onBeforeUnload(e) {
     e.preventDefault();
     e.returnValue = 'You have unsaved template changes.';
@@ -63,25 +56,21 @@
     return !unsaved || window.confirm('You have unsaved template changes. Leave without saving?');
   }
 
-  // ===============================
-  // Grid build (reuses shared skeleton but ignores epochs/past/now)
-  // ===============================
+  // ===== Grid build (shared skeleton; headers trimmed to weekday only) =====
   function buildGrid() {
     cfg = readSettings();
     if (!table) return;
 
-    // Build via shared skeleton (we ignore epochs/past)
     const out = shared.buildWeekTableSkeleton(table, {
       tz: cfg.tz,
       clock: cfg.clock,
       weekStart: cfg.weekStart,
-      weekOffset: 0,                    // templates are not date-anchored
+      weekOffset: 0,
       hoursStart: HOURS_START,
       hoursEnd: HOURS_END,
       slotsPerHour: SLOTS_PER_HOUR,
       dateFormat: cfg.dateFormat,
       onCellCreate: (td, ctx) => {
-        // Subjective selection handlers (no "past" logic)
         td.addEventListener('mousedown', (e) => {
           if (!isAuthenticated) {
             e.preventDefault();
@@ -110,7 +99,7 @@
       }
     });
 
-    // Replace header text with weekday names only (no dates)
+    // Replace header text with weekday names only
     if (Array.isArray(out.dayEpochs) && out.dayEpochs.length === 7) {
       const ths = table.querySelectorAll('thead th.day');
       for (let i = 0; i < ths.length; i++) {
@@ -120,16 +109,11 @@
       }
     }
 
-    // Repaint selected cells
     applySelectedClasses();
-
-    // Apply current zoom
     applySlotHeight();
   }
 
-  // ===============================
-  // Drag selection (subjective)
-  // ===============================
+  // ===== Drag selection =====
   let isDragging = false;
   let dragStart = null;
   let dragEnd = null;
@@ -179,9 +163,7 @@
     }
   }
 
-  // ===============================
-  // Controls
-  // ===============================
+  // ===== Controls =====
   function setMode(m) {
     paintMode = m === 'subtract' ? 'subtract' : 'add';
     const addBtn = document.getElementById('mode-add');
@@ -210,35 +192,37 @@
       markSaved();
     });
 
-    if (saveBtn) saveBtn.addEventListener('click', () => {
+    if (saveBtn) saveBtn.addEventListener('click', async () => {
       if (!isAuthenticated) return;
       const name = (nameInput && nameInput.value.trim()) || '';
       if (!name) { alert('Enter a template name'); return; }
-      const tpl = serializeCurrentTemplate(name);
-      const id = upsertTemplate(tpl);
-      populateTemplateSelect(select, id);
+      const payload = buildTemplatePayload(name);
+      const tpl = await apiSaveTemplate(payload);
+      if (!tpl) { shared.showToast('Save failed.', 'error'); return; }
+      populateTemplateSelect(select, tpl.id);
       markSaved();
       shared.showToast('Template saved.', 'success');
     });
 
-    if (select) select.addEventListener('change', () => {
+    if (select) select.addEventListener('change', async () => {
       const id = select.value;
       if (!id) return;
       if (!confirmLeaveIfDirty()) { select.value = ''; return; }
-      const tpl = getTemplatesMap().get(id);
+      const tpl = await apiGetTemplate({ id });
       if (!tpl) { shared.showToast('Template not found.', 'warn'); return; }
-      deserializeIntoSelection(tpl);
+      loadTemplateIntoSelection(tpl);
       applySelectedClasses();
       markSaved();
       if (nameInput) nameInput.value = tpl.name || '';
     });
 
-    if (deleteBtn) deleteBtn.addEventListener('click', () => {
+    if (deleteBtn) deleteBtn.addEventListener('click', async () => {
       const id = select ? select.value : '';
       if (!id) { alert('Choose a template to delete'); return; }
       const ok = window.confirm('Delete this template?');
       if (!ok) return;
-      deleteTemplate(id);
+      const okDel = await apiDeleteTemplate({ id });
+      if (!okDel) { shared.showToast('Delete failed.', 'error'); return; }
       populateTemplateSelect(select, '');
       selected.clear();
       applySelectedClasses();
@@ -249,7 +233,7 @@
     if (exportBtn) exportBtn.addEventListener('click', async () => {
       const id = select ? select.value : '';
       if (!id) { alert('Choose a template to export'); return; }
-      const tpl = getTemplatesMap().get(id);
+      const tpl = await apiGetTemplate({ id });
       if (!tpl) { shared.showToast('Template not found.', 'warn'); return; }
       const json = JSON.stringify(tpl, null, 2);
       const ok = await shared.copyToClipboard(json);
@@ -257,7 +241,6 @@
     });
   }
 
-  // Intercept in-page link navigation
   function interceptLinkNavigation() {
     document.addEventListener('click', function (e) {
       const a = e.target && e.target.closest ? e.target.closest('a[href]') : null;
@@ -268,44 +251,37 @@
       if (tgt && tgt !== '_self') return;
       if (unsaved) {
         const ok = window.confirm('You have unsaved template changes. Leave without saving?');
-        if (!ok) {
-          e.preventDefault();
-          e.stopPropagation();
-          return;
-        }
+        if (!ok) { e.preventDefault(); e.stopPropagation(); return; }
         window.removeEventListener('beforeunload', onBeforeUnload);
         unsaved = false;
       }
     }, true);
   }
 
-  // ===============================
-  // Zoom (Shift + Wheel)
-  // ===============================
-  function applySlotHeight() {
-    shared.setSlotHeight(gridContent, slotHeight);
-  }
+  // ===== Zoom (Shift + Wheel) =====
+  function applySlotHeight() { shared.setSlotHeight(gridContent, slotHeight); }
   const wheelZoomHandler = shared.createWheelZoomHandler({
     get: () => slotHeight,
     set: (v) => { slotHeight = v; },
     gridContent: null,
-    min: 12,
-    max: 48,
-    step: 2,
+    min: 12, max: 48, step: 2,
     onChange: () => {}
   });
 
-  // ===============================
-  // Template serialization (subjective)
-  // ===============================
-  // Format persisted to localStorage:
-  // {
-  //   id: "tpl_169341234...", name: "Default week",
-  //   tz: "<IANA>", stepMin: 30, hoursStart: 0, hoursEnd: 24,
-  //   days: [ [ [fromMin,toMin], ...], ... 7 arrays ],
-  //   updatedAt: 16934...
-  // }
-  function serializeCurrentTemplate(name) {
+  // ===== Template <-> selection =====
+  function rowToMinute(row) {
+    const hour = Math.floor(row / SLOTS_PER_HOUR) + HOURS_START;
+    const slot = row % SLOTS_PER_HOUR;
+    return (hour * 60) + (slot * SLOT_MIN);
+  }
+  function minuteToRow(minute) {
+    const h = Math.floor(minute / 60);
+    const m = minute % 60;
+    const row = (h - HOURS_START) * SLOTS_PER_HOUR + Math.floor(m / SLOT_MIN + 1e-6);
+    return Math.max(0, Math.min(ROWS_PER_DAY, row));
+  }
+
+  function buildTemplatePayload(name) {
     const days = [];
     for (let day = 0; day < 7; day++) {
       const rows = [];
@@ -320,12 +296,10 @@
         let prevRow = rows[0];
         for (let i = 1; i < rows.length; i++) {
           const r = rows[i];
-          if (r === prevRow + 1) {
-            prevRow = r;
-          } else {
+          if (r === prevRow + 1) prevRow = r;
+          else {
             intervals.push([rowToMinute(fromRow), rowToMinute(prevRow + 1)]);
-            fromRow = r;
-            prevRow = r;
+            fromRow = r; prevRow = r;
           }
         }
         intervals.push([rowToMinute(fromRow), rowToMinute(prevRow + 1)]);
@@ -333,18 +307,16 @@
       days.push(intervals);
     }
     return {
-      id: 'tpl_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
       name: String(name || 'Untitled'),
       tz: cfg.tz,
       stepMin: SLOT_MIN,
       hoursStart: HOURS_START,
       hoursEnd: HOURS_END,
-      days,
-      updatedAt: Math.floor(Date.now() / 1000)
+      days
     };
   }
 
-  function deserializeIntoSelection(tpl) {
+  function loadTemplateIntoSelection(tpl) {
     selected.clear();
     const days = Array.isArray(tpl.days) ? tpl.days : [];
     for (let day = 0; day < 7; day++) {
@@ -354,7 +326,7 @@
         const toMin = Number(pair[1]);
         if (!Number.isFinite(fromMin) || !Number.isFinite(toMin) || toMin <= fromMin) continue;
         const fromRow = minuteToRow(fromMin);
-        const toRow = minuteToRow(toMin); // exclusive
+        const toRow = minuteToRow(toMin);
         for (let r = fromRow; r < toRow; r++) {
           const key = day * ROWS_PER_DAY + r;
           selected.add(key);
@@ -363,71 +335,63 @@
     }
   }
 
-  function rowToMinute(row) {
-    const hour = Math.floor(row / SLOTS_PER_HOUR) + HOURS_START;
-    const slot = row % SLOTS_PER_HOUR;
-    return (hour * 60) + (slot * SLOT_MIN);
-  }
-  function minuteToRow(minute) {
-    const h = Math.floor(minute / 60);
-    const m = minute % 60;
-    const row = (h - HOURS_START) * SLOTS_PER_HOUR + Math.round(m / SLOT_MIN);
-    return Math.max(0, Math.min(ROWS_PER_DAY, row));
+  // ===== Backend API =====
+  function apiBase() {
+    return (typeof window.API_BASE_URL === 'string' && window.API_BASE_URL) ? window.API_BASE_URL : '';
   }
 
-  // ===============================
-  // LocalStorage persistence
-  // ===============================
-  const TEMPLATES_KEY = 'nat20_templates';
-
-  function readTemplatesRoot() {
+  async function apiListTemplates() {
     try {
-      const raw = localStorage.getItem(TEMPLATES_KEY);
-      const obj = raw ? JSON.parse(raw) : null;
-      if (obj && obj.version === 1 && Array.isArray(obj.templates)) return obj;
-    } catch {}
-    return { version: 1, templates: [] };
+      const api = apiBase(); if (!api) return [];
+      const res = await fetch(`${api}/templates/list`, { credentials: 'include', cache: 'no-store' });
+      if (!res.ok) return [];
+      const data = await res.json();
+      return Array.isArray(data.templates) ? data.templates : [];
+    } catch { return []; }
   }
-  function writeTemplatesRoot(root) {
-    localStorage.setItem(TEMPLATES_KEY, JSON.stringify(root));
+
+  async function apiGetTemplate({ id, name }) {
+    try {
+      const api = apiBase(); if (!api) return null;
+      const qs = id ? `id=${encodeURIComponent(id)}` : `name=${encodeURIComponent(name || '')}`;
+      const res = await fetch(`${api}/templates/get?${qs}`, { credentials: 'include', cache: 'no-store' });
+      if (!res.ok) return null;
+      const data = await res.json();
+      return data && data.template ? data.template : null;
+    } catch { return null; }
   }
-  function getTemplatesMap() {
-    const root = readTemplatesRoot();
-    const map = new Map();
-    for (const t of root.templates) map.set(String(t.id), t);
-    return map;
+
+  async function apiSaveTemplate(payload /* {name, tz, stepMin, hoursStart, hoursEnd, days} or +id */) {
+    try {
+      const api = apiBase(); if (!api) return null;
+      const res = await fetch(`${api}/templates/save`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      return data && data.template ? data.template : null;
+    } catch { return null; }
   }
-  function upsertTemplate(tpl) {
-    const root = readTemplatesRoot();
-    // if there is already a template with same name, replace it; else insert new
-    const byNameIdx = root.templates.findIndex(x => (x.name || '') === tpl.name);
-    if (byNameIdx >= 0) {
-      tpl.id = root.templates[byNameIdx].id; // keep id stable on overwrite
-      tpl.updatedAt = Math.floor(Date.now() / 1000);
-      root.templates[byNameIdx] = tpl;
-    } else {
-      root.templates.push(tpl);
-    }
-    writeTemplatesRoot(root);
-    return tpl.id;
+
+  async function apiDeleteTemplate({ id, name }) {
+    try {
+      const api = apiBase(); if (!api) return false;
+      const res = await fetch(`${api}/templates/delete`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(id ? { id } : { name })
+      });
+      return res.ok;
+    } catch { return false; }
   }
-  function deleteTemplate(id) {
-    const root = readTemplatesRoot();
-    const next = root.templates.filter(t => String(t.id) !== String(id));
-    writeTemplatesRoot({ version: 1, templates: next });
-  }
-  function listTemplates() {
-    const root = readTemplatesRoot();
-    // sort by updatedAt desc, name asc
-    return root.templates.slice().sort((a, b) => {
-      const au = a.updatedAt || 0, bu = b.updatedAt || 0;
-      if (bu !== au) return bu - au;
-      return String(a.name || '').localeCompare(String(b.name || ''));
-    });
-  }
-  function populateTemplateSelect(selectEl, selectId) {
+
+  async function populateTemplateSelect(selectEl, selectId) {
     if (!selectEl) return;
-    const items = listTemplates();
+    const items = await apiListTemplates();
     const prev = selectEl.value;
     selectEl.innerHTML = '<option value="">(choose template)</option>';
     for (const t of items) {
@@ -440,26 +404,21 @@
     if (id) selectEl.value = id;
   }
 
-  // ===============================
-  // Init / Auth bridge
-  // ===============================
+  // ===== Init / Auth bridge =====
   function init() {
     gridContent = document.getElementById('grid-content');
     table = document.getElementById('schedule-table');
     if (!gridContent || !table) return;
 
-    // wheel zoom target
     wheelZoomHandler.gridContent = gridContent;
 
     setMode('add');
     attachControls();
     interceptLinkNavigation();
 
-    // start reasonably compact like matcher
     slotHeight = 12;
     applySlotHeight();
 
-    // Auth guard (UI-only)
     const authGuard = (e) => {
       if (!isAuthenticated) {
         e.preventDefault();
@@ -470,7 +429,6 @@
     gridContent.addEventListener('pointerdown', authGuard, true);
     gridContent.addEventListener('contextmenu', authGuard, true);
 
-    // Observe topbar auth button and hook into auth.js if present
     function observeAuthButton() {
       const btn = document.getElementById('auth-btn');
       if (!btn) return;
@@ -510,17 +468,25 @@
 
     buildGrid();
 
-    // Populate template dropdown, if present
+    // Populate template dropdown from DB
     const select = document.getElementById('template-select');
     populateTemplateSelect(select, '');
+
+    // Final auth check + refresh list if needed
+    (async () => {
+      try {
+        const api = apiBase(); if (!api) return;
+        const res = await fetch(`${api}/auth/check`, { credentials: 'include', cache: 'no-store' });
+        setAuth(res.ok);
+        populateTemplateSelect(select, '');
+      } catch {}
+    })();
   }
 
   function setAuth(v) {
     const next = !!v;
     if (next === isAuthenticated) return;
     isAuthenticated = next;
-
-    // Clear active gesture and selection if logging out
     if (!isAuthenticated) {
       isDragging = false;
       dragStart = dragEnd = null;
@@ -530,38 +496,37 @@
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
   else init();
 
-  // ===============================
-  // Public API (for future import/apply from availability.js)
-  // ===============================
+  // Public API (optional)
   window.templates = {
     init,
     setAuth,
-    list: listTemplates,
-    saveCurrent: function(name) { const id = upsertTemplate(serializeCurrentTemplate(name)); markSaved(); return id; },
-    loadIntoGrid: function(id) {
-      const tpl = getTemplatesMap().get(String(id));
+    list: apiListTemplates,
+    saveCurrent: async function(name) {
+      const tpl = await apiSaveTemplate(buildTemplatePayload(name));
+      if (tpl) markSaved();
+      return tpl ? tpl.id : null;
+    },
+    loadIntoGrid: async function(id) {
+      const tpl = await apiGetTemplate({ id });
       if (!tpl) return false;
-      deserializeIntoSelection(tpl);
+      loadTemplateIntoSelection(tpl);
       applySelectedClasses();
       markSaved();
       return true;
     },
-    delete: function(id) { deleteTemplate(id); },
-    export: function(id) { return getTemplatesMap().get(String(id)) || null; },
-    importTemplate: function(obj) {
-      // Validate minimal shape
+    delete: apiDeleteTemplate,
+    export: apiGetTemplate,
+    importTemplate: async function(obj) {
       if (!obj || !Array.isArray(obj.days) || obj.days.length !== 7) return null;
-      const tpl = Object.assign({
-        id: 'tpl_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
-        name: 'Imported',
-        tz: cfg.tz,
-        stepMin: SLOT_MIN,
-        hoursStart: HOURS_START,
-        hoursEnd: HOURS_END,
-        updatedAt: Math.floor(Date.now() / 1000)
-      }, obj);
-      const id = upsertTemplate(tpl);
-      return id;
+      const tpl = await apiSaveTemplate({
+        name: obj.name || 'Imported',
+        tz: obj.tz || cfg.tz,
+        stepMin: obj.stepMin || SLOT_MIN,
+        hoursStart: Number.isFinite(obj.hoursStart) ? obj.hoursStart : HOURS_START,
+        hoursEnd: Number.isFinite(obj.hoursEnd) ? obj.hoursEnd : HOURS_END,
+        days: obj.days
+      });
+      return tpl ? tpl.id : null;
     }
   };
 })();

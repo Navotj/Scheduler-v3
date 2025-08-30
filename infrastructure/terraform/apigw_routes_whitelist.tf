@@ -77,3 +77,32 @@ resource "aws_apigatewayv2_route" "get_exists" {
   route_key = "GET /exists"
   target    = "integrations/${aws_apigatewayv2_integration.backend_integration.id}"
 }
+
+# ---------- TEMPLATES ----------
+# GET /templates/list
+resource "aws_apigatewayv2_route" "get_templates_list" {
+  api_id    = aws_apigatewayv2_api.backend_api.id
+  route_key = "GET /templates/list"
+  target    = "integrations/${aws_apigatewayv2_integration.backend_integration.id}"
+}
+
+# GET /templates/get
+resource "aws_apigatewayv2_route" "get_templates_get" {
+  api_id    = aws_apigatewayv2_api.backend_api.id
+  route_key = "GET /templates/get"
+  target    = "integrations/${aws_apigatewayv2_integration.backend_integration.id}"
+}
+
+# POST /templates/save
+resource "aws_apigatewayv2_route" "post_templates_save" {
+  api_id    = aws_apigatewayv2_api.backend_api.id
+  route_key = "POST /templates/save"
+  target    = "integrations/${aws_apigatewayv2_integration.backend_integration.id}"
+}
+
+# POST /templates/delete
+resource "aws_apigatewayv2_route" "post_templates_delete" {
+  api_id    = aws_apigatewayv2_api.backend_api.id
+  route_key = "POST /templates/delete"
+  target    = "integrations/${aws_apigatewayv2_integration.backend_integration.id}"
+}

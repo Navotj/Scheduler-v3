@@ -4,6 +4,7 @@ const express = require('express');
 const cors = require('cors');
 const mongoose = require('mongoose');
 const cookieParser = require('cookie-parser');
+const templatesRouter = require('./routes/templates');
 
 // replace function (dotenv load + validation)
 (() => {
@@ -174,6 +175,8 @@ app.use('/auth', authRoutes);
 app.use('/availability', availabilityRoutes);
 app.use(settingsRoutes);
 app.use('/users', usersRoutes);
+app.use('/templates', templatesRouter);
+
 
 /* ========= Final error handler ========= */
 app.use((err, _req, res, _next) => {
