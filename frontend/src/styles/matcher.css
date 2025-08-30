@@ -6,12 +6,29 @@
 
 /* Tokens used only on the matcher page */
 :root{
-  --mmw: 6.5ch;            /* width for #max-missing / #min-hours */
+  /* Field widths */
+  --mmw: 6.5ch;               /* width for #max-missing / #min-hours */
+  --username-w: 12ch;         /* #add-username width */
+  --username-min-w: 10ch;     /* #add-username min-width */
+  --add-btn-xpad: 8px;        /* #add-user-btn horizontal padding */
+
+  /* Filter label text */
+  --filter-label-fs: 14px;
+  --filter-label-lh: 1.1;
+  --filter-label-color: var(--fg-1, #b6bfd4);
+
+  /* Legend */
+  --legend-gap: 4px;          /* gap between chips/labels */
+  --legend-label-fs: 12px;
+  --legend-chip-h: 10px;
+  --legend-chip-br: 6px;
+  --legend-min-w: 10ch;
+
 }
 
 /* Short username field and compact Add button (matcher-only elements) */
-#add-username{ width:12ch; min-width:10ch; }
-#add-user-btn{ padding:0 8px; }
+#add-username{ width: var(--username-w); min-width: var(--username-min-w); }
+#add-user-btn{ padding: 0 var(--add-btn-xpad); }
 
 /* Filters: two-line labels placed beside compact inputs (matcher-only pattern) */
 .availability .picker-controls .filters .field{
@@ -24,10 +41,10 @@
 .availability .picker-controls .filters .field label{
   position: static;
   margin-right: 6px;
-  font-size: 14px;
-  line-height: 1.1;
+  font-size: var(--filter-label-fs);
+  line-height: var(--filter-label-lh);
   white-space: pre-line; /* respect <br> in titles */
-  color: var(--fg-1, #b6bfd4);
+  color: var(--filter-label-color);
 }
 
 /* Numeric widths + center text */
@@ -61,50 +78,14 @@ input[type="number"]::-webkit-inner-spin-button{ -webkit-appearance:none; margin
 .legend-blocks{
   display:grid;
   grid-template-rows: 1fr 1fr; /* chips row + numbers row */
-  gap:4px;
+  gap: var(--legend-gap);
   height:100%;
-  min-width:10ch;
+  min-width: var(--legend-min-w);
 }
-.legend-blocks .steps-row{ display:grid; grid-auto-flow:column; gap:4px; align-items:start; }
-.legend-blocks .labels-row{ display:grid; grid-auto-flow:column; gap:6px; align-items:end; font-size:12px; line-height:1; }
-.legend-blocks .chip{ width:100%; height:10px; border-radius:6px; border:1px solid var(--border,#1a1c20); }
+.legend-blocks .steps-row{ display:grid; grid-auto-flow:column; gap: var(--legend-gap); align-items:start; }
+.legend-blocks .labels-row{ display:grid; grid-auto-flow:column; gap:6px; align-items:end; font-size: var(--legend-label-fs); line-height:1; }
+.legend-blocks .chip{ width:100%; height: var(--legend-chip-h); border-radius: var(--legend-chip-br); border:1px solid var(--border,#1a1c20); }
 .legend-blocks .spacer{ visibility:hidden; }
 
 /* Inline error hidden (use toast) */
 #member-error{ display:none !important; }
-
-/* Toast notifications (fixed; no layout shift) */
-.toast-stack{
-  position:fixed;
-  right:16px;
-  bottom:16px;
-  display:grid;
-  gap:8px;
-  z-index:9999;
-  pointer-events:none;
-}
-.toast{
-  pointer-events:auto;
-  background:rgba(255,64,64,0.18);
-  border:1px solid rgba(255,64,64,0.55);
-  color:#ffd9d9;
-  padding:10px 12px;
-  border-radius:10px;
-  box-shadow:0 10px 28px rgba(0,0,0,0.45);
-  backdrop-filter:blur(4px);
-  transform:translateY(8px);
-  opacity:0;
-  animation:toast-in 160ms ease-out forwards;
-  font-size:14px;
-  line-height:1.2;
-}
-.toast-error{ background:rgba(255,64,64,0.22); border-color:rgba(255,64,64,0.65); color:#ffe2e2; }
-.toast.bye{ animation:toast-out 200ms ease-in forwards; }
-
-@keyframes toast-in{
-  from{ transform:translateY(8px); opacity:0; }
-  to{ transform:translateY(0); opacity:1; }
-}
-@keyframes toast-out{
-  to{ transform:translateY(8px); opacity:0; }
-}

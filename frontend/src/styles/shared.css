@@ -20,6 +20,46 @@
 
   /* Slot height; JS updates this via inline style on the scroll container */
   --slot-h: 18px;
+
+  /* Table dimensions/colors (shared) */
+  --header-h: 26px;                 /* sticky header row height */
+  --time-col-w: 76px;               /* time column width */
+  --table-border-strong: #353944;   /* grid lines */
+  --table-border-mid: #2a2f3a;      /* header bottom, time col divider */
+  --past-bg: rgb(132 139 147 / 14%);
+
+  /* Controls cluster-specific gaps */
+  --gap-week: 6px;
+  --gap-mode: 8px;
+  --gap-save: 8px;
+
+  /* NOW marker bubble text */
+  --now-bubble-fs: 10px;
+
+  /* Results list visuals */
+  --result-bg: #121212;
+  --result-border: #2a2a2a;
+
+  /* Toasts */
+  --toast-stack-x: 16px;
+  --toast-stack-y: 16px;
+  --toast-stack-gap: 8px;
+
+  --toast-bg: rgba(255,64,64,0.18);
+  --toast-border: rgba(255,64,64,0.55);
+  --toast-color: #ffd9d9;
+  --toast-pad-y: 10px;
+  --toast-pad-x: 12px;
+  --toast-radius: 10px;
+  --toast-shadow: 0 10px 28px rgba(0,0,0,0.45);
+  --toast-blur: 4px;
+  --toast-offset-y: 8px;
+  --toast-in-dur: 160ms;
+  --toast-out-dur: 200ms;
+
+  --toast-error-bg: rgba(255,64,64,0.22);
+  --toast-error-border: rgba(255,64,64,0.65);
+  --toast-error-color: #ffe2e2;
 }
 
 /* =========================
@@ -87,9 +127,9 @@
   align-items: flex-end;
   gap: var(--gap-sm);
 }
-.availability .week-controls { gap: 6px; align-items: center; }
-.availability .mode-controls { gap: 8px; }
-.availability .save-controls { gap: 8px; }
+.availability .week-controls { gap: var(--gap-week); align-items: center; }
+.availability .mode-controls { gap: var(--gap-mode); }
+.availability .save-controls { gap: var(--gap-save); }
 
 /* Hide dynamic week label by default (JS may still update text) */
 #week-label { display: none; }
@@ -209,10 +249,10 @@
   top: 0;
   z-index: 2;
   background: var(--bg-1, #0c0d10);
-  border-bottom: 1px solid #2a2f3a;
+  border-bottom: 1px solid var(--table-border-mid);
   padding: 0 8px;
-  height: 26px;
-  line-height: 26px;
+  height: var(--header-h);
+  line-height: var(--header-h);
   vertical-align: middle;
   font-weight: 600;
   white-space: nowrap;
@@ -223,30 +263,30 @@
 /* Time column header + cells */
 #schedule-table th.time-col,
 .availability .table th.time-col {
-  width: 76px;
+  width: var(--time-col-w);
   text-align: center;
   color: var(--fg-1, #b6bfd4);
   background: var(--bg-1, #0c0d10);
-  border-right: 1px solid #2a2f3a;
+  border-right: 1px solid var(--table-border-mid);
   padding: 0 8px;
   justify-content: center;
 }
 
 /* Day header cells */
 #schedule-table thead th.day,
-.availability .table thead th.day { text-align: center; border-left: 1px solid #353944; }
+.availability .table thead th.day { text-align: center; border-left: 1px solid var(--table-border-strong); }
 
 /* Sticky time column for body */
 #schedule-table tbody th.time-col,
-.availability .table tbody th.time-col { position: sticky; left: 0; z-index: 1; border-top: 1px solid #353944; }
+.availability .table tbody th.time-col { position: sticky; left: 0; z-index: 1; border-top: 1px solid var(--table-border-strong); }
 
 /* Grid lines */
 #schedule-table tbody tr.row-hour td.slot-cell,
-.availability .table tbody tr.row-hour td.slot-cell { border-top: 1px solid #353944; }
+.availability .table tbody tr.row-hour td.slot-cell { border-top: 1px solid var(--table-border-strong); }
 #schedule-table tbody tr.row-half td.slot-cell,
-.availability .table tbody tr.row-half td.slot-cell { border-top: 1px dashed #353944; }
+.availability .table tbody tr.row-half td.slot-cell { border-top: 1px dashed var(--table-border-strong); }
 #schedule-table tbody td.slot-cell,
-.availability .table tbody td.slot-cell { border-left: 1px solid #353944; }
+.availability .table tbody td.slot-cell { border-left: 1px solid var(--table-border-strong); }
 
 /* Slot sizing */
 #schedule-table tbody td.slot-cell,
@@ -262,7 +302,7 @@
 
 /* Past cells */
 #schedule-table td.slot-cell.past,
-.availability .table td.slot-cell.past { background: rgb(132 139 147 / 14%); }
+.availability .table td.slot-cell.past { background: var(--past-bg); }
 
 /* Table cell glow for hovered result ranges */
 #schedule-table td.slot-cell.highlight,
@@ -297,7 +337,7 @@
   left: 50%; top: 0;
   transform: translate(-50%, -50%);
   padding: 2px 6px;
-  font-size: 10px;
+  font-size: var(--now-bubble-fs);
   background: var(--accent, #7c5cff);
   color: #000;
   border-radius: 6px;
@@ -330,9 +370,9 @@
 .results { max-height: 100%; overflow: auto; padding-right: 4px; }
 .results .result {
   position: relative;
-  background: #121212;
-  border: 1px solid #2a2a2a;
-  border-radius: 10px;
+  background: var(--result-bg);
+  border: 1px solid var(--result-border);
+  border-radius: var(--radius, 10px);
   padding: 8px 10px 26px 10px;
   margin: 8px 0;
   transition: border-color .12s ease;
@@ -369,4 +409,41 @@
   max-width: 280px;
   box-shadow: 0 8px 24px rgba(0,0,0,0.35);
   white-space: normal;
+}
+
+
+/* Toast notifications (fixed; no layout shift) */
+.toast-stack{
+  position:fixed;
+  right: var(--toast-stack-x);
+  bottom: var(--toast-stack-y);
+  display:grid;
+  gap: var(--toast-stack-gap);
+  z-index:9999;
+  pointer-events:none;
+}
+.toast{
+  pointer-events:auto;
+  background: var(--toast-bg);
+  border:1px solid var(--toast-border);
+  color: var(--toast-color);
+  padding: var(--toast-pad-y) var(--toast-pad-x);
+  border-radius: var(--toast-radius);
+  box-shadow: var(--toast-shadow);
+  backdrop-filter: blur(var(--toast-blur));
+  transform: translateY(var(--toast-offset-y));
+  opacity:0;
+  animation: toast-in var(--toast-in-dur) ease-out forwards;
+  font-size:14px;
+  line-height:1.2;
+}
+.toast-error{ background: var(--toast-error-bg); border-color: var(--toast-error-border); color: var(--toast-error-color); }
+.toast.bye{ animation: toast-out var(--toast-out-dur) ease-in forwards; }
+
+@keyframes toast-in{
+  from{ transform:translateY(var(--toast-offset-y)); opacity:0; }
+  to{ transform:translateY(0); opacity:1; }
+}
+@keyframes toast-out{
+  to{ transform:translateY(var(--toast-offset-y)); opacity:0; }
 }

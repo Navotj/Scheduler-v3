@@ -5,26 +5,42 @@
    Core layout/table/marker/control styles are in shared.css
    ========================= */
 
+:root{
+  /* Painting/selection */
+  --paint-selected-bg: rgba(23, 186, 78, 0.5);
+
+  /* Drag/hover preview outlines */
+  --paint-outline-add: rgba(15, 185, 72, 0.7);
+  --paint-outline-sub: rgba(255, 96, 96, 0.8);
+  --paint-outline-w: 2px;
+  --paint-outline-offset: -2px;
+
+  /* Toggle active button visuals */
+  --paint-toggle-active-border: var(--accent, #7c5cff);
+  --paint-toggle-active-bg: rgba(124, 92, 255, 0.18);
+  --paint-toggle-active-halo: 0 0 0 3px rgba(124, 92, 255, 0.18);
+}
+
 /* Selected (painted) slots */
 .availability .table td.slot-cell.selected {
-  background: rgba(23, 186, 78, 0.5);
+  background: var(--paint-selected-bg);
 }
 
 /* Drag/hover preview outlines while painting */
 .availability .table td.slot-cell.preview-add {
-  outline: 2px dashed rgba(15, 185, 72, 0.7);
-  outline-offset: -2px;
+  outline: var(--paint-outline-w) dashed var(--paint-outline-add);
+  outline-offset: var(--paint-outline-offset);
 }
 .availability .table td.slot-cell.preview-sub {
-  outline: 2px dashed rgba(255, 96, 96, 0.8);
-  outline-offset: -2px;
+  outline: var(--paint-outline-w) dashed var(--paint-outline-sub);
+  outline-offset: var(--paint-outline-offset);
 }
 
 /* Toggle state styling for Add/Subtract buttons (availability-only) */
 .availability .picker-controls button[aria-pressed="true"] {
-  border-color: var(--accent, #7c5cff);
-  background: rgba(124, 92, 255, 0.18);
-  box-shadow: 0 0 0 3px rgba(124, 92, 255, 0.18);
+  border-color: var(--paint-toggle-active-border);
+  background: var(--paint-toggle-active-bg);
+  box-shadow: var(--paint-toggle-active-halo);
 }
 
 /* Prevent text selection while painting on the grid (availability-only) */
