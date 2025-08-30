@@ -7,6 +7,10 @@
 .availability .availability-layout {
   display: grid;
   grid-template-columns: 4fr 1fr; /* 80 / 20 */
+  grid-template-rows: 1fr auto;   /* main row + controls row */
+  grid-template-areas:
+    "main-left main-right"
+    "controls  controls";
   gap: 16px;
   align-items: start;
   width: 100%;
@@ -16,26 +20,25 @@
   min-height: inherit;
 }
 
-/* Left column wrapper */
+/* Left column wrapper now acts as a pass-through so its children
+   (.grid and .controls-pane) can participate in the parent grid */
 .availability .availability-left {
-  width: 100%;
-  height: 100%;
-  display: grid;
-  grid-template-rows: 1fr auto;
-  gap: 12px;
-  min-height: 0;
-  overflow: hidden;
+  display: contents;
 }
 
+/* Right column explicitly placed */
+.availability .availability-right {
+  grid-area: main-right;
+}
 
 /* Scrollable grid viewport (scoped; no page-level coupling) */
 .availability .grid {
+  grid-area: main-left;
   box-sizing: border-box;
   min-height: 0;
   height: 100%;
   overflow: hidden;
 }
-
 
 /* Give the scroll container a concrete height so the table is visible */
 .availability .grid-content {
@@ -49,7 +52,6 @@
   border: 1px solid var(--border, #1a1c20);
   border-radius: var(--radius, 10px);
 }
-
 
 /* Table visuals */
 .availability .table {
@@ -166,13 +168,13 @@
   white-space: nowrap;
 }
 
-/* Controls container (shares total height with grid via .availability-left rows) */
+/* Controls container now spans beneath both columns */
 .availability .controls-pane {
+  grid-area: controls;
   min-height: 0;
-  height: 100%;
   display: flex;
   flex-direction: column;
-  justify-content: center; /* vertically center all controls */
+  justify-content: center;
 }
 
 /* Controls layout */
