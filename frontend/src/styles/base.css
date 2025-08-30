@@ -288,7 +288,10 @@ h1,h2,h3,p{margin:0}
 
 .home-grid{
   display:grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  height:100%;
+  min-height:0;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
   gap:var(--gap);
 }
 
@@ -298,13 +301,13 @@ h1,h2,h3,p{margin:0}
   padding:16px;
   border:1px solid var(--border);
   border-radius:var(--radius);
-  background:rgba(255,255,255,0.02);
+  background:color-mix(in srgb, var(--fg-0) 2%, transparent);
   transition:background .12s ease,border-color .12s ease,transform .12s ease;
 }
 
 .home-card:hover{
-  background:rgba(124,92,255,.08);
-  border-color:rgba(124,92,255,.5);
+  background:color-mix(in srgb, var(--accent) 8%, transparent);
+  border-color:color-mix(in srgb, var(--accent) 50%, var(--border) 50%);
   transform:translateY(-1px);
 }
 
@@ -316,4 +319,12 @@ h1,h2,h3,p{margin:0}
 .home-card p{
   font-size:14px;
   color:var(--fg-1);
+}
+
+/* stack to a single column on small monitors and keep equal-height quarters */
+@media (max-width: 991px){
+  .home-grid{
+    grid-template-columns: 1fr;
+    grid-template-rows: repeat(4, 1fr);
+  }
 }
