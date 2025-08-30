@@ -413,6 +413,37 @@
   }
 
   // ===============================
+  // Toast
+  // ===============================
+
+    function getToastStack() {
+    let stack = document.getElementById('toast-stack');
+    if (!stack) {
+      stack = document.createElement('div');
+      stack.id = 'toast-stack';
+      stack.className = 'toast-stack';
+      document.body.appendChild(stack);
+    }
+    return stack;
+  }
+
+  function showToast(message, variant = 'info') {
+    const stack = getToastStack();
+    const div = document.createElement('div');
+    div.className = `toast toast-${variant}`;
+    div.setAttribute('role', 'alert');
+    div.textContent = message;
+    stack.appendChild(div);
+
+    window.setTimeout(() => {
+      div.classList.add('bye');
+    }, 3500);
+    div.addEventListener('animationend', () => {
+      if (div.classList.contains('bye')) div.remove();
+    });
+  }
+
+  // ===============================
   // Expose
   // ===============================
   global.shared = Object.assign(global.shared, {
@@ -440,6 +471,8 @@
     positionNowMarker,
     bindNowMarker,
     setSlotHeight,
-    createWheelZoomHandler
+    createWheelZoomHandler,
+    getToastStack,
+    showToast
   });
 })(window);

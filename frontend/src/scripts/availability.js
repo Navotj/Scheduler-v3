@@ -31,24 +31,6 @@
     }
   });
 
-  // --- Toast helper (local) ---
-  function toast(msg, type = 'error', duration = 2600) {
-    let stack = document.querySelector('.toast-stack');
-    if (!stack) {
-      stack = document.createElement('div');
-      stack.className = 'toast-stack';
-      document.body.appendChild(stack);
-    }
-    const el = document.createElement('div');
-    el.className = 'toast' + (type === 'error' ? ' toast-error' : '');
-    el.textContent = msg;
-    stack.appendChild(el);
-    setTimeout(() => {
-      el.classList.add('bye');
-      el.addEventListener('animationend', () => { el.remove(); }, { once: true });
-    }, duration);
-  }
-
   // --- Labels ---
   function renderWeekLabel(startEpoch, tz) {
     shared.renderWeekRangeLabel('week-label', startEpoch, tz);
@@ -78,7 +60,7 @@
         if (ctx.epoch < Math.floor(Date.now() / 1000)) td.classList.add('past');
 
         td.addEventListener('mousedown', (e) => {
-          if (!isAuthenticated) { toast('not logged in'); return; }
+          if (!isAuthenticated) { showToast('not logged in', 'error'); return; }
           if (td.classList.contains('past')) return;
           e.preventDefault();
           dragStart = { row: ctx.row, col: ctx.day };
