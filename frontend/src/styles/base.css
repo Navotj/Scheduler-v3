@@ -295,6 +295,12 @@ h1,h2,h3,p{margin:0}
   gap:var(--gap);
 }
 
+.home-card:hover{
+  background:color-mix(in srgb, var(--accent) 8%, transparent);
+  border-color:color-mix(in srgb, var(--accent) 50%, var(--border) 50%);
+  transform:translateY(-1px);
+}
+
 .home-card{
   display:grid;
   gap:8px;
@@ -305,20 +311,21 @@ h1,h2,h3,p{margin:0}
   transition:background .12s ease,border-color .12s ease,transform .12s ease;
 }
 
-.home-card:hover{
-  background:color-mix(in srgb, var(--accent) 8%, transparent);
-  border-color:color-mix(in srgb, var(--accent) 50%, var(--border) 50%);
-  transform:translateY(-1px);
-}
 
 .home-card h2{
-  font-size:18px;
-  color:var(--fg-0);
+  margin: 0;
+  text-align: center;           /* center horizontally */
+  justify-self: center;         /* grid-level horizontal centering */
+  align-self: start;            /* pin to top */
+  line-height: 1.2;
+  font-size: clamp(18px, 2.6cqw, 28px); /* scale with card width */
 }
 
 .home-card p{
-  font-size:14px;
-  color:var(--fg-1);
+  margin: 0;
+
+  line-height: 1.4;
+  font-size: clamp(14px, 1.9cqw, 18px); /* scale with card width */
 }
 
 /* stack to a single column on small monitors and keep equal-height quarters */
