@@ -187,7 +187,7 @@
 }
 .availability .week-controls { display: flex; gap: 8px; align-items: center; }
 .availability .mode-controls { display: flex; gap: 8px; }
-.availability .save-controls { display: flex; justify-content: flex-end; }
+.availability .save-controls { display: flex; gap: 8px; }
 
 /* Hide the dynamic week label entirely (keeps JS safe if it still writes to it) */
 .availability #week-label { display: none; }
