@@ -451,3 +451,25 @@
 @keyframes toast-out{
   to{ transform:translateY(var(--toast-offset-y)); opacity:0; }
 }
+
+.side-cards .tpl-mini {
+  display: block;      /* remove inline gaps */
+  width: 100%;         /* fill card width */
+  height: 54px;        /* compact fixed height (tweak if needed) */
+  block-size: 54px;    /* ensure consistent in all engines */
+}
+
+/* Template cards: keep compact, fixed ratio; let preview fill to the bottom */
+.side-cards .card:has(.tpl-mini) {
+  display: grid;
+  grid-template-rows: auto 1fr;   /* title then preview filling the rest */
+  padding: 8px 10px 10px 10px;    /* remove old extra bottom padding */
+  aspect-ratio: 5 / 4;            /* prevents overly tall cards */
+}
+
+/* Preview should occupy all remaining space under the title */
+.side-cards .card:has(.tpl-mini) .tpl-mini {
+  width: 100%;
+  height: 100%;
+  block-size: 100%;
+}
