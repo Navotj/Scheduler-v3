@@ -560,6 +560,7 @@
   }
 
   function renderResults(list) {
+    if (!resultsEl) return; // guard if panel not present
     resultsEl.innerHTML = '';
     clearHighlights();
 
@@ -588,13 +589,19 @@
     }
 
     if (!list.length) {
-      resultsEl.innerHTML = '<div class="result"><div class="res-sub">No matching sessions. Adjust filters.</div></div>';
+      const empty = document.createElement('div');
+      empty.className = 'card';
+      const sub = document.createElement('div');
+      sub.className = 'res-sub';
+      sub.textContent = 'No matching sessions. Adjust filters.';
+      empty.appendChild(sub);
+      resultsEl.appendChild(empty);
       return;
     }
 
     for (const it of list) {
-      const wrap = document.createElement('div');
-      wrap.className = 'result';
+      const card = document.createElement('div');
+      card.className = 'card';
 
       const top = document.createElement('div');
       top.className = 'res-top';
@@ -622,23 +629,23 @@
       });
       actions.appendChild(copyBtn);
 
-      wrap.appendChild(top);
-      wrap.appendChild(sub);
-      wrap.appendChild(usersLine);
-      wrap.appendChild(actions);
+      card.appendChild(top);
+      card.appendChild(sub);
+      card.appendChild(usersLine);
+      card.appendChild(actions);
 
-      wrap.addEventListener('mouseenter', () => {
+      card.addEventListener('mouseenter', () => {
         highlightRangeGlobal(it.gStart, it.gEnd, true);
-        wrap.classList.add('hovered');
+        card.classList.add('hovered');
         if (resultsPanel) resultsPanel.classList.add('glow');
       });
-      wrap.addEventListener('mouseleave', () => {
+      card.addEventListener('mouseleave', () => {
         highlightRangeGlobal(it.gStart, it.gEnd, false);
-        wrap.classList.remove('hovered');
+        card.classList.remove('hovered');
         if (resultsPanel) resultsPanel.classList.remove('glow');
       });
 
-      resultsEl.appendChild(wrap);
+      resultsEl.appendChild(card);
     }
   }
 
@@ -872,8 +879,9 @@
 
     gridContent = document.getElementById('grid-content');
     table = document.getElementById('schedule-table');
-    resultsEl = document.getElementById('results');
-    resultsPanel = document.getElementById('results-panel');
+    // Updated to match matcher.html right-side container ids
+    resultsEl = document.getElementById('side-cards');
+    resultsPanel = document.getElementById('side-cards-panel');
 
     buildTable();
     attachHandlers();
