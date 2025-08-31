@@ -2,7 +2,7 @@ const { SESv2Client, SendEmailCommand } = require('@aws-sdk/client-sesv2');
 
 const PROVIDER = (process.env.EMAIL_PROVIDER || 'ses').toLowerCase();
 const MAIL_FROM = process.env.MAIL_FROM || 'Nat20 Scheduling <no-reply@nat20scheduling.com>';
-const SES_REGION = process.env.SES_REGION || process.env.AWS_REGION || 'us-east-1';
+const SES_REGION = process.env.SES_REGION || process.env.AWS_REGION || 'eu-central-1';
 const PUBLIC_API_URL = (process.env.PUBLIC_API_URL || '').replace(/\/+$/, '');
 const PUBLIC_FRONTEND_URL = (process.env.PUBLIC_FRONTEND_URL || '').replace(/\/+$/, '');
 
