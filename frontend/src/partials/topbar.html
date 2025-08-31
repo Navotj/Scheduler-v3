@@ -3,7 +3,6 @@
     <a class="navbtn" href="/availability.html" aria-label="Availability" title="Availability">
       <svg viewBox="0 0 30 30" aria-hidden="true">
         <defs>
-          <!-- Outside-only outline with reduced opacity -->
           <filter id="icon-outline-availability" filterUnits="userSpaceOnUse" x="-25%" y="-25%" width="150%" height="150%" color-interpolation-filters="sRGB">
             <feMorphology in="SourceAlpha" operator="dilate" radius="2" result="dilated"/>
             <feComposite in="dilated" in2="SourceAlpha" operator="out" result="outside"/>
@@ -23,27 +22,21 @@
           <path d="M9.5 12.5h3.8m4 0h3.8m-11.6 5h3.8m4 0h3.8" stroke-width="1.4"/>
         </g>
 
-        <!-- Bottom-right overlay: minimalist ballpoint pen (leaning right) + perfectly horizontal squiggle -->
-        <g transform="translate(15,15) scale(1.25)" filter="url(#icon-outline-availability)" fill="currentColor" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
-          <!-- Squiggle FIRST so it sits behind the pen tip; straight baseline with gentle waves -->
-          <path d="M -8.5 11.8
-                   C -7.6 12.4 -6.7 12.4 -5.8 11.8
-                   S -4.0 10.8 -3.1 11.8
-                   S -1.3 12.8 -0.4 11.8
-                   S 1.4 10.8 2.3 11.8
-                   S 4.1 12.8 5.0 11.8" fill="none" stroke-width="1.2"/>
-
-          <!-- Pen group rotated to lean right -->
-          <g transform="rotate(23 6 6)">
-            <!-- Barrel (rounded rect) -->
-            <rect x="3.2" y="1.2" width="3.0" height="7.8" rx="1.2" ry="1.2" />
-            <!-- Grip band -->
-            <rect x="3.0" y="5.2" width="3.4" height="0.9" rx="0.45" />
-            <!-- Tip cone -->
-            <path d="M3.2 9.0 L6.2 9.0 L5.0 11.0 L4.4 11.0 Z"/>
-            <!-- Clip (minimalist) -->
-            <path d="M6.2 2.0 L7.8 3.6 Q8.1 3.9 7.8 4.3 L7.2 5.0" fill="none" stroke-width="1.1"/>
-          </g>
+        <!-- Minimal THIN pen (no fat parts, sharp triangular tip) + horizontal squiggle -->
+        <g transform="translate(15,15) scale(1.25) rotate(-20)" filter="url(#icon-outline-availability)" fill="currentColor" stroke="currentColor" stroke-linejoin="round">
+          <!-- Barrel (thin rect) -->
+          <rect x="2.9" y="0" width="1.2" height="9" rx="0.6"/>
+          <!-- Tip: attached sharp triangle -->
+          <path d="M2.9 9 L4.1 9 L3.5 11 Z"/>
+          <!-- Clip: minimalist line -->
+          <path d="M4.1 1 L5.2 2.3" stroke-width="0.9" fill="none"/>
+          <!-- Squiggle (aligned, under tip) -->
+          <path d="M3.5 11
+                   C 2.6 11.8, 1.7 11.8, 0.9 11.0
+                   S -1.0 9.5, -2.0 10.5
+                   S -3.5 12.5, -4.5 11.0
+                   S -6.0 9.5, -7.0 10.5" 
+                fill="none" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
         </g>
       </svg>
     </a>
@@ -70,7 +63,7 @@
           <path d="M9.5 12.5h3.8m4 0h3.8m-11.6 5h3.8m4 0h3.8" stroke-width="1.4"/>
         </g>
 
-        <!-- Magnifying glass with outside outline -->
+        <!-- Magnifying glass -->
         <g transform="translate(15,15) scale(1.25)" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" filter="url(#icon-outline-matcher)">
           <circle cx="5.2" cy="5.2" r="3.8" stroke-width="1.6"/>
           <path d="M8.6 8.6l2.7 2.7" stroke-width="1.8"/>
@@ -100,7 +93,7 @@
           <path d="M9.5 12.5h3.8m4 0h3.8m-11.6 5h3.8m4 0h3.8" stroke-width="1.4"/>
         </g>
 
-        <!-- Stack of papers with outside outline -->
+        <!-- Stack of papers -->
         <g transform="translate(15,15) scale(1.25)" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" filter="url(#icon-outline-templates)">
           <path d="M2.2 5.8l4.2-1.8 4.2 1.8-4.2 1.8z" fill="currentColor"/>
           <path d="M3 4l4.2-1.8 4.2 1.8" fill="none" stroke-width="1.4"/>
