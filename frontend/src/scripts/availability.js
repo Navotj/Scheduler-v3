@@ -201,24 +201,64 @@
     // Keep only selections outside this week; clear inside-week, re-fill from server
     for (const t of Array.from(selected)) if (t >= baseEpoch && t < endEpoch) selected.delete(t);
 
-    try {
-      const api = (typeof window.API_BASE_URL === 'string' && window.API_BASE_URL) ? window.API_BASE_URL : '';
-      if (!api) return; // offline mode
-      const res = await fetch(`${api}/availability/get?from=${baseEpoch}&to=${endEpoch}`, {
-        credentials: 'include',
-        cache: 'no-cache'
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (Array.isArray(data.intervals)) {
-          for (const iv of data.intervals) {
-            const from = Number(iv.from);
-            const to = Number(iv.to);
-            for (let t = from; t < to; t += SLOT_SEC) selected.add(t);
-          }
-        }
+    // ---- Single-flight + short TTL cache to coalesce duplicate GETs ----
+    // Keyed by tz+range so parallel callers in the same tick share one network.
+    const key = `${tz}:${baseEpoch}-${endEpoch}`;
+    const inflight = loadWeekSelections._inflight || (loadWeekSelections._inflight = new Map());
+    const cache = loadWeekSelections._cache || (loadWeekSelections._cache = new Map());
+    const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+    const TTL_MS = 1000; // short TTL: only dedupe bursts; avoids staleness after a save
+
+    // If fresh cache exists, apply immediately and return
+    const cached = cache.get(key);
+    if (cached && (now - cached.at) < TTL_MS) {
+      const arr = Array.isArray(cached.intervals) ? cached.intervals : [];
+      for (const iv of arr) {
+        const from = Number(iv.from);
+        const to = Number(iv.to);
+        for (let t = from; t < to; t += SLOT_SEC) selected.add(t);
       }
-    } catch {}
+      return;
+    }
+
+    // If a request for this key is already in flight, await it
+    if (inflight.has(key)) {
+      await inflight.get(key);
+      return;
+    }
+
+    const p = (async () => {
+      try {
+        const api = (typeof window.API_BASE_URL === 'string' && window.API_BASE_URL) ? window.API_BASE_URL : '';
+        if (!api) return;
+
+        const res = await fetch(`${api}/availability/get?from=${baseEpoch}&to=${endEpoch}`, {
+          credentials: 'include',
+          cache: 'no-cache'
+        });
+        if (!res.ok) return;
+
+        const data = await res.json();
+        const arr = Array.isArray(data.intervals) ? data.intervals : [];
+
+        // Update cache before applying, so late joiners can reuse
+        cache.set(key, { at: ((typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now()), intervals: arr });
+
+        // Apply to selection set
+        for (const iv of arr) {
+          const from = Number(iv.from);
+          const to = Number(iv.to);
+          for (let t = from; t < to; t += SLOT_SEC) selected.add(t);
+        }
+      } catch {
+        // swallow; keep UX identical to prior behavior
+      } finally {
+        inflight.delete(key);
+      }
+    })();
+
+    inflight.set(key, p);
+    await p;
   }
 
   function compressToIntervals(sortedEpochs) {
