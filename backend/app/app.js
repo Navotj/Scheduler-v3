@@ -39,6 +39,8 @@ const availabilityRoutes = require('./routes/availability'); // /availability/*
 const settingsRoutes = require('./routes/settings');         // /settings (GET/POST)
 const usersRoutes = require('./routes/users');               // /users/*
 const templatesRouter = require('./routes/templates');
+const verifyRoutes = require('./routes/verify');
+const passwordResetRoutes = require('./routes/password_reset');
 const app = express();
 
 /* ========= Core security & infra ========= */
@@ -170,6 +172,8 @@ app.get('/__debug/dbping', async (_req, res) => {
    Note: Do NOT mount the auth router at root without a path llkkkfilter; some auth routers end with a catch-all 404 which would swallow other routes.
 */
 app.use('/auth', authRoutes);
+app.use('/auth', verifyRoutes);
+app.use('/auth', passwordResetRoutes);
 app.use('/availability', availabilityRoutes);
 app.use(settingsRoutes);
 app.use('/users', usersRoutes);
