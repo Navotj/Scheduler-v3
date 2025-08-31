@@ -137,7 +137,6 @@ jobs:
           aws s3 cp backend_release.tgz "s3://${ARTIFACT_BUCKET}/${OBJECT_KEY}" --sse AES256 --only-show-errors
           echo "OBJECT_KEY=${OBJECT_KEY}" >> "$GITHUB_ENV"
 
-          # replace function (deploy on instances via ssm (tag-targeted) — embedded CMD heredoc)
       - name: deploy on instances via ssm (tag-targeted)
         shell: bash
         run: |
@@ -183,6 +182,7 @@ jobs:
           install -D -m 0644 "${UNIT_SRC}" "${UNIT_DST}"
           systemctl daemon-reload
           systemctl enable --now scheduler.service
+          systemctl restart scheduler.service
           EOS
           )
 
