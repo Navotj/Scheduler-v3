@@ -62,3 +62,23 @@ resource "aws_iam_role_policy" "ec2_ssm_artifacts_read" {
     ]
   })
 }
+
+resource "aws_iam_role_policy" "ec2_ssm_ses_send" {
+  name = "${var.app_prefix}-ec2-ssm-ses-send"
+  role = aws_iam_role.ec2_ssm_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [
+      {
+        Sid    = "AllowSESSend",
+        Effect = "Allow",
+        Action = [
+          "ses:SendEmail",
+          "ses:SendRawEmail"
+        ],
+        Resource = "*"
+      }
+    ]
+  })
+}

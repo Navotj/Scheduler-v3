@@ -2,6 +2,7 @@ window.initRegisterForm = function () {
   const passwordInput = document.getElementById('password');
   const confirmInput = document.getElementById('confirm-password');
   const usernameInput = document.getElementById('username');
+  const emailInput = document.getElementById('email');
 
   const matchWarning = document.getElementById('match-warning');
   const lengthWarning = document.getElementById('length-warning');
@@ -73,7 +74,7 @@ window.initRegisterForm = function () {
 
   document.getElementById('register-form').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const email = document.getElementById('email').value;
+    const email = emailInput.value;
     const username = usernameInput.value.trim();
     const password = passwordInput.value;
 
@@ -89,7 +90,6 @@ window.initRegisterForm = function () {
     }
 
     try {
-      // Use /auth/register so it hits the same router
       const res = await fetch(`${window.API_BASE_URL}/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -103,8 +103,12 @@ window.initRegisterForm = function () {
         return;
       }
 
-      // After register, either auto-open login or auto-login. Here we open login.
-      window.swapModal('/pages/login.html');
+      // Show verification notice instead of opening login directly
+      if (typeof window.openVerificationNotice === 'function') {
+        window.openVerificationNotice(email);
+      } else if (typeof window.openLoginModal === 'function') {
+        window.openLoginModal();
+      }
     } catch (err) {
       errorDisplay.textContent = 'Connection error';
     }
