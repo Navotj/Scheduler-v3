@@ -415,10 +415,10 @@
     if (!items.length) {
       const empty = document.createElement('div');
       empty.className = 'card';
-      const sub = document.createElement('div');
-      sub.className = 'res-sub';
-      sub.textContent = 'No templates yet.';
-      empty.appendChild(sub);
+      const top = document.createElement('div');
+      top.className = 'res-top';
+      top.textContent = 'No templates yet.';
+      empty.appendChild(top);
       listEl.appendChild(empty);
       return;
     }
@@ -429,34 +429,27 @@
       card.dataset.id = String(meta.id);
       card.setAttribute('draggable', 'true');
 
-      const top = document.createElement('div');
-      top.className = 'res-top';
-      top.textContent = meta.name || 'Template';
-
-      const sub = document.createElement('div');
-      sub.className = 'res-sub';
-      sub.textContent = 'Loading preview…';
+      const title = document.createElement('div');
+      title.className = 'res-top';
+      title.textContent = meta.name || 'Template';
 
       const canvas = document.createElement('canvas');
       canvas.className = 'tpl-mini';
 
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.textContent = 'Apply';
-      btn.addEventListener('click', async (e) => {
-        e.stopPropagation();
-        await applyTemplateById(meta.id);
-      });
-
-      card.appendChild(top);
-      card.appendChild(sub);
+      card.appendChild(title);
       card.appendChild(canvas);
-      card.appendChild(btn);
       listEl.appendChild(card);
 
       // Hover effect parity with matcher results
       card.addEventListener('mouseenter', () => card.classList.add('hovered'));
       card.addEventListener('mouseleave', () => card.classList.remove('hovered'));
+
+      // Click anywhere to apply (confirmation handled inside applyTemplateById when overwriting)
+      card.addEventListener('click', async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        await applyTemplateById(meta.id);
+      });
 
       // Drag-to-apply support
       card.addEventListener('dragstart', (e) => {
@@ -465,18 +458,11 @@
         e.dataTransfer.effectAllowed = 'copy';
       });
 
-      // Fetch full template to render preview + details line
+      // Fetch full template to render visual preview only
       fetchTemplate(meta.id).then((tpl) => {
-        if (!tpl) { sub.textContent = 'Failed to load template'; return; }
+        if (!tpl) return;
         drawTinyPreview(canvas, tpl);
-        const step = Number(tpl.stepMin) || 30;
-        const hs = Number.isFinite(tpl.hoursStart) ? tpl.hoursStart : 0;
-        const he = Number.isFinite(tpl.hoursEnd) ? tpl.hoursEnd : 24;
-        const tzInfo = tpl.tz ? ` • ${tpl.tz}` : '';
-        sub.textContent = `${step}m slots • ${hs}–${he}h${tzInfo}`;
-      }).catch(() => {
-        sub.textContent = 'Failed to load template';
-      });
+      }).catch(() => {});
     }
   }
 
