@@ -36,7 +36,7 @@
   /* NOW marker bubble text */
   --now-bubble-fs: 10px;
 
-  /* Results list visuals */
+  /* Side cards (right panel) visuals */
   --result-bg: #121212;
   --result-border: #2a2a2a;
 
@@ -345,7 +345,7 @@
 }
 
 /* =========================
-   Right-panel (results) shared styling
+   Right-panel (side cards) shared styling
    ========================= */
 
 /* Panel container uses full column height with header + scrollable body */
@@ -363,12 +363,12 @@
 }
 .panel h3 { margin: 0 0 8px 0; font-size: 15px; }
 
-/* Scrollable results body */
-#results { overflow: auto; min-height: 0; max-height: 100%; }
+/* Scrollable side-cards body */
+#side-cards { overflow: auto; min-height: 0; max-height: 100%; }
 
-/* Result cards */
-.results { max-height: 100%; overflow: auto; padding-right: 4px; }
-.results .result {
+/* Side cards list */
+.side-cards { max-height: 100%; overflow: auto; padding-right: 4px; }
+.side-cards .card {
   position: relative;
   background: var(--result-bg);
   border: 1px solid var(--result-border);
@@ -377,16 +377,20 @@
   margin: 8px 0;
   transition: border-color .12s ease;
 }
-.results .res-top { font-weight: 600; margin-bottom: 3px; font-size: 13px; }
-.results .res-sub { font-size: 11px; color: #bbb; margin-bottom: 3px; }
-.results .res-users { font-size: 11px; color: #cfe9cf; word-break: break-word; }
-.results .result.hovered { border-color: var(--accent, #7c5cff); box-shadow: 0 0 0 2px rgba(124,92,255,0.35); }
-.results .result button {
+.side-cards .card.hovered { border-color: var(--accent, #7c5cff); box-shadow: 0 0 0 2px rgba(124,92,255,0.35); }
+
+/* Common internal text classes (kept to match existing JS) */
+.side-cards .res-top { font-weight: 600; margin-bottom: 3px; font-size: 13px; }
+.side-cards .res-sub { font-size: 11px; color: #bbb; margin-bottom: 3px; }
+.side-cards .res-users { font-size: 11px; color: #cfe9cf; word-break: break-word; }
+
+/* Optional action button inside a card */
+.side-cards .card button {
   position: absolute; right: 10px; bottom: 8px;
   background: none; border: none; padding: 0; cursor: pointer;
   color: transparent; font-size: 0;
 }
-.results .result button::before { content: "Copy"; font-weight: 700; font-size: 12px; color: #e6e6e6; }
+.side-cards .card button::before { content: "Copy"; font-weight: 700; font-size: 12px; color: #e6e6e6; }
 
 /* =========================
    Floating cell tooltip (shared)
