@@ -18,6 +18,7 @@ permissions:
 env:
   APP_PREFIX: ${{ vars.APP_PREFIX }}
   AWS_REGION: ${{ vars.AWS_REGION }}
+  ROOT_DOMAIN: ${{ vars.ROOT_DOMAIN }} # used to compose PUBLIC_* URLs and MAIL_FROM
   # Target all SSM-managed instances with this EC2 tag (stable across recreations)
   BACKEND_SSM_TARGET_KEY:   tag:Name
   BACKEND_SSM_TARGET_VALUE: ${{ vars.APP_PREFIX }}-backend
@@ -59,6 +60,7 @@ jobs:
           set -euo pipefail
           [[ -n "${APP_PREFIX}" ]] || { echo "APP_PREFIX is empty"; exit 1; }
           [[ -n "${AWS_REGION}"  ]] || { echo "AWS_REGION is empty";  exit 1; }
+          [[ -n "${ROOT_DOMAIN}" ]] || { echo "ROOT_DOMAIN is empty"; exit 1; }
           [[ -d "backend/app" ]] || { echo "missing: backend/app"; exit 1; }
           [[ -f "backend/scheduler.service" ]] || { echo "missing: backend/scheduler.service"; exit 1; }
 
@@ -120,14 +122,13 @@ jobs:
         working-directory: ${{ github.workspace }}
         shell: bash
         run: |
-            set -euo pipefail
-            test -d backend/app
-            test -f backend/scheduler.service
-            tar -czf backend_release.tgz \
+          set -euo pipefail
+          test -d backend/app
+          test -f backend/scheduler.service
+          tar -czf backend_release.tgz \
             --owner=0 --group=0 \
             -C backend app scheduler.service
-            ls -lh backend_release.tgz
-
+          ls -lh backend_release.tgz
 
       - name: upload artifact to s3 (SSE required)
         shell: bash
@@ -146,6 +147,8 @@ jobs:
           set -euo pipefail
           : "${ARTIFACT_BUCKET:?missing}"
           : "${OBJECT_KEY:?missing}"
+          : "${AWS_REGION:?missing}"
+          : "${ROOT_DOMAIN:?missing}"
           ARTIFACT_S3="s3://${ARTIFACT_BUCKET}/${OBJECT_KEY}"
           WORKDIR="/opt/app"
           TMP_TGZ="/tmp/backend_release.tgz"
@@ -169,6 +172,31 @@ jobs:
           # ensure Node.js 22 is installed (do not rely on preinstalled v18)
           curl -fsSL https://rpm.nodesource.com/setup_22.x | bash -
           dnf install -y -q nodejs
+
+          # === ensure required env keys exist in /opt/app/.env (append-only, don't overwrite existing) ===
+          ENV_FILE="${WORKDIR}/.env"
+          touch "${ENV_FILE}"
+          chmod 0600 "${ENV_FILE}"
+
+          ensure_env() {
+            local k="$1" v="$2"
+            if grep -q -E "^${k}=" "${ENV_FILE}"; then
+              return 0
+            fi
+            printf '%s=%s\n' "${k}" "${v}" >> "${ENV_FILE}"
+          }
+
+          DEFAULT_MAIL_FROM="Nat20 Scheduling <no-reply@${ROOT_DOMAIN}>"
+          API_URL="https://api.${ROOT_DOMAIN}"
+          FRONTEND_URL="https://www.${ROOT_DOMAIN}"
+
+          ensure_env "EMAIL_PROVIDER" "ses"
+          ensure_env "SES_REGION" "${AWS_REGION}"
+          ensure_env "PUBLIC_API_URL" "${API_URL}"
+          ensure_env "PUBLIC_FRONTEND_URL" "${FRONTEND_URL}"
+          ensure_env "MAIL_FROM" "${DEFAULT_MAIL_FROM}"
+          ensure_env "VERIFICATION_TOKEN_TTL_MIN" "60"
+          ensure_env "RESET_TOKEN_TTL_MIN" "30"
 
           # install production deps (works even if lockfile is missing)
           cd "${WORKDIR}"
@@ -194,7 +222,7 @@ jobs:
               "set -euo pipefail",
               "echo ${B64} | base64 -d > /tmp/deploy.sh",
               "chmod +x /tmp/deploy.sh",
-              "ARTIFACT_BUCKET=${ARTIFACT_BUCKET} OBJECT_KEY=${OBJECT_KEY} bash /tmp/deploy.sh"
+              "ARTIFACT_BUCKET=${ARTIFACT_BUCKET} OBJECT_KEY=${OBJECT_KEY} AWS_REGION=${AWS_REGION} ROOT_DOMAIN=${ROOT_DOMAIN} bash /tmp/deploy.sh"
             ],
             "executionTimeout": ["600"],
             "workingDirectory": ["/"]
