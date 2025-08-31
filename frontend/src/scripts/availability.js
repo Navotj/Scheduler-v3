@@ -433,79 +433,107 @@
   }
 
   function drawTinyPreview(canvas, tpl) {
-    // Use the canvas's existing CSS size (do NOT change card/layout).
-    const rect = canvas.getBoundingClientRect();
-    const cssW = Math.max(40, Math.round(rect.width || 84));
-    const cssH = Math.max(20, Math.round(rect.height || 42));
+    if (!canvas) return;
 
-    // Backing store for crisp rendering at device pixel ratio
-    const dpr = Math.max(1, Math.floor(window.devicePixelRatio || 1));
-    canvas.width = cssW * dpr;
-    canvas.height = cssH * dpr;
+    // Store latest data on the canvas so we can re-render on resize/zoom changes
+    canvas.__tpl = tpl;
 
-    const ctx = canvas.getContext('2d');
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // draw in CSS pixels
-    ctx.imageSmoothingEnabled = false;
+    const redraw = () => {
+      const rect = canvas.getBoundingClientRect();
+      const cssW = Math.max(40, Math.round(rect.width || 84));
+      const cssH = Math.max(20, Math.round(rect.height || 42));
 
-    const w = cssW;
-    const h = cssH;
+      // Match the backing store exactly to the CSS size * DPR to avoid browser scaling blur
+      const dpr = Math.max(1, Math.floor(window.devicePixelRatio || 1));
+      const needW = cssW * dpr;
+      const needH = cssH * dpr;
 
-    // Grid config
-    const cols = 7;
-    const rows = 12; // 2h per row
-    const cw = w / cols;
-    const rh = h / rows;
+      // Only touch width/height if they changed (this also clears the canvas)
+      if (canvas.width !== needW) canvas.width = needW;
+      if (canvas.height !== needH) canvas.height = needH;
 
-    // Clear
-    ctx.clearRect(0, 0, w, h);
+      const ctx = canvas.getContext('2d');
+      // Draw in CSS pixels with a device-pixel scale; turn off smoothing for crisp 1px lines
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.imageSmoothingEnabled = false;
 
-    // Draw full-bleed grid including right and bottom edges
-    ctx.globalAlpha = 0.25;
-    ctx.strokeStyle = '#888';
-    ctx.lineWidth = 1;
+      const w = cssW;
+      const h = cssH;
 
-    // Vertical lines (snap to pixel grid; ensure last line is w - 0.5)
-    for (let c = 0; c <= cols; c++) {
-      const x = (c === cols) ? (w - 0.5) : (Math.floor(c * cw) + 0.5);
-      ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, h);
-      ctx.stroke();
-    }
+      // Clear
+      ctx.clearRect(0, 0, w, h);
 
-    // Horizontal lines (snap to pixel grid; ensure last line is h - 0.5)
-    for (let r = 0; r <= rows; r++) {
-      const y = (r === rows) ? (h - 0.5) : (Math.floor(r * rh) + 0.5);
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(w, y);
-      ctx.stroke();
-    }
+      // Grid config
+      const cols = 7;
+      const rows = 12; // 2h per row
+      const cw = w / cols;
+      const rh = h / rows;
 
-    // Fill intervals to touch borders exactly (no 1px gaps)
-    ctx.globalAlpha = 0.9;
-    ctx.fillStyle = '#7c5cff';
+      // Draw full-bleed grid with pixel-aligned strokes
+      ctx.globalAlpha = 0.25;
+      ctx.strokeStyle = '#888';
+      ctx.lineWidth = 1;
 
-    const days = Array.isArray(tpl.days) ? tpl.days : [];
-    for (let day = 0; day < 7; day++) {
-      const intervals = Array.isArray(days[day]) ? days[day] : [];
-      // Exact integer pixel span for the column
-      const x0 = Math.floor(day * cw);
-      const x1 = Math.floor((day + 1) * cw);
-      const colW = Math.max(1, x1 - x0);
-
-      for (const pair of intervals) {
-        const fromMin = Number(pair[0]);
-        const toMin = Number(pair[1]);
-        if (!Number.isFinite(fromMin) || !Number.isFinite(toMin) || toMin <= fromMin) continue;
-
-        // Map minutes to pixel rows; align to integers
-        const y0 = Math.floor((fromMin / 1440) * h);
-        const y1 = Math.floor((toMin / 1440) * h);
-        const rectH = Math.max(1, y1 - y0);
-
-        ctx.fillRect(x0, y0, colW, rectH);
+      for (let c = 0; c <= cols; c++) {
+        const x = (c === cols) ? (w - 0.5) : (Math.floor(c * cw) + 0.5);
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, h);
+        ctx.stroke();
       }
+
+      for (let r = 0; r <= rows; r++) {
+        const y = (r === rows) ? (h - 0.5) : (Math.floor(r * rh) + 0.5);
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(w, y);
+        ctx.stroke();
+      }
+
+      // Intervals
+      ctx.globalAlpha = 0.9;
+      ctx.fillStyle = '#7c5cff';
+
+      const days = Array.isArray(canvas.__tpl && canvas.__tpl.days) ? canvas.__tpl.days : [];
+      for (let day = 0; day < 7; day++) {
+        const intervals = Array.isArray(days[day]) ? days[day] : [];
+        const x0 = Math.floor(day * cw);
+        const x1 = Math.floor((day + 1) * cw);
+        const colW = Math.max(1, x1 - x0);
+
+        for (const pair of intervals) {
+          const fromMin = Number(pair[0]);
+          const toMin = Number(pair[1]);
+          if (!Number.isFinite(fromMin) || !Number.isFinite(toMin) || toMin <= fromMin) continue;
+
+          const y0 = Math.floor((fromMin / 1440) * h);
+          const y1 = Math.floor((toMin / 1440) * h);
+          const rectH = Math.max(1, y1 - y0);
+
+          ctx.fillRect(x0, y0, colW, rectH);
+        }
+      }
+    };
+
+    // Initial draw
+    redraw();
+
+    // Re-render crisply whenever the canvas' CSS box changes
+    if (!canvas.__resizeObs) {
+      const ro = new ResizeObserver(() => {
+        // Use rAF to coalesce multiple size ticks during layout
+        if (!canvas.__pendingRaf) {
+          canvas.__pendingRaf = true;
+          requestAnimationFrame(() => { canvas.__pendingRaf = false; redraw(); });
+        }
+      });
+      ro.observe(canvas);
+      canvas.__resizeObs = ro;
+
+      // Also listen for DPR/zoom changes (commonly accompanies a window resize)
+      const onWinResize = () => redraw();
+      window.addEventListener('resize', onWinResize, { passive: true });
+      canvas.__onWinResize = onWinResize;
     }
   }
 
