@@ -348,15 +348,42 @@
   }
 
   async function fetchTemplate(id) {
-    try {
-      const api = (typeof window.API_BASE_URL === 'string' && window.API_BASE_URL) ? window.API_BASE_URL : '';
-      if (!api) return null;
-      const res = await fetch(`${api}/templates/get?id=${encodeURIComponent(id)}`, { credentials: 'include', cache: 'no-store' });
-      if (!res.ok) return null;
-      const data = await res.json();
-      return data && data.template ? data.template : null;
-    } catch { return null; }
+    if (!id) return null;
+
+    // Single-flight + memory cache without touching globals
+    const inflight = fetchTemplate._inflight || (fetchTemplate._inflight = new Map());
+    const cache = fetchTemplate._cache || (fetchTemplate._cache = new Map());
+
+    // Return cached result immediately (good enough for preview rendering)
+    if (cache.has(id)) return cache.get(id);
+
+    // Coalesce concurrent identical GETs
+    if (inflight.has(id)) return inflight.get(id);
+
+    const p = (async () => {
+      try {
+        const api = (typeof window.API_BASE_URL === 'string' && window.API_BASE_URL) ? window.API_BASE_URL : '';
+        if (!api) return null;
+        const res = await fetch(`${api}/templates/get?id=${encodeURIComponent(id)}`, {
+          credentials: 'include',
+          cache: 'no-store'
+        });
+        if (!res.ok) return null;
+        const data = await res.json();
+        const tpl = (data && data.template) ? data.template : null;
+        if (tpl) cache.set(id, tpl);
+        return tpl;
+      } catch {
+        return null;
+      } finally {
+        inflight.delete(id);
+      }
+    })();
+
+    inflight.set(id, p);
+    return p;
   }
+
 
   function ensureRightPaneSkeleton() {
     // Use the existing right-panel markup from availability.html:
