@@ -3,7 +3,8 @@
     <a class="navbtn" href="/availability.html" aria-label="Availability" title="Availability">
       <svg viewBox="0 0 30 30" aria-hidden="true">
         <defs>
-          <filter id="icon-outline-availability" filterUnits="userSpaceOnUse" x="-25%" y="-25%" width="150%" height="150%" color-interpolation-filters="sRGB">
+          <!-- FIX: use objectBoundingBox so the filter region expands with the glyph and does not clip the squiggle -->
+          <filter id="icon-outline-availability" filterUnits="objectBoundingBox" x="-25%" y="-25%" width="150%" height="150%" color-interpolation-filters="sRGB">
             <feMorphology in="SourceAlpha" operator="dilate" radius="2" result="dilated"/>
             <feComposite in="dilated" in2="SourceAlpha" operator="out" result="outside"/>
             <feFlood flood-color="#000" flood-opacity="0.5" result="color"/>
@@ -22,9 +23,7 @@
           <path d="M9.5 12.5h3.8m4 0h3.8m-11.6 5h3.8m4 0h3.8" stroke-width="1.4"/>
         </g>
 
-        <!-- Overlay: thin pen leaning RIGHT + squiggle
-             Pen raised slightly to avoid cutoff; squiggle extended further left;
-             squiggle ends 1px short of pen tip -->
+        <!-- Overlay: thin pen leaning RIGHT + squiggle -->
         <g transform="translate(22,19) scale(1.2)" filter="url(#icon-outline-availability)" stroke="currentColor" fill="currentColor" stroke-linejoin="round" stroke-linecap="round">
           <!-- Squiggle baseline ~y=6.5, extends left, ends just short of pen tip -->
           <path d="M -13 6.5
@@ -46,7 +45,8 @@
     <a class="navbtn" href="/matcher.html" aria-label="Schedule matcher" title="Schedule matcher">
       <svg viewBox="0 0 30 30" aria-hidden="true">
         <defs>
-          <filter id="icon-outline-matcher" filterUnits="userSpaceOnUse" x="-25%" y="-25%" width="150%" height="150%" color-interpolation-filters="sRGB">
+          <!-- Keep filters consistent to avoid future clipping -->
+          <filter id="icon-outline-matcher" filterUnits="objectBoundingBox" x="-25%" y="-25%" width="150%" height="150%" color-interpolation-filters="sRGB">
             <feMorphology in="SourceAlpha" operator="dilate" radius="2" result="dilated"/>
             <feComposite in="dilated" in2="SourceAlpha" operator="out" result="outside"/>
             <feFlood flood-color="#000" flood-opacity="0.5" result="color"/>
@@ -76,7 +76,7 @@
     <a class="navbtn" href="/templates.html" aria-label="Templates" title="Templates">
       <svg viewBox="0 0 30 30" aria-hidden="true">
         <defs>
-          <filter id="icon-outline-templates" filterUnits="userSpaceOnUse" x="-25%" y="-25%" width="150%" height="150%" color-interpolation-filters="sRGB">
+          <filter id="icon-outline-templates" filterUnits="objectBoundingBox" x="-25%" y="-25%" width="150%" height="150%" color-interpolation-filters="sRGB">
             <feMorphology in="SourceAlpha" operator="dilate" radius="2" result="dilated"/>
             <feComposite in="dilated" in2="SourceAlpha" operator="out" result="outside"/>
             <feFlood flood-color="#000" flood-opacity="0.5" result="color"/>
