@@ -359,30 +359,10 @@
   }
 
   function ensureRightPaneSkeleton() {
-    if (!rightPane) return null;
-    rightPane.innerHTML = '';
-
-    const wrap = document.createElement('div');
-    wrap.className = 'tpl-pane';
-
-    const h = document.createElement('h3');
-    h.textContent = 'Templates';
-    h.className = 'tpl-title';
-
-    const list = document.createElement('div');
-    list.id = 'tpl-list';
-    list.className = 'tpl-list';
-
-    const hint = document.createElement('div');
-    hint.className = 'tpl-hint';
-    hint.textContent = 'Drag a template onto the week to apply it.';
-
-    wrap.appendChild(h);
-    wrap.appendChild(list);
-    wrap.appendChild(hint);
-    rightPane.appendChild(wrap);
-
-    return list;
+    // Use the existing right-panel markup from availability.html:
+    // <section id="side-cards-panel" class="panel"><div id="side-cards" class="side-cards"></div></section>
+    const list = document.getElementById('side-cards');
+    return list || null;
   }
 
   function drawTinyPreview(canvas, tpl) {
@@ -425,7 +405,6 @@
   }
 
   async function renderTemplatesPanel() {
-    if (!rightPane) return;
     const listEl = ensureRightPaneSkeleton();
     if (!listEl) return;
     listEl.textContent = 'Loading…';
@@ -435,36 +414,68 @@
 
     if (!items.length) {
       const empty = document.createElement('div');
-      empty.className = 'tpl-empty';
-      empty.textContent = 'No templates yet.';
+      empty.className = 'card';
+      const sub = document.createElement('div');
+      sub.className = 'res-sub';
+      sub.textContent = 'No templates yet.';
+      empty.appendChild(sub);
       listEl.appendChild(empty);
       return;
     }
 
     for (const meta of items) {
       const card = document.createElement('div');
-      card.className = 'tpl-card';
-      card.setAttribute('draggable', 'true');
+      card.className = 'card';
       card.dataset.id = String(meta.id);
+      card.setAttribute('draggable', 'true');
 
-      const name = document.createElement('div');
-      name.className = 'tpl-name';
-      name.textContent = meta.name;
+      const top = document.createElement('div');
+      top.className = 'res-top';
+      top.textContent = meta.name || 'Template';
+
+      const sub = document.createElement('div');
+      sub.className = 'res-sub';
+      sub.textContent = 'Loading preview…';
 
       const canvas = document.createElement('canvas');
       canvas.className = 'tpl-mini';
 
-      card.appendChild(name);
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = 'Apply';
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        await applyTemplateById(meta.id);
+      });
+
+      card.appendChild(top);
+      card.appendChild(sub);
       card.appendChild(canvas);
+      card.appendChild(btn);
       listEl.appendChild(card);
 
-      // Load full template for preview (days)
-      fetchTemplate(meta.id).then((tpl) => { if (tpl) drawTinyPreview(canvas, tpl); }).catch(() => {});
+      // Hover effect parity with matcher results
+      card.addEventListener('mouseenter', () => card.classList.add('hovered'));
+      card.addEventListener('mouseleave', () => card.classList.remove('hovered'));
 
+      // Drag-to-apply support
       card.addEventListener('dragstart', (e) => {
         e.dataTransfer.setData('text/plain', String(meta.id));
         try { e.dataTransfer.setData('application/x-template-id', String(meta.id)); } catch {}
         e.dataTransfer.effectAllowed = 'copy';
+      });
+
+      // Fetch full template to render preview + details line
+      fetchTemplate(meta.id).then((tpl) => {
+        if (!tpl) { sub.textContent = 'Failed to load template'; return; }
+        drawTinyPreview(canvas, tpl);
+        const step = Number(tpl.stepMin) || 30;
+        const hs = Number.isFinite(tpl.hoursStart) ? tpl.hoursStart : 0;
+        const he = Number.isFinite(tpl.hoursEnd) ? tpl.hoursEnd : 24;
+        const tzInfo = tpl.tz ? ` • ${tpl.tz}` : '';
+        sub.textContent = `${step}m slots • ${hs}–${he}h${tzInfo}`;
+      }).catch(() => {
+        sub.textContent = 'Failed to load template';
       });
     }
   }
