@@ -25,13 +25,14 @@
 
         <!-- Overlay: thin pen leaning RIGHT + horizontal squiggle
              Centered around calendar's bottom-right; pen partially outside.
-             Raised slightly; squiggle ends exactly at pen tip -->
+             Squiggle extended left and ends ~1px short of the tip -->
         <g transform="translate(22,20) scale(1.2)" filter="url(#icon-outline-availability)" stroke="currentColor" fill="currentColor" stroke-linejoin="round" stroke-linecap="round">
-          <!-- Squiggle baseline ~y=6.5, horizontal on average; END at x=0 which is pen tip -->
-          <path d="M -9 6.5
-                   C -8 7.3, -7 7.3, -6 6.5
-                   S -4 5.6, -3 6.5
-                   S -1 7.4, 0 6.5"
+          <!-- Squiggle baseline ~y=6.5; LAST point at x=-0.4 to leave ~1px gap to the pen tip at x=0 -->
+          <path d="M -11 6.5
+                   C -10 7.3, -9 7.3, -8 6.5
+                   S -6 5.6, -5 6.5
+                   S -3 7.4, -2 6.5
+                   S  0 5.6, -0.4 6.5"
                 fill="none" stroke-width="1.1"/>
 
           <!-- Pen: tip anchored at (0,6.5); lean right (~33deg) -->
