@@ -2,16 +2,16 @@ const { SESv2Client, SendEmailCommand } = require('@aws-sdk/client-sesv2');
 
 const PROVIDER = (process.env.EMAIL_PROVIDER || 'ses').toLowerCase();
 const MAIL_FROM = process.env.MAIL_FROM || 'Nat20 Scheduling <no-reply@nat20scheduling.com>';
-const SES_REGION = process.env.SES_REGION; // must match SES identity region (e.g., eu-central-1)
+const SES_REGION = process.env.SES_REGION; // must match your SES identity region (e.g., eu-central-1)
 const PUBLIC_API_URL = (process.env.PUBLIC_API_URL || '').replace(/\/+$/, '');
 const PUBLIC_FRONTEND_URL = (process.env.PUBLIC_FRONTEND_URL || '').replace(/\/+$/, '');
 
 if (PROVIDER === 'ses' && !SES_REGION) {
-  throw new Error('[MAIL] SES_REGION is required and must match the region of your SES identity (e.g., eu-central-1).');
+  throw new Error('[MAIL] SES_REGION is required and must match the region of your SES identity.');
 }
 
 let ses = null;
-if (PROVIDER === 'ses') {s
+if (PROVIDER === 'ses') {
   ses = new SESv2Client({ region: SES_REGION });
 }
 
@@ -43,10 +43,11 @@ async function sendEmail(to, subject, html, text, reqId) {
     return out;
   } catch (e) {
     const status = e && e.$metadata ? e.$metadata.httpStatusCode : undefined;
-    console.error(
-      `[MAIL][${reqId || '-'}] send failed`,
-      { code: e?.name || e?.Code, status, message: e?.message }
-    );
+    console.error(`[MAIL][${reqId || '-'}] send failed`, {
+      code: e?.name || e?.Code,
+      status,
+      message: e?.message
+    });
     throw e;
   }
 }
@@ -114,7 +115,7 @@ If you did not request this, you can ignore this email.`;
 }
 
 function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
 module.exports = {
