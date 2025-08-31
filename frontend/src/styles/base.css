@@ -77,7 +77,7 @@ h1,h2,h3,p{margin:0}
 }
 .navbtn:hover{background:rgba(124,92,255,.1); border-color:var(--border); transform:translateY(-1px)}
 .navbtn:active{transform:translateY(0)}
-.navbtn svg{width:22px; height:22px}
+.navbtn svg{width:28px; height:28px}
 
 /* ensure hidden elements are not rendered */
 [hidden]{display:none !important}

@@ -377,15 +377,43 @@
   // Templates side panel (right)
   // ===============================
   async function fetchTemplatesList() {
-    try {
-      const api = (typeof window.API_BASE_URL === 'string' && window.API_BASE_URL) ? window.API_BASE_URL : '';
-      if (!api) return [];
-      const res = await fetch(`${api}/templates/list`, { credentials: 'include', cache: 'no-store' });
-      if (!res.ok) return [];
-      const data = await res.json();
-      return Array.isArray(data.templates) ? data.templates : [];
-    } catch { return []; }
-  }
+    // Single-flight + short TTL cache to avoid duplicate GET /templates/list bursts
+    const api = (typeof window.API_BASE_URL === 'string' && window.API_BASE_URL) ? window.API_BASE_URL : '';
+    if (!api) return [];
+
+    const key = `${api}::auth:${isAuthenticated ? 1 : 0}`;
+    const inflight = fetchTemplatesList._inflight || (fetchTemplatesList._inflight = new Map());
+    const cache = fetchTemplatesList._cache || (fetchTemplatesList._cache = new Map());
+    const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+    const TTL_MS = 1000; // dedupe rapid repeats (init + auth check + storage), keeps UI fresh
+
+    const cached = cache.get(key);
+    if (cached && (now - cached.at) < TTL_MS) {
+      return Array.isArray(cached.templates) ? cached.templates : [];
+      }
+
+    if (inflight.has(key)) {
+      try { return await inflight.get(key); } catch { return []; }
+    }
+
+    const p = (async () => {
+      try {
+        const res = await fetch(`${api}/templates/list`, { credentials: 'include', cache: 'no-store' });
+        if (!res.ok) return [];
+        const data = await res.json();
+        const list = Array.isArray(data.templates) ? data.templates : [];
+        cache.set(key, { at: ((typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now()), templates: list });
+        return list;
+      } catch {
+        return [];
+      } finally {
+        inflight.delete(key);
+      }
+    })();
+
+    inflight.set(key, p);
+    return await p;
+}
 
   async function fetchTemplate(id) {
     if (!id) return null;
