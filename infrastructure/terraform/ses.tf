@@ -1,11 +1,3 @@
-# SES domain identity and DKIM records
-
-# Use the same hosted zone you already use elsewhere
-data "aws_route53_zone" "root" {
-  name         = var.root_domain
-  private_zone = false
-}
-
 resource "aws_sesv2_email_identity" "domain" {
   email_identity = data.aws_route53_zone.root.name
 }

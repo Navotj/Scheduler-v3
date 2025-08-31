@@ -1,12 +1,4 @@
 ########################################
-# Route 53 zone reference (existing zone)
-########################################
-data "aws_route53_zone" "root" {
-  name         = var.root_domain
-  private_zone = false
-}
-
-########################################
 # Viewer cert for CloudFront (us-east-1), WWW ONLY
 ########################################
 resource "aws_acm_certificate" "origin" {
