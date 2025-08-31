@@ -24,18 +24,18 @@
         </g>
 
         <!-- Overlay: thin pen leaning RIGHT + horizontal squiggle
-             Positioned at the calendar's bottom-right; pen partially outside right/bottom -->
-        <g transform="translate(23,22) scale(1.2)" filter="url(#icon-outline-availability)" stroke="currentColor" fill="currentColor" stroke-linejoin="round" stroke-linecap="round">
-          <!-- Squiggle baseline ~y=6.5, running horizontally under the pen tip -->
+             Centered around calendar's bottom-right; pen partially outside.
+             Raised slightly; squiggle ends exactly at pen tip -->
+        <g transform="translate(22,20) scale(1.2)" filter="url(#icon-outline-availability)" stroke="currentColor" fill="currentColor" stroke-linejoin="round" stroke-linecap="round">
+          <!-- Squiggle baseline ~y=6.5, horizontal on average; END at x=0 which is pen tip -->
           <path d="M -9 6.5
                    C -8 7.3, -7 7.3, -6 6.5
                    S -4 5.6, -3 6.5
-                   S -1 7.4, 0 6.5
-                   S 2 5.6, 3 6.5" fill="none" stroke-width="1.1"/>
+                   S -1 7.4, 0 6.5"
+                fill="none" stroke-width="1.1"/>
 
-          <!-- Pen: tip anchored at (-1,6.5); lean right (33deg).
-               Body extends up-left into the calendar; tip sits on the squiggle. -->
-          <g transform="translate(-1,6.5) rotate(33)">
+          <!-- Pen: tip anchored at (0,6.5); lean right (~33deg) -->
+          <g transform="translate(0,6.5) rotate(33)">
             <!-- Barrel: very thin straight rectangle -->
             <rect x="-0.55" y="-8.2" width="1.1" height="8.2" rx="0.55"/>
             <!-- Grip band -->
