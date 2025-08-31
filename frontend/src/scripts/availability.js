@@ -366,15 +366,12 @@
   }
 
   function drawTinyPreview(canvas, tpl) {
-    // Make the visual fill the card: size the canvas to the available width,
-    // keep a 2:1 aspect (similar to before), and render at device pixels.
-    const parentW = Math.floor(canvas.clientWidth || (canvas.parentElement ? canvas.parentElement.clientWidth : 0) || 120);
-    const cssW = Math.max(60, parentW);
-    const cssH = Math.max(30, Math.round(cssW / 2)); // 2:1 aspect
+    // Use the canvas's existing CSS size (do NOT change card/layout).
+    const rect = canvas.getBoundingClientRect();
+    const cssW = Math.max(40, Math.round(rect.width || 84));
+    const cssH = Math.max(20, Math.round(rect.height || 42));
 
-    // Ensure CSS size fills container; then set backing store for crisp lines
-    canvas.style.width = cssW + 'px';
-    canvas.style.height = cssH + 'px';
+    // Backing store for crisp rendering at device pixel ratio
     const dpr = Math.max(1, Math.floor(window.devicePixelRatio || 1));
     canvas.width = cssW * dpr;
     canvas.height = cssH * dpr;
@@ -388,46 +385,46 @@
 
     // Grid config
     const cols = 7;
-    const rows = 12; // compress 24h into 12 rows (2h per row) for tiny view
+    const rows = 12; // 2h per row
     const cw = w / cols;
     const rh = h / rows;
 
     // Clear
     ctx.clearRect(0, 0, w, h);
 
-    // Draw full-bleed grid (no missing right/bottom edges)
+    // Draw full-bleed grid including right and bottom edges
     ctx.globalAlpha = 0.25;
     ctx.strokeStyle = '#888';
     ctx.lineWidth = 1;
 
-    // Vertical lines (include right edge)
+    // Vertical lines (snap to pixel grid; ensure last line is w - 0.5)
     for (let c = 0; c <= cols; c++) {
-      const x = Math.round(c * cw) + 0.5;
+      const x = (c === cols) ? (w - 0.5) : (Math.floor(c * cw) + 0.5);
       ctx.beginPath();
       ctx.moveTo(x, 0);
       ctx.lineTo(x, h);
       ctx.stroke();
     }
 
-    // Horizontal lines (include bottom edge)
+    // Horizontal lines (snap to pixel grid; ensure last line is h - 0.5)
     for (let r = 0; r <= rows; r++) {
-      const y = Math.round(r * rh) + 0.5;
+      const y = (r === rows) ? (h - 0.5) : (Math.floor(r * rh) + 0.5);
       ctx.beginPath();
       ctx.moveTo(0, y);
       ctx.lineTo(w, y);
       ctx.stroke();
     }
 
-    // Fill intervals so they touch cell borders exactly (no 1px gap)
+    // Fill intervals to touch borders exactly (no 1px gaps)
     ctx.globalAlpha = 0.9;
     ctx.fillStyle = '#7c5cff';
 
     const days = Array.isArray(tpl.days) ? tpl.days : [];
     for (let day = 0; day < 7; day++) {
       const intervals = Array.isArray(days[day]) ? days[day] : [];
-      // Compute exact horizontal pixel span for this day’s column
-      const x0 = Math.round(day * cw);
-      const x1 = Math.round((day + 1) * cw);
+      // Exact integer pixel span for the column
+      const x0 = Math.floor(day * cw);
+      const x1 = Math.floor((day + 1) * cw);
       const colW = Math.max(1, x1 - x0);
 
       for (const pair of intervals) {
@@ -435,9 +432,9 @@
         const toMin = Number(pair[1]);
         if (!Number.isFinite(fromMin) || !Number.isFinite(toMin) || toMin <= fromMin) continue;
 
-        // Map minutes to pixels across full height; align to integer pixels
-        const y0 = Math.round((fromMin / 1440) * h);
-        const y1 = Math.round((toMin   / 1440) * h);
+        // Map minutes to pixel rows; align to integers
+        const y0 = Math.floor((fromMin / 1440) * h);
+        const y1 = Math.floor((toMin / 1440) * h);
         const rectH = Math.max(1, y1 - y0);
 
         ctx.fillRect(x0, y0, colW, rectH);
