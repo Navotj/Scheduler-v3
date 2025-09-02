@@ -1,4 +1,4 @@
-(function () {
+(function () { 
   'use strict';
 
   const SLOTS_PER_HOUR = 2;
@@ -297,11 +297,12 @@
     for (const td of table.querySelectorAll('.slot-cell')) td.classList.remove('dim');
     if (!totalMembers || needed <= 0) return;
 
-    let g = 0;
+    // Do not dim any past cells; start evaluating from "now".
+    let g = Math.max(0, startIdx);
     while (g < WEEK_ROWS) {
-      if (g < startIdx || (counts[g] || 0) < needed) { dimCell(g); g++; continue; }
+      if ((counts[g] || 0) < needed) { dimCell(g); g++; continue; }
       let h = g;
-      while (h < WEEK_ROWS && h >= startIdx && (counts[h] || 0) >= needed) h++;
+      while (h < WEEK_ROWS && (counts[h] || 0) >= needed) h++;
       const blockLen = h - g;
       if (blockLen < minSlots) {
         for (let t = g; t < h; t++) dimCell(t);
@@ -582,6 +583,15 @@
       const row = Number(td.dataset.row);
       if (!Number.isFinite(day) || !Number.isFinite(row)) continue;
       const g = day * ROWS_PER_DAY + row;
+
+      // Never dim or restyle past cells; keep uniform past grey.
+      if (td.classList.contains('past')) {
+        td.classList.remove('dim');
+        td.style.opacity = '';
+        td.style.filter = '';
+        continue;
+      }
+
       const raw = counts[g] || 0;
 
       if (keep[g] || raw === 0) {
@@ -824,15 +834,8 @@
           hour12 = settings.clock === '12';
           weekStartIdx = settings.weekStart === 'mon' ? 1 : 0;
           heatmapName = settings.heatmap || 'viridis';
-          if (tz !== prevTz) {
-            buildTable();
-            fetchMembersAvail();
-          } else {
-            paintCounts();
-            shadePast();
-            applyFilterDimming();
-            updateLegend();
-          }
+          if (tz !== prevTz) { buildTable(); fetchMembersAvail(); }
+          else { paintCounts(); shadePast(); applyFilterDimming(); updateLegend(); }
         }
       }
     });
