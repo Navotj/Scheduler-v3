@@ -21,11 +21,19 @@ resource "aws_instance" "backend" {
   }
 
   user_data = templatefile("${path.module}/scripts/user_data_envwrap.tpl", {
-    database_user            = var.database_user
-    database_password        = var.database_password
-    database_name            = "appdb"
-    database_host            = var.database_host
-    script                   = file("${path.module}/scripts/user_data_backend.sh")
+    database_user               = var.database_user
+    database_password           = var.database_password
+    database_name               = "appdb"
+    database_host               = var.database_host
+    root_domain                 = var.root_domain
+    jwt_secret                  = var.jwt_secret
+    oauth_google_client_id      = var.oauth_google_client_id
+    oauth_google_client_secret  = var.oauth_google_client_secret
+    oauth_github_client_id      = var.oauth_github_client_id
+    oauth_github_client_secret  = var.oauth_github_client_secret
+    oauth_discord_client_id     = var.oauth_discord_client_id
+    oauth_discord_client_secret = var.oauth_discord_client_secret
+    script                      = file("${path.module}/scripts/user_data_backend.sh")
   })
 
   tags = { Name = "${var.app_prefix}-backend" }
@@ -46,11 +54,19 @@ resource "aws_instance" "database" {
   }
 
   user_data = templatefile("${path.module}/scripts/user_data_envwrap.tpl", {
-    database_user            = var.database_user
-    database_password        = var.database_password
-    database_name            = "appdb"
-    database_host            = ""
-    script                   = file("${path.module}/scripts/user_data_database.sh")
+    database_user               = var.database_user
+    database_password           = var.database_password
+    database_name               = "appdb"
+    database_host               = ""
+    root_domain                 = var.root_domain
+    jwt_secret                  = var.jwt_secret
+    oauth_google_client_id      = var.oauth_google_client_id
+    oauth_google_client_secret  = var.oauth_google_client_secret
+    oauth_github_client_id      = var.oauth_github_client_id
+    oauth_github_client_secret  = var.oauth_github_client_secret
+    oauth_discord_client_id     = var.oauth_discord_client_id
+    oauth_discord_client_secret = var.oauth_discord_client_secret
+    script                      = file("${path.module}/scripts/user_data_database.sh")
   })
 
   root_block_device {
