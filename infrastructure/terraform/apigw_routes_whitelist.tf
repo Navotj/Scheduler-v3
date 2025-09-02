@@ -12,24 +12,6 @@ locals {
 }
 
 # ---------- AUTH (mounted at /auth) ----------
-# POST /auth/register
-resource "aws_apigatewayv2_route" "post_auth_register" {
-  api_id             = local.api_id
-  route_key          = "POST /auth/register"
-  target             = "integrations/${local.int_id}"
-  authorization_type = "CUSTOM"
-  authorizer_id      = local.authz
-}
-
-# POST /auth/login
-resource "aws_apigatewayv2_route" "post_auth_login" {
-  api_id             = local.api_id
-  route_key          = "POST /auth/login"
-  target             = "integrations/${local.int_id}"
-  authorization_type = "CUSTOM"
-  authorizer_id      = local.authz
-}
-
 # GET /auth/check
 resource "aws_apigatewayv2_route" "get_auth_check" {
   api_id             = local.api_id
@@ -48,61 +30,71 @@ resource "aws_apigatewayv2_route" "post_auth_logout" {
   authorizer_id      = local.authz
 }
 
-# GET /auth/verify
-resource "aws_apigatewayv2_route" "get_auth_verify" {
+# POST /auth/username
+resource "aws_apigatewayv2_route" "post_auth_username" {
   api_id             = local.api_id
-  route_key          = "GET /auth/verify"
+  route_key          = "POST /auth/username"
   target             = "integrations/${local.int_id}"
   authorization_type = "CUSTOM"
   authorizer_id      = local.authz
 }
 
-# POST /auth/verify
-resource "aws_apigatewayv2_route" "post_auth_verify" {
+# ---------- OAUTH (mounted at /auth/oauth) ----------
+# GET /auth/oauth/google/start
+resource "aws_apigatewayv2_route" "get_auth_oauth_google_start" {
   api_id             = local.api_id
-  route_key          = "POST /auth/verify"
+  route_key          = "GET /auth/oauth/google/start"
   target             = "integrations/${local.int_id}"
   authorization_type = "CUSTOM"
   authorizer_id      = local.authz
 }
 
-# POST /auth/request-reset
-resource "aws_apigatewayv2_route" "post_auth_request_reset" {
+# GET /auth/oauth/google/callback
+resource "aws_apigatewayv2_route" "get_auth_oauth_google_callback" {
   api_id             = local.api_id
-  route_key          = "POST /auth/request-reset"
+  route_key          = "GET /auth/oauth/google/callback"
   target             = "integrations/${local.int_id}"
   authorization_type = "CUSTOM"
   authorizer_id      = local.authz
 }
 
-# GET /auth/reset
-resource "aws_apigatewayv2_route" "get_auth_reset" {
+# GET /auth/oauth/github/start
+resource "aws_apigatewayv2_route" "get_auth_oauth_github_start" {
   api_id             = local.api_id
-  route_key          = "GET /auth/reset"
+  route_key          = "GET /auth/oauth/github/start"
   target             = "integrations/${local.int_id}"
   authorization_type = "CUSTOM"
   authorizer_id      = local.authz
 }
 
-# POST /auth/reset
-resource "aws_apigatewayv2_route" "post_auth_reset" {
+# GET /auth/oauth/github/callback
+resource "aws_apigatewayv2_route" "get_auth_oauth_github_callback" {
   api_id             = local.api_id
-  route_key          = "POST /auth/reset"
+  route_key          = "GET /auth/oauth/github/callback"
+  target             = "integrations/${local.int_id}"
+  authorization_type = "CUSTOM"
+  authorizer_id      = local.authz
+}
+
+# GET /auth/oauth/discord/start
+resource "aws_apigatewayv2_route" "get_auth_oauth_discord_start" {
+  api_id             = local.api_id
+  route_key          = "GET /auth/oauth/discord/start"
+  target             = "integrations/${local.int_id}"
+  authorization_type = "CUSTOM"
+  authorizer_id      = local.authz
+}
+
+# GET /auth/oauth/discord/callback
+resource "aws_apigatewayv2_route" "get_auth_oauth_discord_callback" {
+  api_id             = local.api_id
+  route_key          = "GET /auth/oauth/discord/callback"
   target             = "integrations/${local.int_id}"
   authorization_type = "CUSTOM"
   authorizer_id      = local.authz
 }
 
 # ---------- AUTH (root-level aliases) ----------
-# POST /login
-resource "aws_apigatewayv2_route" "post_login_root" {
-  api_id             = local.api_id
-  route_key          = "POST /login"
-  target             = "integrations/${local.int_id}"
-  authorization_type = "CUSTOM"
-  authorizer_id      = local.authz
-}
-
 # GET /check
 resource "aws_apigatewayv2_route" "get_check_root" {
   api_id             = local.api_id
