@@ -234,7 +234,7 @@ jobs:
           # Non-secret defaults (only add if missing)
           ensure_env "COOKIE_DOMAIN" ".${ROOT_DOMAIN}"
           ensure_env "COOKIE_SECURE" "true"
-          ensure_env "OAUTH_CALLBACK_ORIGIN" "${FRONTEND_URL}"
+          ensure_env "OAUTH_CALLBACK_ORIGIN" "${API_URL}"
           ensure_env "PUBLIC_FRONTEND_URL" "${FRONTEND_URL}"
           ensure_env "PUBLIC_API_URL" "${API_URL}"
           ensure_random_env "JWT_SECRET"
