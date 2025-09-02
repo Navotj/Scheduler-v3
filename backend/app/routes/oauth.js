@@ -71,7 +71,7 @@ function setSessionCookie(res, token) {
 }
 function cbUrl(provider) {
   const origin = process.env.OAUTH_CALLBACK_ORIGIN || 'https://www.nat20scheduling.com';
-  return `${origin}/api/auth/oauth/${provider}/callback`;
+  return `${origin}/auth/oauth/${provider}/callback`;
 }
 
 const cfg = {
