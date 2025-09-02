@@ -40,13 +40,16 @@ resource "aws_apigatewayv2_route" "post_auth_username" {
 }
 
 # ---------- OAUTH (mounted at /auth/oauth) ----------
+# NOTE: OAuth flows must not be gated by the custom authorizer
+# because providers call the callback without browser Origin headers.
+# Set authorization_type = NONE for all start/callback routes.
+
 # GET /auth/oauth/google/start
 resource "aws_apigatewayv2_route" "get_auth_oauth_google_start" {
   api_id             = local.api_id
   route_key          = "GET /auth/oauth/google/start"
   target             = "integrations/${local.int_id}"
-  authorization_type = "CUSTOM"
-  authorizer_id      = local.authz
+  authorization_type = "NONE"
 }
 
 # GET /auth/oauth/google/callback
@@ -54,8 +57,7 @@ resource "aws_apigatewayv2_route" "get_auth_oauth_google_callback" {
   api_id             = local.api_id
   route_key          = "GET /auth/oauth/google/callback"
   target             = "integrations/${local.int_id}"
-  authorization_type = "CUSTOM"
-  authorizer_id      = local.authz
+  authorization_type = "NONE"
 }
 
 # GET /auth/oauth/github/start
@@ -63,8 +65,7 @@ resource "aws_apigatewayv2_route" "get_auth_oauth_github_start" {
   api_id             = local.api_id
   route_key          = "GET /auth/oauth/github/start"
   target             = "integrations/${local.int_id}"
-  authorization_type = "CUSTOM"
-  authorizer_id      = local.authz
+  authorization_type = "NONE"
 }
 
 # GET /auth/oauth/github/callback
@@ -72,8 +73,7 @@ resource "aws_apigatewayv2_route" "get_auth_oauth_github_callback" {
   api_id             = local.api_id
   route_key          = "GET /auth/oauth/github/callback"
   target             = "integrations/${local.int_id}"
-  authorization_type = "CUSTOM"
-  authorizer_id      = local.authz
+  authorization_type = "NONE"
 }
 
 # GET /auth/oauth/discord/start
@@ -81,8 +81,7 @@ resource "aws_apigatewayv2_route" "get_auth_oauth_discord_start" {
   api_id             = local.api_id
   route_key          = "GET /auth/oauth/discord/start"
   target             = "integrations/${local.int_id}"
-  authorization_type = "CUSTOM"
-  authorizer_id      = local.authz
+  authorization_type = "NONE"
 }
 
 # GET /auth/oauth/discord/callback
@@ -90,8 +89,7 @@ resource "aws_apigatewayv2_route" "get_auth_oauth_discord_callback" {
   api_id             = local.api_id
   route_key          = "GET /auth/oauth/discord/callback"
   target             = "integrations/${local.int_id}"
-  authorization_type = "CUSTOM"
-  authorizer_id      = local.authz
+  authorization_type = "NONE"
 }
 
 # ---------- AUTH (root-level aliases) ----------
