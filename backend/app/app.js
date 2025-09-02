@@ -3,6 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const mongoose = require('mongoose');
 const cookieParser = require('cookie-parser');
+const jwt = require('jsonwebtoken');
 
 
 // replace function (dotenv load + validation)
@@ -71,6 +72,36 @@ app.use((req, res, next) => {
 
 app.use(express.json({ limit: '1mb' }));
 app.use(cookieParser());
+
+// Attach user from JWT cookie (sid/session/jwt/token) or Authorization: Bearer
+app.use((req, _res, next) => {
+  const secret = (process.env.JWT_SECRET || '').trim();
+  const tryVerify = (tok) => {
+    if (!tok || !secret) return null;
+    try {
+      const p = jwt.verify(tok, secret);
+      const uid = p.userId || p.uid || p.sub || p.id || p._id;
+      return uid ? String(uid) : null;
+    } catch { return null; }
+  };
+
+  const cookieTok =
+    (req.cookies && (req.cookies.sid || req.cookies.session || req.cookies.jwt || req.cookies.token)) || null;
+
+  let uid = tryVerify(cookieTok);
+
+  if (!uid) {
+    const ah = req.headers.authorization || '';
+    if (ah.startsWith('Bearer ')) uid = tryVerify(ah.slice(7));
+  }
+
+  if (uid) {
+    req.user = req.user || { _id: uid };
+    if (!req.user._id) req.user._id = uid;
+    req.auth = Object.assign({}, req.auth, { userId: uid });
+  }
+  next();
+});
 
 /* ========= Process-level logging ========= */
 process.on('unhandledRejection', (reason) => {
