@@ -12,12 +12,11 @@ const router = express.Router();
  */
 function getAuthedUserId(req) {
   return (
-    req.user?._id ||
-    req.user?.id ||
-    req.auth?.userId ||
+    (req.user && (req.user._id || req.user.id)) ||
+    (req.auth && req.auth.userId) ||
     req.userId ||
-    req.session?.userId ||
-    res?.locals?.user?._id || // eslint-disable-line no-undef
+    (req.session && req.session.userId) ||
+    (req.cookies && (req.cookies.userId || req.cookies.uid)) ||
     null
   );
 }
