@@ -175,14 +175,21 @@
     for (const td of tds) {
       const epoch = Number(td.dataset.epoch);
       const raw = slotCount(epoch);
+      const isPast = td.classList.contains('past');
 
-      const isEmpty = (n >= 11) ? (raw <= threshold) : (raw === 0);
-      if (isEmpty) {
+      // Preserve "past" greys: never repaint background for past cells.
+      if (isPast) {
         td.style.removeProperty('background-color');
       } else {
-        td.style.setProperty('background-color', shadeForCount(raw), 'important');
+        const isEmpty = (n >= 11) ? (raw <= threshold) : (raw === 0);
+        if (isEmpty) {
+          td.style.removeProperty('background-color');
+        } else {
+          td.style.setProperty('background-color', shadeForCount(raw), 'important');
+        }
       }
 
+      // Keep dataset.c up-to-date for legend/semantics even for past cells.
       if (n >= 11) td.dataset.c = (raw <= threshold) ? '0' : '7';
       else td.dataset.c = raw > 0 ? '7' : '0';
 
