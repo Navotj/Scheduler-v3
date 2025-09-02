@@ -50,10 +50,10 @@ function randStr(bytes = 32) {
 function sanitizeReturnTo(input) {
   try {
     if (!input) return '/';
-    // Only accept same-origin paths. Strip origin if present.
-    const origin = process.env.OAUTH_CALLBACK_ORIGIN || 'https://www.nat20scheduling.com';
-    const u = new URL(input, origin);
-    if (u.origin !== origin) return '/';
+    const frontendOrigin = process.env.PUBLIC_FRONTEND_URL || 'https://www.nat20scheduling.com';
+    const apiOrigin = process.env.OAUTH_CALLBACK_ORIGIN || process.env.PUBLIC_API_URL || 'https://api.nat20scheduling.com';
+    const u = new URL(input, frontendOrigin);
+    if (u.origin !== frontendOrigin && u.origin !== apiOrigin) return '/';
     return u.pathname + (u.search || '') + (u.hash || '');
   } catch {
     return '/';
@@ -62,15 +62,15 @@ function sanitizeReturnTo(input) {
 function setSessionCookie(res, token) {
   res.cookie('token', token, {
     httpOnly: true,
-    sameSite: 'Lax',
-    secure: isSecure(),
+    sameSite: 'None',
+    secure: true,
     path: '/',
     domain: process.env.COOKIE_DOMAIN || '.nat20scheduling.com',
     maxAge: 7 * 24 * 60 * 60 * 1000
   });
 }
 function cbUrl(provider) {
-  const origin = process.env.OAUTH_CALLBACK_ORIGIN || 'https://www.nat20scheduling.com';
+  const origin = process.env.OAUTH_CALLBACK_ORIGIN || 'https://api.nat20scheduling.com';
   return `${origin}/auth/oauth/${provider}/callback`;
 }
 
@@ -289,21 +289,22 @@ router.get('/:provider/callback', async (req, res) => {
       console.log(`[OAUTH][${reqId}] user linked`, { id: String(user._id), provider });
     }
 
-    const jwt = generateToken(user);
-    setSessionCookie(res, jwt);
+    const token = generateToken(user);
+    setSessionCookie(res, token);
 
     clearTempCookies(res);
 
     // If username missing, append flag so frontend opens username modal
     let dest = sanitizeReturnTo(returnTo || '/');
+    const frontOrigin = process.env.PUBLIC_FRONTEND_URL || 'https://www.nat20scheduling.com';
     if (!user.username) {
-      const u = new URL(dest, process.env.OAUTH_CALLBACK_ORIGIN || 'https://www.nat20scheduling.com');
+      const u = new URL(dest, frontOrigin);
       u.searchParams.set('needsUsername', '1');
       dest = u.pathname + u.search + u.hash;
     }
 
     console.log(`[OAUTH][${reqId}] success -> redirect`, { dest, user: String(user._id) });
-    return res.redirect(dest);
+    return res.redirect(frontOrigin + dest);
   } catch (err) {
     console.error(`[OAUTH][${reqId}] callback error`, err);
     try { clearTempCookies(res); } catch (_) {}
