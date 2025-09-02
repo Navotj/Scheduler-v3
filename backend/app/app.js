@@ -164,6 +164,24 @@ mongoose.connection.on('reconnected',() => console.log('[DB] reconnected'));
 mongoose.connection.on('disconnected',() => console.warn('[DB] disconnected'));
 mongoose.connection.on('error',      (err) => console.error('[DB] error:', err));
 
+/* ========= Ensure case-insensitive unique index for users.username ========= */
+mongoose.connection.once('open', async () => {
+  try {
+    const coll = mongoose.connection.db.collection('users');
+    await coll.createIndex(
+      { username: 1 },
+      {
+        unique: true,
+        name: 'uniq_username_ci',
+        collation: { locale: 'en', strength: 2 } // case-insensitive uniqueness
+      }
+    );
+    console.log('[DB] ensured users.username case-insensitive unique index');
+  } catch (e) {
+    console.error('[DB] ensure users.username CI unique index failed:', e && e.message ? e.message : e);
+  }
+});
+
 mongoose.connect(MONGO_URI, {})
 .then(() => console.log('[BOOT] Mongo connection established'))
 .catch((err) => {

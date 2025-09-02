@@ -22,23 +22,33 @@ function getAuthedUserId(req) {
 }
 
 /**
+ * Username-only validation for any friend/block operations.
+ * EMAILS ARE FOR AUTH ONLY. Under no circumstance should they be used here.
+ */
+const USERNAME_RE = /^[a-zA-Z0-9._-]{3,20}$/;
+
+/**
  * Validate an incoming user identifier.
  * Accepts:
  *  - body.userId: ObjectId string
- *  - body.target: email (contains '@') or username (string)
+ *  - body.username or body.target: *username only* (3-20 chars a-z A-Z 0-9 . _ -)
+ *    If a string contains '@' or fails the regex, treat as not found.
  */
 async function resolveTargetUser(body) {
+  const USERNAME_RE = /^[a-zA-Z0-9._-]{3,20}$/;
+
   if (body.userId && mongoose.isValidObjectId(body.userId)) {
     return User.findById(body.userId).exec();
   }
-  if (typeof body.target === 'string' && body.target.trim()) {
-    const q = body.target.trim();
-    if (q.includes('@')) {
-      return User.findOne({ email: q.toLowerCase() }).exec();
-    }
-    return User.findOne({ username: q }).exec();
-  }
-  return null;
+
+  const s = (body.username ?? body.target ?? '').trim();
+  if (!s || s.includes('@') || !USERNAME_RE.test(s)) return null;
+
+  // Case-insensitive exact match (emails are NOT allowed here)
+  // strength:2 = case-insensitive, diacritic-sensitive
+  return User.findOne({ username: s })
+    .collation({ locale: 'en', strength: 2 })
+    .exec();
 }
 
 /**
@@ -72,7 +82,7 @@ function requireAuth(req, res, next) {
 
 /**
  * GET /friends/list
- * List all friends of the authed user.
+ * Return ONLY { id, username } for each friend. Never include email here.
  */
 router.get('/list', requireAuth, async (req, res) => {
   try {
@@ -82,15 +92,15 @@ router.get('/list', requireAuth, async (req, res) => {
       .exec();
 
     const otherIds = frs.map((f) => (f.u1.toString() === myId.toString() ? f.u2 : f.u1));
-    const users = await User.find({ _id: { $in: otherIds } }, { email: 1, username: 1 })
-      .lean()
-      .exec();
+    if (otherIds.length === 0) return res.json({ ok: true, friends: [] });
 
+    const users = await User.find({ _id: { $in: otherIds } }, { username: 1 }).lean().exec();
     const usersMap = new Map(users.map((u) => [u._id.toString(), u]));
+
     const friends = otherIds
       .map((oid) => usersMap.get(oid.toString()))
       .filter(Boolean)
-      .map((u) => ({ id: u._id, email: u.email, username: u.username ?? null }));
+      .map((u) => ({ id: u._id, username: u.username ?? null }));
 
     res.json({ ok: true, friends });
   } catch (err) {
@@ -101,33 +111,30 @@ router.get('/list', requireAuth, async (req, res) => {
 /**
  * GET /friends/requests
  * List incoming and outgoing pending friend requests for authed user.
+ * Only { id, username } are returned. No emails ever.
  */
 router.get('/requests', requireAuth, async (req, res) => {
   try {
     const myId = new mongoose.Types.ObjectId(req.authedUserId);
 
-    // Fetch pending requests
     const [incomingReqs, outgoingReqs] = await Promise.all([
       FriendRequest.find({ to: myId }).lean().exec(),
       FriendRequest.find({ from: myId }).lean().exec(),
     ]);
 
-    // Collect user ids for each side separately
     const incomingIds = incomingReqs.map((r) => r.from);
     const outgoingIds = outgoingReqs.map((r) => r.to);
 
-    // IMPORTANT: Do NOT request email here; only return non-sensitive fields
     const [incomingUsers, outgoingUsers] = await Promise.all([
       User.find({ _id: { $in: incomingIds } }, { username: 1 }).lean().exec(),
       User.find({ _id: { $in: outgoingIds } }, { username: 1 }).lean().exec(),
     ]);
 
-    const inMap  = new Map(incomingUsers.map((u) => [u._id.toString(), u]));
+    const inMap = new Map(incomingUsers.map((u) => [u._id.toString(), u]));
     const outMap = new Map(outgoingUsers.map((u) => [u._id.toString(), u]));
 
     res.json({
       ok: true,
-      // Only id + username; no email
       incoming: incomingReqs
         .map((r) => inMap.get(r.from.toString()))
         .filter(Boolean)
@@ -142,11 +149,11 @@ router.get('/requests', requireAuth, async (req, res) => {
   }
 });
 
-
 /**
  * POST /friends/request
- * Body: { target?: string, userId?: string }
+ * Body: { userId?: string, username?: string, target?: string }
  * Behavior:
+ *  - Username-only (or userId). Any string with '@' is rejected as not found.
  *  - If target has a pending request to me, auto-accept (create friendship & delete pending).
  *  - If already friends -> "user is already in friend list"
  *  - If blocked either way -> "user not found"
@@ -212,32 +219,8 @@ router.post('/request', requireAuth, async (req, res) => {
 });
 
 /**
- * POST /friends/cancel
- * Body: { userId?: string, target?: string }
- * Cancel my outgoing pending request TO that user.
- */
-router.post('/cancel', requireAuth, async (req, res) => {
-  try {
-    const myId = new mongoose.Types.ObjectId(req.authedUserId);
-    const user = await resolveTargetUser(req.body);
-    if (!user) return res.json({ ok: true, message: 'user not found' });
-    if (user._id.toString() === myId.toString()) {
-      return res.json({ ok: true, message: 'cannot cancel yourself' });
-    }
-
-    const out = await FriendRequest.deleteOne({ from: myId, to: user._id }).exec();
-    if (out.deletedCount === 0) {
-      return res.json({ ok: true, message: 'user not found' });
-    }
-    return res.json({ ok: true, message: 'cancelled' });
-  } catch (_err) {
-    return res.status(500).json({ ok: false, error: 'internal' });
-  }
-});
-
-/**
  * POST /friends/accept
- * Body: { userId?: string, target?: string }
+ * Body: { userId?: string, username?: string, target?: string }
  * Accept a pending request FROM that user TO me.
  */
 router.post('/accept', requireAuth, async (req, res) => {
@@ -278,7 +261,7 @@ router.post('/accept', requireAuth, async (req, res) => {
 
 /**
  * POST /friends/decline
- * Body: { userId?: string, target?: string }
+ * Body: { userId?: string, username?: string, target?: string }
  * Decline a pending request FROM that user TO me.
  */
 router.post('/decline', requireAuth, async (req, res) => {
@@ -301,8 +284,32 @@ router.post('/decline', requireAuth, async (req, res) => {
 });
 
 /**
+ * POST /friends/cancel
+ * Body: { userId?: string, username?: string, target?: string }
+ * Cancel my outgoing pending request TO that user.
+ */
+router.post('/cancel', requireAuth, async (req, res) => {
+  try {
+    const myId = new mongoose.Types.ObjectId(req.authedUserId);
+    const user = await resolveTargetUser(req.body);
+    if (!user) return res.json({ ok: true, message: 'user not found' });
+    if (user._id.toString() === myId.toString()) {
+      return res.json({ ok: true, message: 'cannot cancel yourself' });
+    }
+
+    const out = await FriendRequest.deleteOne({ from: myId, to: user._id }).exec();
+    if (out.deletedCount === 0) {
+      return res.json({ ok: true, message: 'user not found' });
+    }
+    return res.json({ ok: true, message: 'cancelled' });
+  } catch (_err) {
+    return res.status(500).json({ ok: false, error: 'internal' });
+  }
+});
+
+/**
  * POST /friends/remove
- * Body: { userId?: string, target?: string }
+ * Body: { userId?: string, username?: string, target?: string }
  * Remove friendship (both sides).
  */
 router.post('/remove', requireAuth, async (req, res) => {
@@ -327,7 +334,7 @@ router.post('/remove', requireAuth, async (req, res) => {
 
 /**
  * POST /friends/block
- * Body: { userId?: string, target?: string }
+ * Body: { userId?: string, username?: string, target?: string }
  * Create a block (me -> user). Also removes friendship and pending requests both ways.
  */
 router.post('/block', requireAuth, async (req, res) => {
@@ -363,7 +370,7 @@ router.post('/block', requireAuth, async (req, res) => {
 
 /**
  * POST /friends/unblock
- * Body: { userId?: string, target?: string }
+ * Body: { userId?: string, username?: string, target?: string }
  * Remove a block (me -> user).
  */
 router.post('/unblock', requireAuth, async (req, res) => {

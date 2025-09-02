@@ -80,21 +80,16 @@
 
   function displayName(u){
     if (!u) return '';
-    if (u.username && u.username.trim()) return u.username;
-    return u.email || '(unknown)';
+    return (u.username && u.username.trim()) ? u.username : '(unknown)';
   }
 
-  // basic input validation: email OR username(2-80, a-z0-9._-)
-  const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  const USERNAME_RE = /^[a-zA-Z0-9._-]{2,80}$/;
+  // username-only validation (3–20 chars; letters, numbers, dot, underscore, dash)
+  const USERNAME_RE = /^[a-zA-Z0-9._-]{3,20}$/;
   function validateTargetInput(value){
     const v = (value || '').trim();
-    if (!v) return { ok:false, msg:'enter a valid email or username' };
-    if (v.includes('@')) {
-      if (!EMAIL_RE.test(v)) return { ok:false, msg:'enter a valid email' };
-      return { ok:true, val:v };
-    }
-    if (!USERNAME_RE.test(v)) return { ok:false, msg:'enter a valid username (2–80 chars: letters, numbers, dot, underscore, dash)' };
+    if (!v) return { ok:false, msg:'enter a username' };
+    if (v.includes('@')) return { ok:false, msg:'emails are not allowed here' };
+    if (!USERNAME_RE.test(v)) return { ok:false, msg:'username must be 3–20 chars (a–z, 0–9, . _ -)' };
     return { ok:true, val:v };
   }
 
@@ -105,24 +100,24 @@
   }
 
   // ====== Renderers ======
-    function renderIncoming(list){
+  function renderIncoming(list){
     incomingList.replaceChildren();
     if (!list || list.length === 0) {
-        incomingList.append(el('li',{class:'muted small'},[text('No incoming requests')]));
-        return;
+      incomingList.append(el('li',{class:'muted small'},[text('No incoming requests')]));
+      return;
     }
     for (const u of list){
-        const li = el('li',{class:'list-item'});
-        const left = el('div',{class:'identity'},[
+      const li = el('li',{class:'list-item'});
+      const left = el('div',{class:'identity'},[
         el('span',{class:'name'},[text(displayName(u))])
-        ]);
-        const accept = el('button',{class:'btn', type:'button', onClick:()=>acceptRequest(u.id)},[text('Accept')]);
-        const decline = el('button',{class:'btn btn-lite', type:'button', onClick:()=>declineRequest(u.id)},[text('Decline')]);
-        const right = el('div',{},[accept, decline]);
-        li.append(left, right);
-        incomingList.append(li);
+      ]);
+      const accept = el('button',{class:'btn', type:'button', onClick:()=>acceptRequest(u.id)},[text('Accept')]);
+      const decline = el('button',{class:'btn btn-lite', type:'button', onClick:()=>declineRequest(u.id)},[text('Decline')]);
+      const right = el('div',{},[accept, decline]);
+      li.append(left, right);
+      incomingList.append(li);
     }
-    }
+  }
 
   function renderOutgoing(list){
     outgoingList.replaceChildren();
@@ -133,8 +128,7 @@
     for (const u of list){
       const li = el('li',{class:'list-item'});
       const left = el('div',{class:'identity'},[
-        el('span',{class:'name'},[text(displayName(u))]),
-        el('span',{class:'meta'},[text(u.email)])
+        el('span',{class:'name'},[text(displayName(u))])
       ]);
       const cancel = el('button',{class:'btn btn-warning', type:'button', onClick:()=>cancelOutgoing(u.id)},[text('Cancel')]);
       const right = el('div',{},[cancel]);
@@ -152,8 +146,7 @@
     for (const u of list){
       const card = el('li',{class:'friend-card'});
       const who = el('div',{class:'identity'},[
-        el('span',{class:'name'},[text(displayName(u))]),
-        el('span',{class:'meta'},[text(u.email)])
+        el('span',{class:'name'},[text(displayName(u))])
       ]);
       const actions = el('div',{class:'friend-actions'},[
         el('button',{class:'btn btn-lite', type:'button', onClick:()=>removeFriend(u.id)},[text('Remove')]),
@@ -212,7 +205,7 @@
 
   // ====== Actions ======
   async function sendRequest(target){
-    const out = await api('/friends/request', { method:'POST', body:{ target } });
+    const out = await api('/friends/request', { method:'POST', body:{ username: target } });
     const msg = normalizeMessage(out);
     showInlineStatus(addStatus, msg);
     await refreshAll();
@@ -254,14 +247,14 @@
   }
 
   async function blockUserTarget(target){
-    const out = await api('/friends/block', { method:'POST', body:{ target } });
+    const out = await api('/friends/block', { method:'POST', body:{ username: target } });
     const msg = normalizeMessage(out);
     showInlineStatus(blockStatus, msg);
     await refreshAll();
   }
 
   async function unblockUserTarget(target){
-    const out = await api('/friends/unblock', { method:'POST', body:{ target } });
+    const out = await api('/friends/unblock', { method:'POST', body:{ username: target } });
     const msg = normalizeMessage(out);
     showInlineStatus(unblockStatus, msg);
     await refreshAll();

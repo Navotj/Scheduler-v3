@@ -17,8 +17,8 @@
               <div class="panel">
                 <h1 class="panel-title">Add a Friend</h1>
                 <form id="add-form" class="row" autocomplete="off">
-                  <label for="add-target" class="label">Email or username</label>
-                  <input id="add-target" name="target" type="text" required placeholder="e.g. alice@example.com or alice" />
+                  <label for="add-target" class="label">Username</label>
+                  <input id="add-target" name="username" type="text" required placeholder="Username" />
                   <button id="add-send" type="submit" class="btn">Send request</button>
                   <output id="add-status" class="status" role="status" aria-live="polite"></output>
                 </form>
@@ -48,8 +48,8 @@
                 <div class="panel">
                   <h2 class="panel-title">Block a user</h2>
                   <form id="block-form" class="row" autocomplete="off">
-                    <label for="block-target" class="label">Email or username</label>
-                    <input id="block-target" name="target" type="text" required placeholder="e.g. troll@example.com or troll" />
+                    <label for="block-target" class="label">Username</label>
+                    <input id="block-target" name="username" type="text" required placeholder="Username" />
                     <button id="block-send" type="submit" class="btn btn-danger">Block</button>
                     <output id="block-status" class="status" role="status" aria-live="polite"></output>
                   </form>
@@ -58,8 +58,8 @@
                 <div class="panel">
                   <h2 class="panel-title">Unblock a user</h2>
                   <form id="unblock-form" class="row" autocomplete="off">
-                    <label for="unblock-target" class="label">Email or username</label>
-                    <input id="unblock-target" name="target" type="text" required placeholder="e.g. troll@example.com or troll" />
+                    <label for="unblock-target" class="label">Username</label>
+                    <input id="unblock-target" name="username" type="text" required placeholder="Username" />
                     <button id="unblock-send" type="submit" class="btn btn-warning">Unblock</button>
                     <output id="unblock-status" class="status" role="status" aria-live="polite"></output>
                   </form>
