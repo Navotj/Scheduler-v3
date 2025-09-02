@@ -4,15 +4,9 @@
   // =========================
   // Helpers
   // =========================
+  const API = (window.API_BASE_URL || '/api').replace(/\/$/, '');
+  const CHECK_ENDPOINT = `${API}/auth/check`;
 
-  // Abort-based timeout (used only for POST /auth/login)
-  function withAbort(ms) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), ms);
-    return { controller, timer };
-  }
-
-  // Promise timeout that does NOT abort the request (prevents "(canceled)")
   function withTimeoutPromise(promise, ms) {
     return new Promise((resolve, reject) => {
       const t = setTimeout(() => reject(new Error('timeout')), ms);
@@ -31,8 +25,6 @@
 
   // =========================
   // Global fetch de-duplication (auth/settings)
-  // - Prevents races & "(canceled)" from concurrent checks.
-  // - No AbortSignals are honored for these endpoints.
   // =========================
   if (!window.__dedupeFetchInstalled) {
     const origFetch = window.fetch.bind(window);
@@ -41,14 +33,14 @@
     function canonicalKey(url) {
       const u = new URL(url, window.location.origin);
       const p = u.pathname;
-      if (p === '/auth/check' || p === '/check') return `${u.origin}/__authcheck__`;
-      if (p === '/settings') return `${u.origin}/__settings__${u.search}`;
+      if (p.endsWith('/auth/check')) return `${u.origin}/__authcheck__`;
+      if (p.endsWith('/settings')) return `${u.origin}/__settings__${u.search}`;
       return u.toString();
     }
 
     function shouldDedupe(url) {
       const p = new URL(url, window.location.origin).pathname;
-      return p === '/auth/check' || p === '/check' || p === '/settings';
+      return p.endsWith('/auth/check') || p.endsWith('/settings');
     }
 
     window.__dedupeFetchInstalled = true;
@@ -83,17 +75,13 @@
 
     // Helper to force next /auth/check to hit origin (used after login)
     window.__bustAuthCheckOnce = function () {
-      inflight.delete(`${window.location.origin}/__authcheck__`);
+      (window.__dedupeInflight || new Map()).delete(`${window.location.origin}/__authcheck__`);
     };
   }
 
   // =========================
   // Initial page-load auth check (single-flight, deterministic)
-  // Always use /auth/check to remove ambiguity.
   // =========================
-
-  const CHECK_ENDPOINT = '/auth/check';
-
   async function doAuthCheckOnce() {
     const res = await withTimeoutPromise(
       fetch(CHECK_ENDPOINT, { credentials: 'include', cache: 'no-store' }),
@@ -119,12 +107,11 @@
           window.auth.user = name;
           setAuthStateSafe(true, name);
         } else {
-          window.auth.state = 'anonymous';
+          window.auth.state = 'authenticated'; // session may exist but username not set yet
           window.auth.user = null;
-          setAuthStateSafe(false, null);
+          setAuthStateSafe(true, null);
         }
       } catch {
-        // Deterministic fallback: treat as anonymous without canceling requests
         window.auth.state = 'anonymous';
         window.auth.user = null;
         setAuthStateSafe(false, null);
@@ -145,85 +132,37 @@
   }
 
   // =========================
-  // Login form handler
+  // OAuth helpers
   // =========================
-  window.initLoginForm = function () {
-    const form = document.getElementById('login-form');
-    const errorDisplay = document.getElementById('error');
-    if (!form) return;
-
-    let pending = false;
-
-    form.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      if (pending) return;
-
-      const username = (document.getElementById('username').value || '').trim();
-      const password = document.getElementById('password').value || '';
-
-      const submitBtn = form.querySelector('button[type="submit"]');
-      pending = true;
-      if (submitBtn) submitBtn.disabled = true;
-      errorDisplay.style.color = '#f55';
-      errorDisplay.textContent = '';
-
-      try {
-        // 1) Login (20s hard cap with abort)
-        {
-          const { controller, timer } = withAbort(20000);
-          const res = await fetch(`${window.API_BASE_URL}/auth/login`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            cache: 'no-store',
-            signal: controller.signal,
-            body: JSON.stringify({ username, password })
-          });
-          clearTimeout(timer);
-
-          if (!res.ok) {
-            let message = 'Login failed';
-            try {
-              const data = await res.json();
-              if (data && data.error) message = data.error;
-            } catch {}
-            throw new Error(message);
-          }
-        }
-
-        // 2) Verify session deterministically via /auth/check (no abort)
-        let verifiedUsername = '';
-        {
-          // Ensure next check isn't served from a shared in-flight promise
-          if (typeof window.__bustAuthCheckOnce === 'function') window.__bustAuthCheckOnce();
-
-          const res = await withTimeoutPromise(
-            fetch(`${CHECK_ENDPOINT}?t=${Date.now()}`, { credentials: 'include', cache: 'no-store' }),
-            10000
-          );
-
-          if (!res.ok) throw new Error('Login failed (no session)');
-          const data = await res.json().catch(() => ({}));
-          verifiedUsername =
-            (data && data.user && data.user.username) ||
-            data.username || '';
-          if (!verifiedUsername) throw new Error('Login failed (invalid session)');
-        }
-
-        // 3) Success UI
-        errorDisplay.style.color = '#0f0';
-        errorDisplay.textContent = '✅ Sign-in successful';
-        setTimeout(() => {
-          if (window.closeModal) window.closeModal();
-          setAuthStateSafe(true, verifiedUsername);
-        }, 300);
-      } catch (err) {
-        errorDisplay.textContent =
-          err && err.message ? err.message : 'Connection error';
-      } finally {
-        pending = false;
-        if (submitBtn) submitBtn.disabled = false;
-      }
-    });
+  window.oauthStart = function oauthStart(provider) {
+    const p = String(provider || '').toLowerCase();
+    const returnTo = window.location.href;
+    window.location.href = `${API}/auth/oauth/${encodeURIComponent(p)}/start?returnTo=${encodeURIComponent(returnTo)}`;
   };
+
+  // After OAuth callback, backend may append ?needsUsername=1 to the return URL.
+  function needsUsernameFromURL() {
+    try {
+      const u = new URL(window.location.href);
+      return u.searchParams.get('needsUsername') === '1';
+    } catch {
+      return false;
+    }
+  }
+
+  async function maybePromptUsername() {
+    // wait for auth state
+    await window.ensureAuthReady();
+    const need = needsUsernameFromURL() || (window.auth && window.auth.state === 'authenticated' && !window.auth.user);
+    if (!need) return;
+    if (typeof window.openUsernameModal === 'function') {
+      window.openUsernameModal();
+    }
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => void maybePromptUsername(), { once: true });
+  } else {
+    void maybePromptUsername();
+  }
 })();
