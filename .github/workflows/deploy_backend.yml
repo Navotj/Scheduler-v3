@@ -27,8 +27,15 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     env:
-      AWS_ACCESS_KEY_ID:     ${{ secrets.AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_ACCESS_KEY_ID:                 ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY:             ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      # --- OAuth provider secrets (set these in GitHub Secrets) ---
+      OAUTH_GOOGLE_CLIENT_ID:           ${{ secrets.OAUTH_GOOGLE_CLIENT_ID }}
+      OAUTH_GOOGLE_CLIENT_SECRET:       ${{ secrets.OAUTH_GOOGLE_CLIENT_SECRET }}
+      OAUTH_GITHUB_CLIENT_ID:           ${{ secrets.OAUTH_GITHUB_CLIENT_ID }}
+      OAUTH_GITHUB_CLIENT_SECRET:       ${{ secrets.OAUTH_GITHUB_CLIENT_SECRET }}
+      OAUTH_DISCORD_CLIENT_ID:          ${{ secrets.OAUTH_DISCORD_CLIENT_ID }}
+      OAUTH_DISCORD_CLIENT_SECRET:      ${{ secrets.OAUTH_DISCORD_CLIENT_SECRET }}
 
     steps:
       - name: checkout
@@ -178,13 +185,24 @@ jobs:
           curl -fsSL https://rpm.nodesource.com/setup_22.x | bash -
           dnf install -y -q nodejs
 
-          # === ensure required env keys exist in /opt/app/.env (append-only, don't overwrite existing) ===
+          # === ensure required env keys exist in /opt/app/.env (append-only) ===
           ENV_FILE="${WORKDIR}/.env"
           touch "${ENV_FILE}"
           chmod 0600 "${ENV_FILE}"
 
           ensure_env() {
             local k="$1" v="$2"
+            if grep -q -E "^${k}=" "${ENV_FILE}"; then
+              return 0
+            fi
+            printf '%s=%s\n' "${k}" "${v}" >> "${ENV_FILE}"
+          }
+
+          ensure_env_if_set() {
+            local k="$1" v="${2:-}"
+            if [[ -z "${v}" ]]; then
+              return 0
+            fi
             if grep -q -E "^${k}=" "${ENV_FILE}"; then
               return 0
             fi
@@ -201,16 +219,24 @@ jobs:
             printf '%s=%s\n' "${k}" "${v}" >> "${ENV_FILE}"
           }
 
-          # OAuth-only defaults (safe, non-secret). Do NOT write provider secrets here.
           FRONTEND_URL="https://www.${ROOT_DOMAIN}"
           API_URL="https://api.${ROOT_DOMAIN}"
 
+          # Non-secret defaults
           ensure_env "COOKIE_DOMAIN" ".${ROOT_DOMAIN}"
           ensure_env "COOKIE_SECURE" "true"
           ensure_env "OAUTH_CALLBACK_ORIGIN" "${FRONTEND_URL}"
           ensure_env "PUBLIC_FRONTEND_URL" "${FRONTEND_URL}"
           ensure_env "PUBLIC_API_URL" "${API_URL}"
           ensure_random_env "JWT_SECRET"
+
+          # Provider creds (only write if provided by CI)
+          ensure_env_if_set "OAUTH_GOOGLE_CLIENT_ID"      "${OAUTH_GOOGLE_CLIENT_ID}"
+          ensure_env_if_set "OAUTH_GOOGLE_CLIENT_SECRET"  "${OAUTH_GOOGLE_CLIENT_SECRET}"
+          ensure_env_if_set "OAUTH_GITHUB_CLIENT_ID"      "${OAUTH_GITHUB_CLIENT_ID}"
+          ensure_env_if_set "OAUTH_GITHUB_CLIENT_SECRET"  "${OAUTH_GITHUB_CLIENT_SECRET}"
+          ensure_env_if_set "OAUTH_DISCORD_CLIENT_ID"     "${OAUTH_DISCORD_CLIENT_ID}"
+          ensure_env_if_set "OAUTH_DISCORD_CLIENT_SECRET" "${OAUTH_DISCORD_CLIENT_SECRET}"
 
           # install production deps (works even if lockfile is missing)
           cd "${WORKDIR}"
@@ -244,7 +270,7 @@ jobs:
               "set -euo pipefail",
               "echo ${B64} | base64 -d > /tmp/deploy.sh",
               "chmod +x /tmp/deploy.sh",
-              "ARTIFACT_BUCKET=${ARTIFACT_BUCKET} OBJECT_KEY=${OBJECT_KEY} AWS_REGION=${AWS_REGION} ROOT_DOMAIN=${ROOT_DOMAIN} bash /tmp/deploy.sh"
+              "ARTIFACT_BUCKET=${ARTIFACT_BUCKET} OBJECT_KEY=${OBJECT_KEY} AWS_REGION=${AWS_REGION} ROOT_DOMAIN=${ROOT_DOMAIN} OAUTH_GOOGLE_CLIENT_ID=${OAUTH_GOOGLE_CLIENT_ID} OAUTH_GOOGLE_CLIENT_SECRET=${OAUTH_GOOGLE_CLIENT_SECRET} OAUTH_GITHUB_CLIENT_ID=${OAUTH_GITHUB_CLIENT_ID} OAUTH_GITHUB_CLIENT_SECRET=${OAUTH_GITHUB_CLIENT_SECRET} OAUTH_DISCORD_CLIENT_ID=${OAUTH_DISCORD_CLIENT_ID} OAUTH_DISCORD_CLIENT_SECRET=${OAUTH_DISCORD_CLIENT_SECRET} bash /tmp/deploy.sh"
             ],
             "executionTimeout": ["600"],
             "workingDirectory": ["/"]
