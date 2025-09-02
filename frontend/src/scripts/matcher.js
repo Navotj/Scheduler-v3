@@ -817,8 +817,15 @@
           hour12 = settings.clock === '12';
           weekStartIdx = settings.weekStart === 'mon' ? 1 : 0;
           heatmapName = settings.heatmap || 'viridis';
-          if (tz !== prevTz) { buildTable(); fetchMembersAvail(); }
-          else { paintCounts(); updateLegend(); }
+          if (tz !== prevTz) {
+            buildTable();
+            fetchMembersAvail();
+          } else {
+            paintCounts();
+            shadePast();
+            applyFilterDimming();
+            updateLegend();
+          }
         }
       }
     });
