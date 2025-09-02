@@ -85,7 +85,9 @@ router.post('/username', async (req, res) => {
 
     const user = await userModel.findById(decoded.id);
     if (!user) return res.status(401).json({ error: 'invalid session' });
-    if (user.username) {
+
+    const isEmailAsUsername = !!(user.username && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(user.username));
+    if (user.username && !isEmailAsUsername) {
       return res.status(409).json({ error: 'username_already_set' });
     }
 
