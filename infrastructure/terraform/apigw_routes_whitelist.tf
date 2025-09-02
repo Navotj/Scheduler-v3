@@ -258,3 +258,76 @@ resource "aws_apigatewayv2_route" "delete_templates_root" {
   authorization_type = "CUSTOM"
   authorizer_id      = local.authz
 }
+
+# ---------- FRIENDS (mounted at /friends) ----------
+# GET /friends/list
+resource "aws_apigatewayv2_route" "get_friends_list" {
+  api_id             = local.api_id
+  route_key          = "GET /friends/list"
+  target             = "integrations/${local.int_id}"
+  authorization_type = "CUSTOM"
+  authorizer_id      = local.authz
+}
+
+# GET /friends/requests
+resource "aws_apigatewayv2_route" "get_friends_requests" {
+  api_id             = local.api_id
+  route_key          = "GET /friends/requests"
+  target             = "integrations/${local.int_id}"
+  authorization_type = "CUSTOM"
+  authorizer_id      = local.authz
+}
+
+# POST /friends/request
+resource "aws_apigatewayv2_route" "post_friends_request" {
+  api_id             = local.api_id
+  route_key          = "POST /friends/request"
+  target             = "integrations/${local.int_id}"
+  authorization_type = "CUSTOM"
+  authorizer_id      = local.authz
+}
+
+# POST /friends/accept
+resource "aws_apigatewayv2_route" "post_friends_accept" {
+  api_id             = local.api_id
+  route_key          = "POST /friends/accept"
+  target             = "integrations/${local.int_id}"
+  authorization_type = "CUSTOM"
+  authorizer_id      = local.authz
+}
+
+# POST /friends/decline
+resource "aws_apigatewayv2_route" "post_friends_decline" {
+  api_id             = local.api_id
+  route_key          = "POST /friends/decline"
+  target             = "integrations/${local.int_id}"
+  authorization_type = "CUSTOM"
+  authorizer_id      = local.authz
+}
+
+# POST /friends/remove
+resource "aws_apigatewayv2_route" "post_friends_remove" {
+  api_id             = local.api_id
+  route_key          = "POST /friends/remove"
+  target             = "integrations/${local.int_id}"
+  authorization_type = "CUSTOM"
+  authorizer_id      = local.authz
+}
+
+# POST /friends/block
+resource "aws_apigatewayv2_route" "post_friends_block" {
+  api_id             = local.api_id
+  route_key          = "POST /friends/block"
+  target             = "integrations/${local.int_id}"
+  authorization_type = "CUSTOM"
+  authorizer_id      = local.authz
+}
+
+# POST /friends/unblock
+resource "aws_apigatewayv2_route" "post_friends_unblock" {
+  api_id             = local.api_id
+  route_key          = "POST /friends/unblock"
+  target             = "integrations/${local.int_id}"
+  authorization_type = "CUSTOM"
+  authorizer_id      = local.authz
+}
