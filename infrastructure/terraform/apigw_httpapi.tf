@@ -1,136 +1,61 @@
 ########################################
-# API allowlist (explicit routes only)
-# Routes derived strictly from provided code.
-# No proxy-wide catch-alls are defined.
+# API Gateway HTTP API + VPC Link -> NLB
 ########################################
 
-# ---------- AUTH ----------
-# POST /register
-resource "aws_apigatewayv2_route" "post_register" {
-  api_id             = aws_apigatewayv2_api.backend_api.id
-  route_key          = "POST /register"
-  target             = "integrations/${aws_apigatewayv2_integration.backend_integration.id}"
-  authorization_type = "CUSTOM"
-  authorizer_id      = aws_apigatewayv2_authorizer.origin_verify.id
+resource "aws_apigatewayv2_api" "backend_api" {
+  name          = "${var.app_prefix}-httpapi"
+  protocol_type = "HTTP"
+
+  # Prevent use of the default execute-api endpoint; callers must use your custom domain (or CloudFront).
+  disable_execute_api_endpoint = true
+
+  cors_configuration {
+    allow_credentials = true
+    allow_headers     = ["Content-Type", "X-Requested-With", "Authorization", "Cookie"]
+    allow_methods     = ["GET", "HEAD", "OPTIONS", "POST", "PUT", "PATCH", "DELETE"]
+    allow_origins     = ["https://${local.frontend_hostname}", "https://www.${var.root_domain}"]
+    max_age           = 600
+  }
 }
 
-# POST /login
-resource "aws_apigatewayv2_route" "post_login" {
-  api_id             = aws_apigatewayv2_api.backend_api.id
-  route_key          = "POST /login"
-  target             = "integrations/${aws_apigatewayv2_integration.backend_integration.id}"
-  authorization_type = "CUSTOM"
-  authorizer_id      = aws_apigatewayv2_authorizer.origin_verify.id
+resource "aws_apigatewayv2_vpc_link" "backend_link" {
+  name               = "${var.app_prefix}-vpc-link"
+  subnet_ids         = [aws_subnet.private_a.id]
+  security_group_ids = [aws_security_group.apigw_vpc_link.id]
+  tags               = { Name = "${var.app_prefix}-vpc-link" }
 }
 
-# GET /check
-resource "aws_apigatewayv2_route" "get_check" {
-  api_id             = aws_apigatewayv2_api.backend_api.id
-  route_key          = "GET /check"
-  target             = "integrations/${aws_apigatewayv2_integration.backend_integration.id}"
-  authorization_type = "CUSTOM"
-  authorizer_id      = aws_apigatewayv2_authorizer.origin_verify.id
+resource "aws_apigatewayv2_integration" "backend_integration" {
+  api_id                 = aws_apigatewayv2_api.backend_api.id
+  integration_type       = "HTTP_PROXY"
+  integration_method     = "ANY"
+  connection_type        = "VPC_LINK"
+  connection_id          = aws_apigatewayv2_vpc_link.backend_link.id
+  integration_uri        = aws_lb_listener.backend_nlb_3000.arn
+  payload_format_version = "1.0"
+  timeout_milliseconds   = 29000
 }
 
-# POST /logout
-resource "aws_apigatewayv2_route" "post_logout" {
-  api_id             = aws_apigatewayv2_api.backend_api.id
-  route_key          = "POST /logout"
-  target             = "integrations/${aws_apigatewayv2_integration.backend_integration.id}"
-  authorization_type = "CUSTOM"
-  authorizer_id      = aws_apigatewayv2_authorizer.origin_verify.id
+# No $default catch-all route here. Only explicit routes are defined in apigw_routes_whitelist.tf.
+
+resource "aws_cloudwatch_log_group" "apigw_logs" {
+  name              = "/aws/apigw/${var.app_prefix}-httpapi"
+  retention_in_days = 14
 }
 
-# ---------- AVAILABILITY ----------
-# GET /get
-resource "aws_apigatewayv2_route" "get_get" {
-  api_id             = aws_apigatewayv2_api.backend_api.id
-  route_key          = "GET /get"
-  target             = "integrations/${aws_apigatewayv2_integration.backend_integration.id}"
-  authorization_type = "CUSTOM"
-  authorizer_id      = aws_apigatewayv2_authorizer.origin_verify.id
-}
+resource "aws_apigatewayv2_stage" "prod" {
+  api_id      = aws_apigatewayv2_api.backend_api.id
+  name        = "prod"
+  auto_deploy = true
 
-# POST /save
-resource "aws_apigatewayv2_route" "post_save" {
-  api_id             = aws_apigatewayv2_api.backend_api.id
-  route_key          = "POST /save"
-  target             = "integrations/${aws_apigatewayv2_integration.backend_integration.id}"
-  authorization_type = "CUSTOM"
-  authorizer_id      = aws_apigatewayv2_authorizer.origin_verify.id
-}
-
-# POST /get_many
-resource "aws_apigatewayv2_route" "post_get_many" {
-  api_id             = aws_apigatewayv2_api.backend_api.id
-  route_key          = "POST /get_many"
-  target             = "integrations/${aws_apigatewayv2_integration.backend_integration.id}"
-  authorization_type = "CUSTOM"
-  authorizer_id      = aws_apigatewayv2_authorizer.origin_verify.id
-}
-
-# ---------- USER SETTINGS ----------
-# GET /settings
-resource "aws_apigatewayv2_route" "get_settings" {
-  api_id             = aws_apigatewayv2_api.backend_api.id
-  route_key          = "GET /settings"
-  target             = "integrations/${aws_apigatewayv2_integration.backend_integration.id}"
-  authorization_type = "CUSTOM"
-  authorizer_id      = aws_apigatewayv2_authorizer.origin_verify.id
-}
-
-# POST /settings
-resource "aws_apigatewayv2_route" "post_settings" {
-  api_id             = aws_apigatewayv2_api.backend_api.id
-  route_key          = "POST /settings"
-  target             = "integrations/${aws_apigatewayv2_integration.backend_integration.id}"
-  authorization_type = "CUSTOM"
-  authorizer_id      = aws_apigatewayv2_authorizer.origin_verify.id
-}
-
-# ---------- USERS ----------
-# GET /exists
-resource "aws_apigatewayv2_route" "get_exists" {
-  api_id             = aws_apigatewayv2_api.backend_api.id
-  route_key          = "GET /exists"
-  target             = "integrations/${aws_apigatewayv2_integration.backend_integration.id}"
-  authorization_type = "CUSTOM"
-  authorizer_id      = aws_apigatewayv2_authorizer.origin_verify.id
-}
-
-# ---------- TEMPLATES ----------
-# GET /templates/list
-resource "aws_apigatewayv2_route" "get_templates_list" {
-  api_id             = aws_apigatewayv2_api.backend_api.id
-  route_key          = "GET /templates/list"
-  target             = "integrations/${aws_apigatewayv2_integration.backend_integration.id}"
-  authorization_type = "CUSTOM"
-  authorizer_id      = aws_apigatewayv2_authorizer.origin_verify.id
-}
-
-# GET /templates/get
-resource "aws_apigatewayv2_route" "get_templates_get" {
-  api_id             = aws_apigatewayv2_api.backend_api.id
-  route_key          = "GET /templates/get"
-  target             = "integrations/${aws_apigatewayv2_integration.backend_integration.id}"
-  authorization_type = "CUSTOM"
-  authorizer_id      = aws_apigatewayv2_authorizer.origin_verify.id
-}
-
-# POST /templates/save
-resource "aws_apigatewayv2_route" "post_templates_save" {
-  api_id             = aws_apigatewayv2_api.backend_api.id
-  route_key          = "POST /templates/save"
-  target             = "integrations/${aws_apigatewayv2_integration.backend_integration.id}"
-  authorization_type = "CUSTOM"
-  authorizer_id      = aws_apigatewayv2_authorizer.origin_verify.id
-}
-
-# POST /templates/delete
-resource "aws_apigatewayv2_route" "post_templates_delete" {
-  api_id             = aws_apigatewayv2_api.backend_api.id
-  route_key          = "POST /templates/delete"
-  target             = "integrations/${aws_apigatewayv2_integration.backend_integration.id}"
-  authorization_type = "CUSTOM"
-  authorizer_id      = aws_apigatewayv2_authorizer.origin_verify.id
+  access_log_settings {
+    destination_arn = aws_cloudwatch_log_group.apigw_logs.arn
+    format          = jsonencode({
+      requestId  = "$context.requestId",
+      httpMethod = "$context.httpMethod",
+      path       = "$context.path",
+      status     = "$context.status",
+      ip         = "$context.identity.sourceIp"
+    })
+  }
 }
