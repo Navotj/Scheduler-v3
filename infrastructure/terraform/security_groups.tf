@@ -44,19 +44,19 @@ resource "aws_security_group" "backend_egress" {
   }
 
   egress {
-    description = "DNS UDP outbound"
+    description = "DNS UDP outbound to VPC resolver"
     from_port   = 53
     to_port     = 53
     protocol    = "udp"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = [aws_vpc.main.cidr_block]
   }
 
   egress {
-    description = "DNS TCP outbound"
+    description = "DNS TCP outbound to VPC resolver"
     from_port   = 53
     to_port     = 53
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = [aws_vpc.main.cidr_block]
   }
 
   ingress = []
@@ -90,19 +90,19 @@ resource "aws_security_group" "database_egress" {
   }
 
   egress {
-    description = "DNS UDP outbound"
+    description = "DNS UDP outbound to VPC resolver"
     from_port   = 53
     to_port     = 53
     protocol    = "udp"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = [aws_vpc.main.cidr_block]
   }
 
   egress {
-    description = "DNS TCP outbound"
+    description = "DNS TCP outbound to VPC resolver"
     from_port   = 53
     to_port     = 53
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = [aws_vpc.main.cidr_block]
   }
 
   ingress = []
