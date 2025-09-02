@@ -167,7 +167,6 @@ router.get('/:provider/callback', async (req, res) => {
     let email = null;
     let emailVerified = false;
     let providerId = null;
-    let displayName = null;
     let avatarUrl = null;
 
     // Exchange code -> token
@@ -195,7 +194,6 @@ router.get('/:provider/callback', async (req, res) => {
       email = ui.email || null;
       emailVerified = ui.email_verified === true;
       providerId = ui.sub ? String(ui.sub) : null;
-      displayName = ui.name || null;
       avatarUrl = ui.picture || null;
       if (!email || !emailVerified) return res.status(403).send('email_required');
     }
@@ -224,7 +222,6 @@ router.get('/:provider/callback', async (req, res) => {
       email = primary && primary.email ? String(primary.email) : null;
       emailVerified = !!(primary && primary.verified);
       providerId = profile && profile.id ? String(profile.id) : null;
-      displayName = (profile && (profile.name || profile.login)) || null;
       avatarUrl = (profile && profile.avatar_url) || null;
       if (!email || !emailVerified) return res.status(403).send('email_required');
     }
@@ -255,20 +252,18 @@ router.get('/:provider/callback', async (req, res) => {
       email = ui && ui.email ? String(ui.email) : null;
       const verified = ui && (ui.verified === true);
       emailVerified = !!verified;
-      displayName = (ui && (ui.global_name || ui.username)) || null;
       if (ui && ui.avatar) {
         avatarUrl = `https://cdn.discordapp.com/avatars/${ui.id}/${ui.avatar}.png`;
       }
       if (!email || !emailVerified) return res.status(403).send('email_required');
     }
 
-    // Upsert user + lastLoggedAt
+    // Upsert user
     let user = await userModel.findOne({ email });
     if (!user) {
       user = await userModel.create({
         email,
         emailVerifiedAt: emailVerified ? new Date() : null,
-        displayName: displayName || null,
         avatarUrl: avatarUrl || null,
         providers: [{ name: provider, id: providerId }],
         lastLoggedAt: new Date()
@@ -280,7 +275,6 @@ router.get('/:provider/callback', async (req, res) => {
         {
           $set: {
             emailVerifiedAt: user.emailVerifiedAt || (emailVerified ? new Date() : null),
-            displayName: user.displayName || (displayName || null),
             avatarUrl: user.avatarUrl || (avatarUrl || null),
             lastLoggedAt: new Date()
           },

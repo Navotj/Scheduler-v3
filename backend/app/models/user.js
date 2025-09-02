@@ -21,8 +21,8 @@ const userSchema = new mongoose.Schema({
   username: {
     type: String,
     trim: true,
-    minlength: 1,
-    maxlength: 80,
+    minlength: 3,
+    maxlength: 24,
     default: null
   },
   providers: {
@@ -31,10 +31,6 @@ const userSchema = new mongoose.Schema({
   },
   emailVerifiedAt: {
     type: Date,
-    default: null
-  },
-  displayName: {
-    type: String,
     default: null
   },
   avatarUrl: {
