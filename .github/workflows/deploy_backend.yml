@@ -18,7 +18,6 @@ permissions:
 env:
   APP_PREFIX: ${{ vars.APP_PREFIX }}
   AWS_REGION: ${{ vars.AWS_REGION }}
-  ROOT_DOMAIN: ${{ vars.ROOT_DOMAIN }}
   BACKEND_SSM_TARGET_KEY:   tag:Name
   BACKEND_SSM_TARGET_VALUE: ${{ vars.APP_PREFIX }}-backend
 
@@ -26,20 +25,8 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     env:
-      AWS_ACCESS_KEY_ID:                 ${{ secrets.AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY:             ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-
-      # REQUIRED: force on every deploy
-      MONGO_URI:                         ${{ secrets.MONGO_URI }}
-      JWT_SECRET:                        ${{ secrets.JWT_SECRET }}
-
-      # OAuth provider creds
-      OAUTH_GOOGLE_CLIENT_ID:            ${{ secrets.OAUTH_GOOGLE_CLIENT_ID }}
-      OAUTH_GOOGLE_CLIENT_SECRET:        ${{ secrets.OAUTH_GOOGLE_CLIENT_SECRET }}
-      OAUTH_GITHUB_CLIENT_ID:            ${{ secrets.OAUTH_GITHUB_CLIENT_ID }}
-      OAUTH_GITHUB_CLIENT_SECRET:        ${{ secrets.OAUTH_GITHUB_CLIENT_SECRET }}
-      OAUTH_DISCORD_CLIENT_ID:           ${{ secrets.OAUTH_DISCORD_CLIENT_ID }}
-      OAUTH_DISCORD_CLIENT_SECRET:       ${{ secrets.OAUTH_DISCORD_CLIENT_SECRET }}
+      AWS_ACCESS_KEY_ID:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 
     steps:
       - name: checkout
@@ -71,9 +58,6 @@ jobs:
           set -euo pipefail
           [[ -n "${APP_PREFIX}" ]] || { echo "APP_PREFIX is empty"; exit 1; }
           [[ -n "${AWS_REGION}"  ]] || { echo "AWS_REGION is empty";  exit 1; }
-          [[ -n "${ROOT_DOMAIN}" ]] || { echo "ROOT_DOMAIN is empty"; exit 1; }
-          [[ -n "${MONGO_URI}"   ]] || { echo "MONGO_URI is empty";   exit 1; }
-          [[ -n "${JWT_SECRET}"  ]] || { echo "JWT_SECRET is empty";  exit 1; }
           [[ -d "backend/app" ]] || { echo "missing: backend/app"; exit 1; }
           [[ -f "backend/scheduler.service" ]] || { echo "missing: backend/scheduler.service"; exit 1; }
 
@@ -157,9 +141,6 @@ jobs:
           : "${ARTIFACT_BUCKET:?missing}"
           : "${OBJECT_KEY:?missing}"
           : "${AWS_REGION:?missing}"
-          : "${ROOT_DOMAIN:?missing}"
-          : "${MONGO_URI:?missing}"
-          : "${JWT_SECRET:?missing}"
           ARTIFACT_S3="s3://${ARTIFACT_BUCKET}/${OBJECT_KEY}"
           WORKDIR="/opt/app"
           TMP_TGZ="/tmp/backend_release.tgz"
@@ -171,41 +152,13 @@ jobs:
           rm -rf /tmp/app "${UNIT_SRC}" || true
           tar -xzf "${TMP_TGZ}" -C /tmp
 
-          # wipe everything except .env (we overwrite .env below)
+          # preserve existing .env (managed by user_data), update code only
           find "${WORKDIR}" -mindepth 1 -maxdepth 1 -not -name '.env' -exec rm -rf -- {} +
 
           shopt -s dotglob
           cp -a /tmp/app/* "${WORKDIR}/" || true
           shopt -u dotglob
           chown -R ec2-user:ec2-user "${WORKDIR}" || true
-
-          # ensure Node.js 22
-          curl -fsSL https://rpm.nodesource.com/setup_22.x | bash -
-          dnf install -y -q nodejs
-
-          # === OVERWRITE .env on every deploy ===
-          ENV_FILE="${WORKDIR}/.env"
-          FRONTEND_URL="https://www.${ROOT_DOMAIN}"
-          API_URL="https://api.${ROOT_DOMAIN}"
-
-          cat > "${ENV_FILE}" <<EOF
-          MONGO_URI=${MONGO_URI}
-          JWT_SECRET=${JWT_SECRET}
-
-          PUBLIC_FRONTEND_URL=${FRONTEND_URL}
-          PUBLIC_API_URL=${API_URL}
-          COOKIE_DOMAIN=.${ROOT_DOMAIN}
-          COOKIE_SECURE=true
-          OAUTH_CALLBACK_ORIGIN=${API_URL}
-
-          OAUTH_GOOGLE_CLIENT_ID=${OAUTH_GOOGLE_CLIENT_ID}
-          OAUTH_GOOGLE_CLIENT_SECRET=${OAUTH_GOOGLE_CLIENT_SECRET}
-          OAUTH_GITHUB_CLIENT_ID=${OAUTH_GITHUB_CLIENT_ID}
-          OAUTH_GITHUB_CLIENT_SECRET=${OAUTH_GITHUB_CLIENT_SECRET}
-          OAUTH_DISCORD_CLIENT_ID=${OAUTH_DISCORD_CLIENT_ID}
-          OAUTH_DISCORD_CLIENT_SECRET=${OAUTH_DISCORD_CLIENT_SECRET}
-          EOF
-          chmod 0600 "${ENV_FILE}"
 
           # install production deps
           cd "${WORKDIR}"
@@ -238,7 +191,7 @@ jobs:
               "set -euo pipefail",
               "echo ${B64} | base64 -d > /tmp/deploy.sh",
               "chmod +x /tmp/deploy.sh",
-              "ARTIFACT_BUCKET=${ARTIFACT_BUCKET} OBJECT_KEY=${OBJECT_KEY} AWS_REGION=${AWS_REGION} ROOT_DOMAIN=${ROOT_DOMAIN} MONGO_URI=${MONGO_URI} JWT_SECRET=${JWT_SECRET} OAUTH_GOOGLE_CLIENT_ID=${OAUTH_GOOGLE_CLIENT_ID} OAUTH_GOOGLE_CLIENT_SECRET=${OAUTH_GOOGLE_CLIENT_SECRET} OAUTH_GITHUB_CLIENT_ID=${OAUTH_GITHUB_CLIENT_ID} OAUTH_GITHUB_CLIENT_SECRET=${OAUTH_GITHUB_CLIENT_SECRET} OAUTH_DISCORD_CLIENT_ID=${OAUTH_DISCORD_CLIENT_ID} OAUTH_DISCORD_CLIENT_SECRET=${OAUTH_DISCORD_CLIENT_SECRET} bash /tmp/deploy.sh"
+              "ARTIFACT_BUCKET=${ARTIFACT_BUCKET} OBJECT_KEY=${OBJECT_KEY} AWS_REGION=${AWS_REGION} bash /tmp/deploy.sh"
             ],
             "executionTimeout": ["600"],
             "workingDirectory": ["/"]
@@ -279,7 +232,7 @@ jobs:
 
             echo "Instance ${IID} status: ${STATUS}"
 
-            if [[ "${STATUS}" != "Success" ]]; then
+            if ([[ "${STATUS}" != "Success" ]]); then
               echo "ERROR: Deployment failed on ${IID} (Status=${STATUS})" >&2
               echo "--- STDOUT ---"
               aws ssm get-command-invocation \
