@@ -144,6 +144,7 @@ router.get('/requests', requireAuth, async (req, res) => {
  *  - If already friends -> "user is already in friend list"
  *  - If blocked either way -> "user not found"
  *  - If my pending to target exists -> "already have pending request to user"
+ *  - If target is me -> "cannot add yourself"
  *  - Else create pending -> "request sent"
  */
 router.post('/request', requireAuth, async (req, res) => {
@@ -155,7 +156,7 @@ router.post('/request', requireAuth, async (req, res) => {
     if (!targetUser) return res.json({ ok: true, message: 'user not found' });
     const targetId = targetUser._id;
     const targetStr = targetId.toString();
-    if (meStr === targetStr) return res.json({ ok: true, message: 'user not found' });
+    if (meStr === targetStr) return res.json({ ok: true, message: 'cannot add yourself' });
 
     // Blocks hide existence
     if (await isBlockedEitherWay(myId, targetId)) {
@@ -213,6 +214,9 @@ router.post('/accept', requireAuth, async (req, res) => {
     const myId = new mongoose.Types.ObjectId(req.authedUserId);
     const fromUser = await resolveTargetUser(req.body);
     if (!fromUser) return res.json({ ok: true, message: 'user not found' });
+    if (fromUser._id.toString() === myId.toString()) {
+      return res.json({ ok: true, message: 'cannot accept yourself' });
+    }
 
     // Ensure a pending exists from fromUser -> me
     const pending = await FriendRequest.findOne({ from: fromUser._id, to: myId }).exec();
@@ -251,6 +255,9 @@ router.post('/decline', requireAuth, async (req, res) => {
     const myId = new mongoose.Types.ObjectId(req.authedUserId);
     const fromUser = await resolveTargetUser(req.body);
     if (!fromUser) return res.json({ ok: true, message: 'user not found' });
+    if (fromUser._id.toString() === myId.toString()) {
+      return res.json({ ok: true, message: 'cannot decline yourself' });
+    }
 
     const deleted = await FriendRequest.deleteOne({ from: fromUser._id, to: myId }).exec();
     if (deleted.deletedCount === 0) {
@@ -272,6 +279,9 @@ router.post('/remove', requireAuth, async (req, res) => {
     const myId = new mongoose.Types.ObjectId(req.authedUserId);
     const user = await resolveTargetUser(req.body);
     if (!user) return res.json({ ok: true, message: 'user not found' });
+    if (user._id.toString() === myId.toString()) {
+      return res.json({ ok: true, message: 'cannot remove yourself' });
+    }
 
     const [u1, u2] = Friendship.normalizePair(myId, user._id);
     const out = await Friendship.deleteOne({ u1, u2 }).exec();
@@ -295,7 +305,7 @@ router.post('/block', requireAuth, async (req, res) => {
     const user = await resolveTargetUser(req.body);
     if (!user) return res.json({ ok: true, message: 'user not found' });
     if (myId.toString() === user._id.toString()) {
-      return res.json({ ok: true, message: 'user not found' });
+      return res.json({ ok: true, message: 'cannot block yourself' });
     }
 
     await Block.updateOne(
@@ -330,6 +340,9 @@ router.post('/unblock', requireAuth, async (req, res) => {
     const myId = new mongoose.Types.ObjectId(req.authedUserId);
     const user = await resolveTargetUser(req.body);
     if (!user) return res.json({ ok: true, message: 'user not found' });
+    if (user._id.toString() === myId.toString()) {
+      return res.json({ ok: true, message: 'cannot unblock yourself' });
+    }
 
     await Block.deleteOne({ blocker: myId, blocked: user._id }).exec();
     return res.json({ ok: true, message: 'unblocked' });

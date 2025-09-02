@@ -22,7 +22,7 @@ const userSchema = new mongoose.Schema({
     type: String,
     trim: true,
     minlength: 3,
-    maxlength: 24,
+    maxlength: 20,
     default: null
   },
   providers: {

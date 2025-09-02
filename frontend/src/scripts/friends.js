@@ -5,6 +5,7 @@
   const addForm = document.getElementById('add-form');
   const addTarget = document.getElementById('add-target');
   const addStatus = document.getElementById('add-status');
+  const addBtn = document.getElementById('add-send');
 
   const incomingList = document.getElementById('incoming-list');
   const outgoingList = document.getElementById('outgoing-list');
@@ -13,10 +14,12 @@
   const blockForm = document.getElementById('block-form');
   const blockTarget = document.getElementById('block-target');
   const blockStatus = document.getElementById('block-status');
+  const blockBtn = document.getElementById('block-send');
 
   const unblockForm = document.getElementById('unblock-form');
   const unblockTarget = document.getElementById('unblock-target');
   const unblockStatus = document.getElementById('unblock-status');
+  const unblockBtn = document.getElementById('unblock-send');
 
   const refreshBtn = document.getElementById('refresh');
 
@@ -61,6 +64,26 @@
     if (!u) return '';
     if (u.username && u.username.trim()) return u.username;
     return u.email || '(unknown)';
+  }
+
+  // basic input validation: email OR username(2-20, a-z0-9._-)
+  const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const USERNAME_RE = /^[a-zA-Z0-9._-]{3,20}$/;
+  function validateTargetInput(value){
+    const v = (value || '').trim();
+    if (!v) return { ok:false, msg:'enter a valid email or username' };
+    if (v.includes('@')) {
+      if (!EMAIL_RE.test(v)) return { ok:false, msg:'enter a valid email' };
+      return { ok:true, val:v };
+    }
+    if (!USERNAME_RE.test(v)) return { ok:false, msg:'enter a valid username (3–20 chars: letters, numbers, dot, underscore, dash)' };
+    return { ok:true, val:v };
+  }
+
+  async function withDisabled(btn, fn){
+    if (btn) btn.disabled = true;
+    try { return await fn(); }
+    finally { if (btn) btn.disabled = false; }
   }
 
   // ====== Renderers ======
@@ -127,44 +150,72 @@
   // ====== Actions ======
   async function sendRequest(target){
     const out = await api('/friends/request', { method:'POST', body:{ target } });
-    showInlineStatus(addStatus, out?.message || 'done');
+    const msg = normalizeMessage(out?.message);
+    showInlineStatus(addStatus, msg);
     await refreshAll();
   }
 
   async function acceptRequest(userId){
     const out = await api('/friends/accept', { method:'POST', body:{ userId } });
-    showInlineStatus(addStatus, out?.message || 'done');
+    const msg = normalizeMessage(out?.message);
+    showInlineStatus(addStatus, msg);
     await refreshAll();
   }
 
   async function declineRequest(userId){
     const out = await api('/friends/decline', { method:'POST', body:{ userId } });
-    showInlineStatus(addStatus, out?.message || 'done');
+    const msg = normalizeMessage(out?.message);
+    showInlineStatus(addStatus, msg);
     await refreshAll();
   }
 
   async function removeFriend(userId){
     const out = await api('/friends/remove', { method:'POST', body:{ userId } });
-    showInlineStatus(addStatus, out?.message || 'done');
+    const msg = normalizeMessage(out?.message);
+    showInlineStatus(addStatus, msg);
     await refreshAll();
   }
 
   async function blockUserId(userId){
     const out = await api('/friends/block', { method:'POST', body:{ userId } });
-    showInlineStatus(blockStatus, out?.message || 'done');
+    const msg = normalizeMessage(out?.message);
+    showInlineStatus(blockStatus, msg);
     await refreshAll();
   }
 
   async function blockUserTarget(target){
     const out = await api('/friends/block', { method:'POST', body:{ target } });
-    showInlineStatus(blockStatus, out?.message || 'done');
+    const msg = normalizeMessage(out?.message);
+    showInlineStatus(blockStatus, msg);
     await refreshAll();
   }
 
   async function unblockUserTarget(target){
     const out = await api('/friends/unblock', { method:'POST', body:{ target } });
-    showInlineStatus(unblockStatus, out?.message || 'done');
+    const msg = normalizeMessage(out?.message);
+    showInlineStatus(unblockStatus, msg);
     await refreshAll();
+  }
+
+  function normalizeMessage(m){
+    switch ((m || '').toLowerCase()) {
+      case 'cannot add yourself': return 'You cannot add yourself.';
+      case 'cannot accept yourself': return 'You cannot accept yourself.';
+      case 'cannot decline yourself': return 'You cannot decline yourself.';
+      case 'cannot remove yourself': return 'You cannot remove yourself.';
+      case 'cannot block yourself': return 'You cannot block yourself.';
+      case 'cannot unblock yourself': return 'You cannot unblock yourself.';
+      case 'user not found': return 'User not found.';
+      case 'user is already in friend list': return 'Already in your friend list.';
+      case 'already have pending request to user': return 'Already have a pending request to that user.';
+      case 'friend added': return 'Friend added.';
+      case 'request sent': return 'Request sent.';
+      case 'declined': return 'Request declined.';
+      case 'removed': return 'Friend removed.';
+      case 'blocked': return 'User blocked.';
+      case 'unblocked': return 'User unblocked.';
+      default: return m || 'Done.';
+    }
   }
 
   // ====== Loaders ======
@@ -181,23 +232,23 @@
   // ====== Events ======
   addForm.addEventListener('submit', (e)=>{
     e.preventDefault();
-    const target = addTarget.value.trim();
-    if (!target) return;
-    sendRequest(target);
+    const v = validateTargetInput(addTarget.value);
+    if (!v.ok) { showInlineStatus(addStatus, v.msg); return; }
+    withDisabled(addBtn, () => sendRequest(v.val));
   });
 
   blockForm.addEventListener('submit', (e)=>{
     e.preventDefault();
-    const target = blockTarget.value.trim();
-    if (!target) return;
-    blockUserTarget(target);
+    const v = validateTargetInput(blockTarget.value);
+    if (!v.ok) { showInlineStatus(blockStatus, v.msg); return; }
+    withDisabled(blockBtn, () => blockUserTarget(v.val));
   });
 
   unblockForm.addEventListener('submit', (e)=>{
     e.preventDefault();
-    const target = unblockTarget.value.trim();
-    if (!target) return;
-    unblockUserTarget(target);
+    const v = validateTargetInput(unblockTarget.value);
+    if (!v.ok) { showInlineStatus(unblockStatus, v.msg); return; }
+    withDisabled(unblockBtn, () => unblockUserTarget(v.val));
   });
 
   refreshBtn.addEventListener('click', ()=>{ refreshAll(); });

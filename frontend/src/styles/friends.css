@@ -17,15 +17,10 @@
 
 .friends-layout{
   display:grid;
-  grid-template-columns: minmax(0,1fr) 320px;
+  grid-template-columns: 1fr; /* single column (no right sidebar) */
   gap: var(--gap);
   height:100%;
   min-height:0;
-}
-
-@media (max-width: 1100px){
-  .friends-layout{ grid-template-columns: 1fr }
-  .friends-right{ display:none }
 }
 
 .friends-left{ display:grid; gap: var(--gap) }
