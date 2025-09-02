@@ -153,6 +153,7 @@ jobs:
           : "${ARTIFACT_BUCKET:?missing}"
           : "${OBJECT_KEY:?missing}"
           : "${AWS_REGION:?missing}"
+          : "${ROOT_DOMAIN:?missing}"
           ARTIFACT_S3="s3://${ARTIFACT_BUCKET}/${OBJECT_KEY}"
           WORKDIR="/opt/app"
           TMP_TGZ="/tmp/backend_release.tgz"
@@ -176,6 +177,40 @@ jobs:
           # ensure Node.js 22 is installed (do not rely on preinstalled v18)
           curl -fsSL https://rpm.nodesource.com/setup_22.x | bash -
           dnf install -y -q nodejs
+
+          # === ensure required env keys exist in /opt/app/.env (append-only, don't overwrite existing) ===
+          ENV_FILE="${WORKDIR}/.env"
+          touch "${ENV_FILE}"
+          chmod 0600 "${ENV_FILE}"
+
+          ensure_env() {
+            local k="$1" v="$2"
+            if grep -q -E "^${k}=" "${ENV_FILE}"; then
+              return 0
+            fi
+            printf '%s=%s\n' "${k}" "${v}" >> "${ENV_FILE}"
+          }
+
+          ensure_random_env() {
+            local k="$1"
+            if grep -q -E "^${k}=" "${ENV_FILE}"; then
+              return 0
+            fi
+            local v
+            v="$(head -c 48 /dev/urandom | base64 | tr -d '\n=')"
+            printf '%s=%s\n' "${k}" "${v}" >> "${ENV_FILE}"
+          }
+
+          # OAuth-only defaults (safe, non-secret). Do NOT write provider secrets here.
+          FRONTEND_URL="https://www.${ROOT_DOMAIN}"
+          API_URL="https://api.${ROOT_DOMAIN}"
+
+          ensure_env "COOKIE_DOMAIN" ".${ROOT_DOMAIN}"
+          ensure_env "COOKIE_SECURE" "true"
+          ensure_env "OAUTH_CALLBACK_ORIGIN" "${FRONTEND_URL}"
+          ensure_env "PUBLIC_FRONTEND_URL" "${FRONTEND_URL}"
+          ensure_env "PUBLIC_API_URL" "${API_URL}"
+          ensure_random_env "JWT_SECRET"
 
           # install production deps (works even if lockfile is missing)
           cd "${WORKDIR}"
@@ -209,7 +244,7 @@ jobs:
               "set -euo pipefail",
               "echo ${B64} | base64 -d > /tmp/deploy.sh",
               "chmod +x /tmp/deploy.sh",
-              "ARTIFACT_BUCKET=${ARTIFACT_BUCKET} OBJECT_KEY=${OBJECT_KEY} AWS_REGION=${AWS_REGION} bash /tmp/deploy.sh"
+              "ARTIFACT_BUCKET=${ARTIFACT_BUCKET} OBJECT_KEY=${OBJECT_KEY} AWS_REGION=${AWS_REGION} ROOT_DOMAIN=${ROOT_DOMAIN} bash /tmp/deploy.sh"
             ],
             "executionTimeout": ["600"],
             "workingDirectory": ["/"]
