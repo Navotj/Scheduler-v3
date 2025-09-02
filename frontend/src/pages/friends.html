@@ -1,0 +1,98 @@
+<!-- @include ../partials/dochead.html -->
+<title>friends</title>
+<link rel="stylesheet" href="/styles/shared.css" />
+<link rel="stylesheet" href="/styles/friends.css" />
+</head>
+<body>
+  <div class="shell">
+    <!-- @include ../partials/topbar.html -->
+
+    <div class="layout">
+      <!-- @include ../partials/rail.html -->
+
+      <main id="page" class="main" tabindex="-1" aria-label="Main content">
+        <section class="friends">
+          <div class="friends-layout">
+            <section class="friends-left">
+              <div class="panel">
+                <h1 class="panel-title">Add a Friend</h1>
+                <form id="add-form" class="row" autocomplete="off">
+                  <label for="add-target" class="label">Email or username</label>
+                  <input id="add-target" name="target" type="text" required placeholder="e.g. alice@example.com or alice" />
+                  <button id="add-send" type="submit" class="btn">Send request</button>
+                  <output id="add-status" class="status" role="status" aria-live="polite"></output>
+                </form>
+              </div>
+
+              <div class="columns">
+                <div class="panel">
+                  <h2 class="panel-title">Incoming requests</h2>
+                  <ul id="incoming-list" class="list" aria-live="polite"></ul>
+                </div>
+
+                <div class="panel">
+                  <h2 class="panel-title">Outgoing requests</h2>
+                  <ul id="outgoing-list" class="list" aria-live="polite"></ul>
+                  <p class="muted small">You can’t cancel yet; we’ll add this later.</p>
+                </div>
+              </div>
+
+              <div class="panel">
+                <div class="panel-header">
+                  <h2 class="panel-title">Friends</h2>
+                  <button id="refresh" type="button" class="btn btn-lite" title="Reload lists">Reload</button>
+                </div>
+                <ul id="friends-list" class="grid-list" aria-live="polite"></ul>
+              </div>
+
+              <div class="columns">
+                <div class="panel">
+                  <h2 class="panel-title">Block a user</h2>
+                  <form id="block-form" class="row" autocomplete="off">
+                    <label for="block-target" class="label">Email or username</label>
+                    <input id="block-target" name="target" type="text" required placeholder="e.g. troll@example.com or troll" />
+                    <button id="block-send" type="submit" class="btn btn-danger">Block</button>
+                    <output id="block-status" class="status" role="status" aria-live="polite"></output>
+                  </form>
+                </div>
+
+                <div class="panel">
+                  <h2 class="panel-title">Unblock a user</h2>
+                  <form id="unblock-form" class="row" autocomplete="off">
+                    <label for="unblock-target" class="label">Email or username</label>
+                    <input id="unblock-target" name="target" type="text" required placeholder="e.g. troll@example.com or troll" />
+                    <button id="unblock-send" type="submit" class="btn btn-warning">Unblock</button>
+                    <output id="unblock-status" class="status" role="status" aria-live="polite"></output>
+                  </form>
+                </div>
+              </div>
+            </section>
+
+            <aside class="friends-right">
+              <section class="panel">
+                <h3>How it works</h3>
+                <ul class="bullets">
+                  <li>Search by email or username to send a request.</li>
+                  <li>If both sides requested each other, it auto-accepts.</li>
+                  <li>Blocked users see “user not found” and can’t request you.</li>
+                  <li>You can remove or block from the Friends list.</li>
+                </ul>
+              </section>
+            </aside>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <script src="/scripts/config.js" defer></script>
+  <script src="/scripts/clock.js" defer></script>
+  <script src="/scripts/modal.js" defer></script>
+  <script src="/scripts/auth.js" defer></script>
+  <script src="/scripts/login.js" defer></script>
+  <script src="/scripts/settings.js" defer></script>
+  <script src="/scripts/shared.js" defer></script>
+  <script src="/scripts/username.js" defer></script>
+  <script src="/scripts/friends.js" defer></script>
+</body>
+</html>
