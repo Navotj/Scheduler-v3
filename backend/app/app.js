@@ -39,7 +39,8 @@ const oauthRoutes = require('./routes/oauth');               // /auth/oauth/*
 const availabilityRoutes = require('./routes/availability'); // /availability/*
 const settingsRoutes = require('./routes/settings');         // /settings (GET/POST)
 const usersRoutes = require('./routes/users');               // /users/*
-const templatesRouter = require('./routes/templates');
+const templatesRouter = require('./routes/templates');       // /templates/*
+const friendsRoutes = require('./routes/friends');           // /friends/*
 const app = express();
 
 /* ========= Core security & infra ========= */
@@ -174,6 +175,7 @@ app.use('/availability', availabilityRoutes);
 app.use(settingsRoutes);
 app.use('/users', usersRoutes);
 app.use('/templates', templatesRouter);
+app.use('/friends', friendsRoutes);         // NEW: friends/friend-requests/blocks
 
 // Root-level compatibility for specific auth endpoints only
 app.use(['/logout', '/check'], authRoutes);
@@ -181,7 +183,7 @@ app.use(['/logout', '/check'], authRoutes);
 /* ========= Final error handler ========= */
 app.use((err, _req, res, _next) => {
   console.error('[EXPRESS][error]', err && err.stack ? err.stack : err);
-  res.status(500).json({ error: 'internal server error' });
+  res.status(500).json({ ok: false, error: 'internal' });
 });
 
 /* ========= Start ========= */

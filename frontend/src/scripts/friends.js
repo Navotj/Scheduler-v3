@@ -27,19 +27,39 @@
   const API_PREFIX = '/api';
 
   async function api(path, opts = {}) {
-    const res = await fetch(API_PREFIX + path, {
-      method: opts.method || 'GET',
-      headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) },
-      body: opts.body ? JSON.stringify(opts.body) : undefined,
-      credentials: 'include',
-    });
-    let data = null;
-    try { data = await res.json(); } catch (_) { /* ignore */ }
-    if (res.status === 401) {
-      showInlineStatus(addStatus, 'Please sign in to manage friends.');
-      throw new Error('unauthorized');
+    const controller = new AbortController();
+    const timeoutMs = typeof opts.timeout === 'number' ? opts.timeout : 15000;
+    const t = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch(API_PREFIX + path, {
+        method: opts.method || 'GET',
+        headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) },
+        body: opts.body ? JSON.stringify(opts.body) : undefined,
+        credentials: 'include',
+        signal: controller.signal,
+      });
+      clearTimeout(t);
+      let data = null;
+      try { data = await res.json(); } catch (_) { /* ignore parse errors */ }
+
+      if (res.ok) {
+        // success path; pass through message if provided
+        return data || { ok: true };
+      }
+
+      // map common failure classes into stable error codes
+      const error =
+        res.status === 401 ? 'unauthorized' :
+        res.status === 429 ? 'rate_limited' :
+        (data && typeof data.error === 'string') ? data.error :
+        (res.status >= 500 ? 'internal' : 'bad_request');
+
+      return { ok: false, error, message: data && data.message };
+    } catch (err) {
+      clearTimeout(t);
+      if (err && err.name === 'AbortError') return { ok: false, error: 'timeout' };
+      return { ok: false, error: 'network' };
     }
-    return data || { ok:false, error:'invalid' };
   }
 
   function text(t){ return document.createTextNode(String(t)) }
@@ -66,9 +86,9 @@
     return u.email || '(unknown)';
   }
 
-  // basic input validation: email OR username(2-20, a-z0-9._-)
+  // basic input validation: email OR username(2-80, a-z0-9._-)
   const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  const USERNAME_RE = /^[a-zA-Z0-9._-]{3,20}$/;
+  const USERNAME_RE = /^[a-zA-Z0-9._-]{2,80}$/;
   function validateTargetInput(value){
     const v = (value || '').trim();
     if (!v) return { ok:false, msg:'enter a valid email or username' };
@@ -76,7 +96,7 @@
       if (!EMAIL_RE.test(v)) return { ok:false, msg:'enter a valid email' };
       return { ok:true, val:v };
     }
-    if (!USERNAME_RE.test(v)) return { ok:false, msg:'enter a valid username (3–20 chars: letters, numbers, dot, underscore, dash)' };
+    if (!USERNAME_RE.test(v)) return { ok:false, msg:'enter a valid username (2–80 chars: letters, numbers, dot, underscore, dash)' };
     return { ok:true, val:v };
   }
 
@@ -147,57 +167,33 @@
     }
   }
 
-  // ====== Actions ======
-  async function sendRequest(target){
-    const out = await api('/friends/request', { method:'POST', body:{ target } });
-    const msg = normalizeMessage(out?.message);
-    showInlineStatus(addStatus, msg);
-    await refreshAll();
+  // ====== Message mapping ======
+  function normalizeMessage(resp){
+    // Accept either a string (legacy) or {ok,message,error}
+    if (typeof resp === 'string') {
+      return mapKnownMessage(resp) || (resp || 'Something went wrong.');
+    }
+    if (!resp || typeof resp !== 'object') return 'Something went wrong.';
+    if (resp.ok) {
+      return mapKnownMessage(resp.message) || resp.message || 'Done.';
+    }
+    // error side
+    switch ((resp.error || '').toLowerCase()) {
+      case 'unauthorized': return 'Please sign in to manage friends.';
+      case 'internal': return 'Internal error. Please try again.';
+      case 'network': return 'Network error. Check your connection.';
+      case 'timeout': return 'Request timed out. Try again.';
+      case 'bad_request': return 'Invalid request.';
+      case 'invalid': return 'Invalid response.';
+      case 'rate_limited': return 'Too many requests. Slow down and try again.';
+      default:
+        // if backend provided a plain message with ok:false, prefer it
+        if (resp.message) return mapKnownMessage(resp.message) || resp.message;
+        return 'Something went wrong.';
+    }
   }
 
-  async function acceptRequest(userId){
-    const out = await api('/friends/accept', { method:'POST', body:{ userId } });
-    const msg = normalizeMessage(out?.message);
-    showInlineStatus(addStatus, msg);
-    await refreshAll();
-  }
-
-  async function declineRequest(userId){
-    const out = await api('/friends/decline', { method:'POST', body:{ userId } });
-    const msg = normalizeMessage(out?.message);
-    showInlineStatus(addStatus, msg);
-    await refreshAll();
-  }
-
-  async function removeFriend(userId){
-    const out = await api('/friends/remove', { method:'POST', body:{ userId } });
-    const msg = normalizeMessage(out?.message);
-    showInlineStatus(addStatus, msg);
-    await refreshAll();
-  }
-
-  async function blockUserId(userId){
-    const out = await api('/friends/block', { method:'POST', body:{ userId } });
-    const msg = normalizeMessage(out?.message);
-    showInlineStatus(blockStatus, msg);
-    await refreshAll();
-  }
-
-  async function blockUserTarget(target){
-    const out = await api('/friends/block', { method:'POST', body:{ target } });
-    const msg = normalizeMessage(out?.message);
-    showInlineStatus(blockStatus, msg);
-    await refreshAll();
-  }
-
-  async function unblockUserTarget(target){
-    const out = await api('/friends/unblock', { method:'POST', body:{ target } });
-    const msg = normalizeMessage(out?.message);
-    showInlineStatus(unblockStatus, msg);
-    await refreshAll();
-  }
-
-  function normalizeMessage(m){
+  function mapKnownMessage(m){
     switch ((m || '').toLowerCase()) {
       case 'cannot add yourself': return 'You cannot add yourself.';
       case 'cannot accept yourself': return 'You cannot accept yourself.';
@@ -214,8 +210,58 @@
       case 'removed': return 'Friend removed.';
       case 'blocked': return 'User blocked.';
       case 'unblocked': return 'User unblocked.';
-      default: return m || 'Done.';
+      default: return null;
     }
+  }
+
+  // ====== Actions ======
+  async function sendRequest(target){
+    const out = await api('/friends/request', { method:'POST', body:{ target } });
+    const msg = normalizeMessage(out);
+    showInlineStatus(addStatus, msg);
+    await refreshAll();
+  }
+
+  async function acceptRequest(userId){
+    const out = await api('/friends/accept', { method:'POST', body:{ userId } });
+    const msg = normalizeMessage(out);
+    showInlineStatus(addStatus, msg);
+    await refreshAll();
+  }
+
+  async function declineRequest(userId){
+    const out = await api('/friends/decline', { method:'POST', body:{ userId } });
+    const msg = normalizeMessage(out);
+    showInlineStatus(addStatus, msg);
+    await refreshAll();
+  }
+
+  async function removeFriend(userId){
+    const out = await api('/friends/remove', { method:'POST', body:{ userId } });
+    const msg = normalizeMessage(out);
+    showInlineStatus(addStatus, msg);
+    await refreshAll();
+  }
+
+  async function blockUserId(userId){
+    const out = await api('/friends/block', { method:'POST', body:{ userId } });
+    const msg = normalizeMessage(out);
+    showInlineStatus(blockStatus, msg);
+    await refreshAll();
+  }
+
+  async function blockUserTarget(target){
+    const out = await api('/friends/block', { method:'POST', body:{ target } });
+    const msg = normalizeMessage(out);
+    showInlineStatus(blockStatus, msg);
+    await refreshAll();
+  }
+
+  async function unblockUserTarget(target){
+    const out = await api('/friends/unblock', { method:'POST', body:{ target } });
+    const msg = normalizeMessage(out);
+    showInlineStatus(unblockStatus, msg);
+    await refreshAll();
   }
 
   // ====== Loaders ======
