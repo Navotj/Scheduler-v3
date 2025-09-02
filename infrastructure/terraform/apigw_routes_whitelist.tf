@@ -1,108 +1,270 @@
 ########################################
 # API allowlist (explicit routes only)
-# Routes derived strictly from provided code.
+# Derived strictly from backend code.
 # No proxy-wide catch-alls are defined.
 ########################################
 
-# ---------- AUTH ----------
-# POST /register
-resource "aws_apigatewayv2_route" "post_register" {
-  api_id    = aws_apigatewayv2_api.backend_api.id
-  route_key = "POST /register"
-  target    = "integrations/${aws_apigatewayv2_integration.backend_integration.id}"
+# Convenience locals
+locals {
+  int_id = aws_apigatewayv2_integration.backend_integration.id
+  api_id = aws_apigatewayv2_api.backend_api.id
+  authz  = aws_apigatewayv2_authorizer.origin_verify.id
 }
 
+# ---------- AUTH (mounted at /auth) ----------
+# POST /auth/register
+resource "aws_apigatewayv2_route" "post_auth_register" {
+  api_id             = local.api_id
+  route_key          = "POST /auth/register"
+  target             = "integrations/${local.int_id}"
+  authorization_type = "CUSTOM"
+  authorizer_id      = local.authz
+}
+
+# POST /auth/login
+resource "aws_apigatewayv2_route" "post_auth_login" {
+  api_id             = local.api_id
+  route_key          = "POST /auth/login"
+  target             = "integrations/${local.int_id}"
+  authorization_type = "CUSTOM"
+  authorizer_id      = local.authz
+}
+
+# GET /auth/check
+resource "aws_apigatewayv2_route" "get_auth_check" {
+  api_id             = local.api_id
+  route_key          = "GET /auth/check"
+  target             = "integrations/${local.int_id}"
+  authorization_type = "CUSTOM"
+  authorizer_id      = local.authz
+}
+
+# POST /auth/logout
+resource "aws_apigatewayv2_route" "post_auth_logout" {
+  api_id             = local.api_id
+  route_key          = "POST /auth/logout"
+  target             = "integrations/${local.int_id}"
+  authorization_type = "CUSTOM"
+  authorizer_id      = local.authz
+}
+
+# GET /auth/verify
+resource "aws_apigatewayv2_route" "get_auth_verify" {
+  api_id             = local.api_id
+  route_key          = "GET /auth/verify"
+  target             = "integrations/${local.int_id}"
+  authorization_type = "CUSTOM"
+  authorizer_id      = local.authz
+}
+
+# POST /auth/verify
+resource "aws_apigatewayv2_route" "post_auth_verify" {
+  api_id             = local.api_id
+  route_key          = "POST /auth/verify"
+  target             = "integrations/${local.int_id}"
+  authorization_type = "CUSTOM"
+  authorizer_id      = local.authz
+}
+
+# POST /auth/request-reset
+resource "aws_apigatewayv2_route" "post_auth_request_reset" {
+  api_id             = local.api_id
+  route_key          = "POST /auth/request-reset"
+  target             = "integrations/${local.int_id}"
+  authorization_type = "CUSTOM"
+  authorizer_id      = local.authz
+}
+
+# GET /auth/reset
+resource "aws_apigatewayv2_route" "get_auth_reset" {
+  api_id             = local.api_id
+  route_key          = "GET /auth/reset"
+  target             = "integrations/${local.int_id}"
+  authorization_type = "CUSTOM"
+  authorizer_id      = local.authz
+}
+
+# POST /auth/reset
+resource "aws_apigatewayv2_route" "post_auth_reset" {
+  api_id             = local.api_id
+  route_key          = "POST /auth/reset"
+  target             = "integrations/${local.int_id}"
+  authorization_type = "CUSTOM"
+  authorizer_id      = local.authz
+}
+
+# ---------- AUTH (root-level aliases) ----------
 # POST /login
-resource "aws_apigatewayv2_route" "post_login" {
-  api_id    = aws_apigatewayv2_api.backend_api.id
-  route_key = "POST /login"
-  target    = "integrations/${aws_apigatewayv2_integration.backend_integration.id}"
+resource "aws_apigatewayv2_route" "post_login_root" {
+  api_id             = local.api_id
+  route_key          = "POST /login"
+  target             = "integrations/${local.int_id}"
+  authorization_type = "CUSTOM"
+  authorizer_id      = local.authz
 }
 
 # GET /check
-resource "aws_apigatewayv2_route" "get_check" {
-  api_id    = aws_apigatewayv2_api.backend_api.id
-  route_key = "GET /check"
-  target    = "integrations/${aws_apigatewayv2_integration.backend_integration.id}"
+resource "aws_apigatewayv2_route" "get_check_root" {
+  api_id             = local.api_id
+  route_key          = "GET /check"
+  target             = "integrations/${local.int_id}"
+  authorization_type = "CUSTOM"
+  authorizer_id      = local.authz
 }
 
 # POST /logout
-resource "aws_apigatewayv2_route" "post_logout" {
-  api_id    = aws_apigatewayv2_api.backend_api.id
-  route_key = "POST /logout"
-  target    = "integrations/${aws_apigatewayv2_integration.backend_integration.id}"
+resource "aws_apigatewayv2_route" "post_logout_root" {
+  api_id             = local.api_id
+  route_key          = "POST /logout"
+  target             = "integrations/${local.int_id}"
+  authorization_type = "CUSTOM"
+  authorizer_id      = local.authz
 }
 
-# ---------- AVAILABILITY ----------
-# GET /get
-resource "aws_apigatewayv2_route" "get_get" {
-  api_id    = aws_apigatewayv2_api.backend_api.id
-  route_key = "GET /get"
-  target    = "integrations/${aws_apigatewayv2_integration.backend_integration.id}"
+# ---------- AVAILABILITY (mounted at /availability) ----------
+# GET /availability/get
+resource "aws_apigatewayv2_route" "get_availability_get" {
+  api_id             = local.api_id
+  route_key          = "GET /availability/get"
+  target             = "integrations/${local.int_id}"
+  authorization_type = "CUSTOM"
+  authorizer_id      = local.authz
 }
 
-# POST /save
-resource "aws_apigatewayv2_route" "post_save" {
-  api_id    = aws_apigatewayv2_api.backend_api.id
-  route_key = "POST /save"
-  target    = "integrations/${aws_apigatewayv2_integration.backend_integration.id}"
+# POST /availability/save
+resource "aws_apigatewayv2_route" "post_availability_save" {
+  api_id             = local.api_id
+  route_key          = "POST /availability/save"
+  target             = "integrations/${local.int_id}"
+  authorization_type = "CUSTOM"
+  authorizer_id      = local.authz
 }
 
-# POST /get_many
-resource "aws_apigatewayv2_route" "post_get_many" {
-  api_id    = aws_apigatewayv2_api.backend_api.id
-  route_key = "POST /get_many"
-  target    = "integrations/${aws_apigatewayv2_integration.backend_integration.id}"
+# POST /availability/get_many
+resource "aws_apigatewayv2_route" "post_availability_get_many" {
+  api_id             = local.api_id
+  route_key          = "POST /availability/get_many"
+  target             = "integrations/${local.int_id}"
+  authorization_type = "CUSTOM"
+  authorizer_id      = local.authz
 }
 
-# ---------- USER SETTINGS ----------
+# ---------- USER SETTINGS (root-mounted) ----------
 # GET /settings
 resource "aws_apigatewayv2_route" "get_settings" {
-  api_id    = aws_apigatewayv2_api.backend_api.id
-  route_key = "GET /settings"
-  target    = "integrations/${aws_apigatewayv2_integration.backend_integration.id}"
+  api_id             = local.api_id
+  route_key          = "GET /settings"
+  target             = "integrations/${local.int_id}"
+  authorization_type = "CUSTOM"
+  authorizer_id      = local.authz
 }
 
 # POST /settings
 resource "aws_apigatewayv2_route" "post_settings" {
-  api_id    = aws_apigatewayv2_api.backend_api.id
-  route_key = "POST /settings"
-  target    = "integrations/${aws_apigatewayv2_integration.backend_integration.id}"
+  api_id             = local.api_id
+  route_key          = "POST /settings"
+  target             = "integrations/${local.int_id}"
+  authorization_type = "CUSTOM"
+  authorizer_id      = local.authz
 }
 
-# ---------- USERS ----------
-# GET /exists
-resource "aws_apigatewayv2_route" "get_exists" {
-  api_id    = aws_apigatewayv2_api.backend_api.id
-  route_key = "GET /exists"
-  target    = "integrations/${aws_apigatewayv2_integration.backend_integration.id}"
+# ---------- USERS (mounted at /users) ----------
+# GET /users/exists
+resource "aws_apigatewayv2_route" "get_users_exists" {
+  api_id             = local.api_id
+  route_key          = "GET /users/exists"
+  target             = "integrations/${local.int_id}"
+  authorization_type = "CUSTOM"
+  authorizer_id      = local.authz
 }
 
-# ---------- TEMPLATES ----------
+# ---------- TEMPLATES (mounted at /templates) ----------
 # GET /templates/list
 resource "aws_apigatewayv2_route" "get_templates_list" {
-  api_id    = aws_apigatewayv2_api.backend_api.id
-  route_key = "GET /templates/list"
-  target    = "integrations/${aws_apigatewayv2_integration.backend_integration.id}"
+  api_id             = local.api_id
+  route_key          = "GET /templates/list"
+  target             = "integrations/${local.int_id}"
+  authorization_type = "CUSTOM"
+  authorizer_id      = local.authz
+}
+
+# GET /templates (alias of list)
+resource "aws_apigatewayv2_route" "get_templates_root" {
+  api_id             = local.api_id
+  route_key          = "GET /templates"
+  target             = "integrations/${local.int_id}"
+  authorization_type = "CUSTOM"
+  authorizer_id      = local.authz
 }
 
 # GET /templates/get
 resource "aws_apigatewayv2_route" "get_templates_get" {
-  api_id    = aws_apigatewayv2_api.backend_api.id
-  route_key = "GET /templates/get"
-  target    = "integrations/${aws_apigatewayv2_integration.backend_integration.id}"
+  api_id             = local.api_id
+  route_key          = "GET /templates/get"
+  target             = "integrations/${local.int_id}"
+  authorization_type = "CUSTOM"
+  authorizer_id      = local.authz
+}
+
+# GET /templates/{id}
+resource "aws_apigatewayv2_route" "get_templates_id" {
+  api_id             = local.api_id
+  route_key          = "GET /templates/{id}"
+  target             = "integrations/${local.int_id}"
+  authorization_type = "CUSTOM"
+  authorizer_id      = local.authz
 }
 
 # POST /templates/save
 resource "aws_apigatewayv2_route" "post_templates_save" {
-  api_id    = aws_apigatewayv2_api.backend_api.id
-  route_key = "POST /templates/save"
-  target    = "integrations/${aws_apigatewayv2_integration.backend_integration.id}"
+  api_id             = local.api_id
+  route_key          = "POST /templates/save"
+  target             = "integrations/${local.int_id}"
+  authorization_type = "CUSTOM"
+  authorizer_id      = local.authz
+}
+
+# POST /templates (alias of save)
+resource "aws_apigatewayv2_route" "post_templates_root" {
+  api_id             = local.api_id
+  route_key          = "POST /templates"
+  target             = "integrations/${local.int_id}"
+  authorization_type = "CUSTOM"
+  authorizer_id      = local.authz
+}
+
+# PUT /templates/{id}
+resource "aws_apigatewayv2_route" "put_templates_id" {
+  api_id             = local.api_id
+  route_key          = "PUT /templates/{id}"
+  target             = "integrations/${local.int_id}"
+  authorization_type = "CUSTOM"
+  authorizer_id      = local.authz
 }
 
 # POST /templates/delete
 resource "aws_apigatewayv2_route" "post_templates_delete" {
-  api_id    = aws_apigatewayv2_api.backend_api.id
-  route_key = "POST /templates/delete"
-  target    = "integrations/${aws_apigatewayv2_integration.backend_integration.id}"
+  api_id             = local.api_id
+  route_key          = "POST /templates/delete"
+  target             = "integrations/${local.int_id}"
+  authorization_type = "CUSTOM"
+  authorizer_id      = local.authz
+}
+
+# DELETE /templates/{id}
+resource "aws_apigatewayv2_route" "delete_templates_id" {
+  api_id             = local.api_id
+  route_key          = "DELETE /templates/{id}"
+  target             = "integrations/${local.int_id}"
+  authorization_type = "CUSTOM"
+  authorizer_id      = local.authz
+}
+
+# DELETE /templates
+resource "aws_apigatewayv2_route" "delete_templates_root" {
+  api_id             = local.api_id
+  route_key          = "DELETE /templates"
+  target             = "integrations/${local.int_id}"
+  authorization_type = "CUSTOM"
+  authorizer_id      = local.authz
 }
