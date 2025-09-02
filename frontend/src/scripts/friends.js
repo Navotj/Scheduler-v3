@@ -43,11 +43,9 @@
       try { data = await res.json(); } catch (_) { /* ignore parse errors */ }
 
       if (res.ok) {
-        // success path; pass through message if provided
         return data || { ok: true };
       }
 
-      // map common failure classes into stable error codes
       const error =
         res.status === 401 ? 'unauthorized' :
         res.status === 429 ? 'rate_limited' :
@@ -107,25 +105,24 @@
   }
 
   // ====== Renderers ======
-  function renderIncoming(list){
+    function renderIncoming(list){
     incomingList.replaceChildren();
     if (!list || list.length === 0) {
-      incomingList.append(el('li',{class:'muted small'},[text('No incoming requests')]));
-      return;
+        incomingList.append(el('li',{class:'muted small'},[text('No incoming requests')]));
+        return;
     }
     for (const u of list){
-      const li = el('li',{class:'list-item'});
-      const left = el('div',{class:'identity'},[
-        el('span',{class:'name'},[text(displayName(u))]),
-        el('span',{class:'meta'},[text(u.email)])
-      ]);
-      const accept = el('button',{class:'btn', type:'button', onClick:()=>acceptRequest(u.id)},[text('Accept')]);
-      const decline = el('button',{class:'btn btn-lite', type:'button', onClick:()=>declineRequest(u.id)},[text('Decline')]);
-      const right = el('div',{},[accept, decline]);
-      li.append(left, right);
-      incomingList.append(li);
+        const li = el('li',{class:'list-item'});
+        const left = el('div',{class:'identity'},[
+        el('span',{class:'name'},[text(displayName(u))])
+        ]);
+        const accept = el('button',{class:'btn', type:'button', onClick:()=>acceptRequest(u.id)},[text('Accept')]);
+        const decline = el('button',{class:'btn btn-lite', type:'button', onClick:()=>declineRequest(u.id)},[text('Decline')]);
+        const right = el('div',{},[accept, decline]);
+        li.append(left, right);
+        incomingList.append(li);
     }
-  }
+    }
 
   function renderOutgoing(list){
     outgoingList.replaceChildren();
@@ -139,8 +136,8 @@
         el('span',{class:'name'},[text(displayName(u))]),
         el('span',{class:'meta'},[text(u.email)])
       ]);
-      const note = el('span',{class:'muted small'},[text('Pending…')]);
-      const right = el('div',{},[note]);
+      const cancel = el('button',{class:'btn btn-warning', type:'button', onClick:()=>cancelOutgoing(u.id)},[text('Cancel')]);
+      const right = el('div',{},[cancel]);
       li.append(left, right);
       outgoingList.append(li);
     }
@@ -169,7 +166,6 @@
 
   // ====== Message mapping ======
   function normalizeMessage(resp){
-    // Accept either a string (legacy) or {ok,message,error}
     if (typeof resp === 'string') {
       return mapKnownMessage(resp) || (resp || 'Something went wrong.');
     }
@@ -177,7 +173,6 @@
     if (resp.ok) {
       return mapKnownMessage(resp.message) || resp.message || 'Done.';
     }
-    // error side
     switch ((resp.error || '').toLowerCase()) {
       case 'unauthorized': return 'Please sign in to manage friends.';
       case 'internal': return 'Internal error. Please try again.';
@@ -187,7 +182,6 @@
       case 'invalid': return 'Invalid response.';
       case 'rate_limited': return 'Too many requests. Slow down and try again.';
       default:
-        // if backend provided a plain message with ok:false, prefer it
         if (resp.message) return mapKnownMessage(resp.message) || resp.message;
         return 'Something went wrong.';
     }
@@ -201,6 +195,7 @@
       case 'cannot remove yourself': return 'You cannot remove yourself.';
       case 'cannot block yourself': return 'You cannot block yourself.';
       case 'cannot unblock yourself': return 'You cannot unblock yourself.';
+      case 'cannot cancel yourself': return 'You cannot cancel yourself.';
       case 'user not found': return 'User not found.';
       case 'user is already in friend list': return 'Already in your friend list.';
       case 'already have pending request to user': return 'Already have a pending request to that user.';
@@ -210,6 +205,7 @@
       case 'removed': return 'Friend removed.';
       case 'blocked': return 'User blocked.';
       case 'unblocked': return 'User unblocked.';
+      case 'cancelled': return 'Request canceled.';
       default: return null;
     }
   }
@@ -231,6 +227,13 @@
 
   async function declineRequest(userId){
     const out = await api('/friends/decline', { method:'POST', body:{ userId } });
+    const msg = normalizeMessage(out);
+    showInlineStatus(addStatus, msg);
+    await refreshAll();
+  }
+
+  async function cancelOutgoing(userId){
+    const out = await api('/friends/cancel', { method:'POST', body:{ userId } });
     const msg = normalizeMessage(out);
     showInlineStatus(addStatus, msg);
     await refreshAll();

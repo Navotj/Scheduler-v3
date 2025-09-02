@@ -331,3 +331,12 @@ resource "aws_apigatewayv2_route" "post_friends_unblock" {
   authorization_type = "CUSTOM"
   authorizer_id      = local.authz
 }
+
+# POST /friends/cancel
+resource "aws_apigatewayv2_route" "post_friends_cancel" {
+  api_id             = local.api_id
+  route_key          = "POST /friends/cancel"
+  target             = "integrations/${local.int_id}"
+  authorization_type = "CUSTOM"
+  authorizer_id      = local.authz
+}

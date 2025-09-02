@@ -105,35 +105,43 @@ router.get('/list', requireAuth, async (req, res) => {
 router.get('/requests', requireAuth, async (req, res) => {
   try {
     const myId = new mongoose.Types.ObjectId(req.authedUserId);
-    const [incoming, outgoing] = await Promise.all([
+
+    // Fetch pending requests
+    const [incomingReqs, outgoingReqs] = await Promise.all([
       FriendRequest.find({ to: myId }).lean().exec(),
       FriendRequest.find({ from: myId }).lean().exec(),
     ]);
 
-    const userIds = [
-      ...incoming.map((r) => r.from.toString()),
-      ...outgoing.map((r) => r.to.toString()),
-    ];
-    const users = await User.find({ _id: { $in: userIds } }, { email: 1, username: 1 })
-      .lean()
-      .exec();
-    const map = new Map(users.map((u) => [u._id.toString(), u]));
+    // Collect user ids for each side separately
+    const incomingIds = incomingReqs.map((r) => r.from);
+    const outgoingIds = outgoingReqs.map((r) => r.to);
+
+    // IMPORTANT: Do NOT request email here; only return non-sensitive fields
+    const [incomingUsers, outgoingUsers] = await Promise.all([
+      User.find({ _id: { $in: incomingIds } }, { username: 1 }).lean().exec(),
+      User.find({ _id: { $in: outgoingIds } }, { username: 1 }).lean().exec(),
+    ]);
+
+    const inMap  = new Map(incomingUsers.map((u) => [u._id.toString(), u]));
+    const outMap = new Map(outgoingUsers.map((u) => [u._id.toString(), u]));
 
     res.json({
       ok: true,
-      incoming: incoming
-        .map((r) => map.get(r.from.toString()))
+      // Only id + username; no email
+      incoming: incomingReqs
+        .map((r) => inMap.get(r.from.toString()))
         .filter(Boolean)
-        .map((u) => ({ id: u._id, email: u.email, username: u.username ?? null })),
-      outgoing: outgoing
-        .map((r) => map.get(r.to.toString()))
+        .map((u) => ({ id: u._id, username: u.username ?? null })),
+      outgoing: outgoingReqs
+        .map((r) => outMap.get(r.to.toString()))
         .filter(Boolean)
-        .map((u) => ({ id: u._id, email: u.email, username: u.username ?? null })),
+        .map((u) => ({ id: u._id, username: u.username ?? null })),
     });
   } catch (err) {
     res.status(500).json({ ok: false, error: 'internal' });
   }
 });
+
 
 /**
  * POST /friends/request
@@ -199,6 +207,30 @@ router.post('/request', requireAuth, async (req, res) => {
       // Unique collision on (from,to) -> treat as already pending
       return res.json({ ok: true, message: 'already have pending request to user' });
     }
+    return res.status(500).json({ ok: false, error: 'internal' });
+  }
+});
+
+/**
+ * POST /friends/cancel
+ * Body: { userId?: string, target?: string }
+ * Cancel my outgoing pending request TO that user.
+ */
+router.post('/cancel', requireAuth, async (req, res) => {
+  try {
+    const myId = new mongoose.Types.ObjectId(req.authedUserId);
+    const user = await resolveTargetUser(req.body);
+    if (!user) return res.json({ ok: true, message: 'user not found' });
+    if (user._id.toString() === myId.toString()) {
+      return res.json({ ok: true, message: 'cannot cancel yourself' });
+    }
+
+    const out = await FriendRequest.deleteOne({ from: myId, to: user._id }).exec();
+    if (out.deletedCount === 0) {
+      return res.json({ ok: true, message: 'user not found' });
+    }
+    return res.json({ ok: true, message: 'cancelled' });
+  } catch (_err) {
     return res.status(500).json({ ok: false, error: 'internal' });
   }
 });
