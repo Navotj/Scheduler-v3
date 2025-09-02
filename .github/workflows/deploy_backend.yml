@@ -19,7 +19,6 @@ env:
   APP_PREFIX: ${{ vars.APP_PREFIX }}
   AWS_REGION: ${{ vars.AWS_REGION }}
   ROOT_DOMAIN: ${{ vars.ROOT_DOMAIN }}
-  # Target all SSM-managed instances with this EC2 tag (stable across recreations)
   BACKEND_SSM_TARGET_KEY:   tag:Name
   BACKEND_SSM_TARGET_VALUE: ${{ vars.APP_PREFIX }}-backend
 
@@ -29,19 +28,24 @@ jobs:
     env:
       AWS_ACCESS_KEY_ID:                 ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY:             ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      # --- OAuth provider secrets (must be set in GitHub Secrets) ---
-      OAUTH_GOOGLE_CLIENT_ID:           ${{ secrets.OAUTH_GOOGLE_CLIENT_ID }}
-      OAUTH_GOOGLE_CLIENT_SECRET:       ${{ secrets.OAUTH_GOOGLE_CLIENT_SECRET }}
-      OAUTH_GITHUB_CLIENT_ID:           ${{ secrets.OAUTH_GITHUB_CLIENT_ID }}
-      OAUTH_GITHUB_CLIENT_SECRET:       ${{ secrets.OAUTH_GITHUB_CLIENT_SECRET }}
-      OAUTH_DISCORD_CLIENT_ID:          ${{ secrets.OAUTH_DISCORD_CLIENT_ID }}
-      OAUTH_DISCORD_CLIENT_SECRET:      ${{ secrets.OAUTH_DISCORD_CLIENT_SECRET }}
+
+      # REQUIRED: force on every deploy
+      MONGO_URI:                         ${{ secrets.MONGO_URI }}
+      JWT_SECRET:                        ${{ secrets.JWT_SECRET }}
+
+      # OAuth provider creds
+      OAUTH_GOOGLE_CLIENT_ID:            ${{ secrets.OAUTH_GOOGLE_CLIENT_ID }}
+      OAUTH_GOOGLE_CLIENT_SECRET:        ${{ secrets.OAUTH_GOOGLE_CLIENT_SECRET }}
+      OAUTH_GITHUB_CLIENT_ID:            ${{ secrets.OAUTH_GITHUB_CLIENT_ID }}
+      OAUTH_GITHUB_CLIENT_SECRET:        ${{ secrets.OAUTH_GITHUB_CLIENT_SECRET }}
+      OAUTH_DISCORD_CLIENT_ID:           ${{ secrets.OAUTH_DISCORD_CLIENT_ID }}
+      OAUTH_DISCORD_CLIENT_SECRET:       ${{ secrets.OAUTH_DISCORD_CLIENT_SECRET }}
 
     steps:
       - name: checkout
         uses: actions/checkout@v5
 
-      - name: configure aws credentials (keys only)
+      - name: configure aws credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id:     ${{ env.AWS_ACCESS_KEY_ID }}
@@ -67,14 +71,15 @@ jobs:
           set -euo pipefail
           [[ -n "${APP_PREFIX}" ]] || { echo "APP_PREFIX is empty"; exit 1; }
           [[ -n "${AWS_REGION}"  ]] || { echo "AWS_REGION is empty";  exit 1; }
+          [[ -n "${ROOT_DOMAIN}" ]] || { echo "ROOT_DOMAIN is empty"; exit 1; }
+          [[ -n "${MONGO_URI}"   ]] || { echo "MONGO_URI is empty";   exit 1; }
+          [[ -n "${JWT_SECRET}"  ]] || { echo "JWT_SECRET is empty";  exit 1; }
           [[ -d "backend/app" ]] || { echo "missing: backend/app"; exit 1; }
           [[ -f "backend/scheduler.service" ]] || { echo "missing: backend/scheduler.service"; exit 1; }
 
-          # Define artifact bucket (separate from frontend bucket)
           ARTIFACT_BUCKET="${APP_PREFIX}-artifacts"
           echo "ARTIFACT_BUCKET=${ARTIFACT_BUCKET}" >> "$GITHUB_ENV"
 
-          # Optional: warn if no instances currently match the SSM target (doesn't hard-fail)
           MATCHING_INSTANCES=$(aws ssm describe-instance-information \
             --filters "Key=tag:Name,Values=${BACKEND_SSM_TARGET_VALUE}" \
             --query "InstanceInformationList[].InstanceId" --output text || true)
@@ -84,7 +89,7 @@ jobs:
             echo "Found SSM instances: ${MATCHING_INSTANCES}"
           fi
 
-      - name: ensure artifact bucket exists (create if missing)
+      - name: ensure artifact bucket exists
         shell: bash
         run: |
           set -euo pipefail
@@ -103,25 +108,18 @@ jobs:
             fi
           fi
 
-          # Harden minimal settings so uploads work and are encrypted
           aws s3api put-bucket-encryption --bucket "${ARTIFACT_BUCKET}" --server-side-encryption-configuration '{
             "Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]
           }'
-
-          # Block public access
           aws s3api put-public-access-block --bucket "${ARTIFACT_BUCKET}" --public-access-block-configuration '{
             "BlockPublicAcls": true,
             "IgnorePublicAcls": true,
             "BlockPublicPolicy": true,
             "RestrictPublicBuckets": true
           }'
-
-          # Prefer bucket-owner enforced ownership to avoid ACL issues (no-op if not supported)
           aws s3api put-bucket-ownership-controls --bucket "${ARTIFACT_BUCKET}" --ownership-controls '{
             "Rules":[{"ObjectOwnership":"BucketOwnerEnforced"}]
           }' || true
-
-          # Enable versioning (optional but helpful)
           aws s3api put-bucket-versioning --bucket "${ARTIFACT_BUCKET}" --versioning-configuration Status=Enabled
 
       - name: package backend (app + service)
@@ -136,7 +134,7 @@ jobs:
             -C backend app scheduler.service
           ls -lh backend_release.tgz
 
-      - name: upload artifact to s3 (SSE required)
+      - name: upload artifact to s3
         shell: bash
         run: |
           set -euo pipefail
@@ -144,12 +142,11 @@ jobs:
           aws s3 cp backend_release.tgz "s3://${ARTIFACT_BUCKET}/${OBJECT_KEY}" --sse AES256 --only-show-errors
           echo "OBJECT_KEY=${OBJECT_KEY}" >> "$GITHUB_ENV"
 
-      - name: deploy on instances via ssm (tag-targeted, fail if service not active)
+      - name: deploy on instances via ssm
         shell: bash
         run: |
           set -euo pipefail
 
-          # Discover instances up front so we can wait on each specifically
           INSTANCE_IDS=$(aws ssm describe-instance-information \
             --filters "Key=tag:Name,Values=${BACKEND_SSM_TARGET_VALUE}" \
             --query "InstanceInformationList[].InstanceId" --output text || true)
@@ -161,6 +158,8 @@ jobs:
           : "${OBJECT_KEY:?missing}"
           : "${AWS_REGION:?missing}"
           : "${ROOT_DOMAIN:?missing}"
+          : "${MONGO_URI:?missing}"
+          : "${JWT_SECRET:?missing}"
           ARTIFACT_S3="s3://${ARTIFACT_BUCKET}/${OBJECT_KEY}"
           WORKDIR="/opt/app"
           TMP_TGZ="/tmp/backend_release.tgz"
@@ -172,8 +171,7 @@ jobs:
           rm -rf /tmp/app "${UNIT_SRC}" || true
           tar -xzf "${TMP_TGZ}" -C /tmp
 
-          # preserve existing .env, clear everything else in WORKDIR
-          rm -f /tmp/app/.env
+          # wipe everything except .env (we overwrite .env below)
           find "${WORKDIR}" -mindepth 1 -maxdepth 1 -not -name '.env' -exec rm -rf -- {} +
 
           shopt -s dotglob
@@ -181,73 +179,35 @@ jobs:
           shopt -u dotglob
           chown -R ec2-user:ec2-user "${WORKDIR}" || true
 
-          # ensure Node.js 22 is installed (do not rely on preinstalled v18)
+          # ensure Node.js 22
           curl -fsSL https://rpm.nodesource.com/setup_22.x | bash -
           dnf install -y -q nodejs
 
-          # === ensure /opt/app/.env is correct (append-only; also purge legacy keys) ===
+          # === OVERWRITE .env on every deploy ===
           ENV_FILE="${WORKDIR}/.env"
-          touch "${ENV_FILE}"
-          chmod 0600 "${ENV_FILE}"
-
-          ensure_env() {
-            local k="$1" v="$2"
-            if grep -q -E "^${k}=" "${ENV_FILE}"; then
-              return 0
-            fi
-            printf '%s=%s\n' "${k}" "${v}" >> "${ENV_FILE}"
-          }
-
-          ensure_env_if_set() {
-            local k="$1" v="${2:-}"
-            if [[ -z "${v}" ]]; then
-              return 0
-            fi
-            if grep -q -E "^${k}=" "${ENV_FILE}"; then
-              return 0
-            fi
-            printf '%s=%s\n' "${k}" "${v}" >> "${ENV_FILE}"
-          }
-
-          ensure_random_env() {
-            local k="$1"
-            if grep -q -E "^${k}=" "${ENV_FILE}"; then
-              return 0
-            fi
-            local v
-            v="$(head -c 48 /dev/urandom | base64 | tr -d '\n=')"
-            printf '%s=%s\n' "${k}" "${v}" >> "${ENV_FILE}"
-          }
-
-          # Purge legacy SES/email keys so they never resurrect
-          purge_legacy() {
-            local pattern='^(EMAIL_PROVIDER|SES_REGION|MAIL_FROM|VERIFICATION_TOKEN_TTL_MIN|RESET_TOKEN_TTL_MIN)='
-            if grep -Eq "${pattern}" "${ENV_FILE}"; then
-              sed -i -E "/${pattern}/d" "${ENV_FILE}"
-            fi
-          }
-          purge_legacy
-
           FRONTEND_URL="https://www.${ROOT_DOMAIN}"
           API_URL="https://api.${ROOT_DOMAIN}"
 
-          # Non-secret defaults (only add if missing)
-          ensure_env "COOKIE_DOMAIN" ".${ROOT_DOMAIN}"
-          ensure_env "COOKIE_SECURE" "true"
-          ensure_env "OAUTH_CALLBACK_ORIGIN" "${API_URL}"
-          ensure_env "PUBLIC_FRONTEND_URL" "${FRONTEND_URL}"
-          ensure_env "PUBLIC_API_URL" "${API_URL}"
-          ensure_random_env "JWT_SECRET"
+          cat > "${ENV_FILE}" <<EOF
+          MONGO_URI=${MONGO_URI}
+          JWT_SECRET=${JWT_SECRET}
 
-          # Provider creds (only write if provided by CI)
-          ensure_env_if_set "OAUTH_GOOGLE_CLIENT_ID"      "${OAUTH_GOOGLE_CLIENT_ID}"
-          ensure_env_if_set "OAUTH_GOOGLE_CLIENT_SECRET"  "${OAUTH_GOOGLE_CLIENT_SECRET}"
-          ensure_env_if_set "OAUTH_GITHUB_CLIENT_ID"      "${OAUTH_GITHUB_CLIENT_ID}"
-          ensure_env_if_set "OAUTH_GITHUB_CLIENT_SECRET"  "${OAUTH_GITHUB_CLIENT_SECRET}"
-          ensure_env_if_set "OAUTH_DISCORD_CLIENT_ID"     "${OAUTH_DISCORD_CLIENT_ID}"
-          ensure_env_if_set "OAUTH_DISCORD_CLIENT_SECRET" "${OAUTH_DISCORD_CLIENT_SECRET}"
+          PUBLIC_FRONTEND_URL=${FRONTEND_URL}
+          PUBLIC_API_URL=${API_URL}
+          COOKIE_DOMAIN=.${ROOT_DOMAIN}
+          COOKIE_SECURE=true
+          OAUTH_CALLBACK_ORIGIN=${API_URL}
 
-          # install production deps (works even if lockfile is missing)
+          OAUTH_GOOGLE_CLIENT_ID=${OAUTH_GOOGLE_CLIENT_ID}
+          OAUTH_GOOGLE_CLIENT_SECRET=${OAUTH_GOOGLE_CLIENT_SECRET}
+          OAUTH_GITHUB_CLIENT_ID=${OAUTH_GITHUB_CLIENT_ID}
+          OAUTH_GITHUB_CLIENT_SECRET=${OAUTH_GITHUB_CLIENT_SECRET}
+          OAUTH_DISCORD_CLIENT_ID=${OAUTH_DISCORD_CLIENT_ID}
+          OAUTH_DISCORD_CLIENT_SECRET=${OAUTH_DISCORD_CLIENT_SECRET}
+          EOF
+          chmod 0600 "${ENV_FILE}"
+
+          # install production deps
           cd "${WORKDIR}"
           export NODE_ENV=production
           if [[ -f package-lock.json ]]; then
@@ -261,7 +221,6 @@ jobs:
           systemctl enable --now scheduler.service
           systemctl restart scheduler.service
 
-          # hard check: ensure service is active after restart; if not, dump logs and fail
           sleep 3
           if ! systemctl is-active --quiet scheduler.service; then
             echo "scheduler.service is NOT active after restart" >&2
@@ -279,7 +238,7 @@ jobs:
               "set -euo pipefail",
               "echo ${B64} | base64 -d > /tmp/deploy.sh",
               "chmod +x /tmp/deploy.sh",
-              "ARTIFACT_BUCKET=${ARTIFACT_BUCKET} OBJECT_KEY=${OBJECT_KEY} AWS_REGION=${AWS_REGION} ROOT_DOMAIN=${ROOT_DOMAIN} OAUTH_GOOGLE_CLIENT_ID=${OAUTH_GOOGLE_CLIENT_ID} OAUTH_GOOGLE_CLIENT_SECRET=${OAUTH_GOOGLE_CLIENT_SECRET} OAUTH_GITHUB_CLIENT_ID=${OAUTH_GITHUB_CLIENT_ID} OAUTH_GITHUB_CLIENT_SECRET=${OAUTH_GITHUB_CLIENT_SECRET} OAUTH_DISCORD_CLIENT_ID=${OAUTH_DISCORD_CLIENT_ID} OAUTH_DISCORD_CLIENT_SECRET=${OAUTH_DISCORD_CLIENT_SECRET} bash /tmp/deploy.sh"
+              "ARTIFACT_BUCKET=${ARTIFACT_BUCKET} OBJECT_KEY=${OBJECT_KEY} AWS_REGION=${AWS_REGION} ROOT_DOMAIN=${ROOT_DOMAIN} MONGO_URI=${MONGO_URI} JWT_SECRET=${JWT_SECRET} OAUTH_GOOGLE_CLIENT_ID=${OAUTH_GOOGLE_CLIENT_ID} OAUTH_GOOGLE_CLIENT_SECRET=${OAUTH_GOOGLE_CLIENT_SECRET} OAUTH_GITHUB_CLIENT_ID=${OAUTH_GITHUB_CLIENT_ID} OAUTH_GITHUB_CLIENT_SECRET=${OAUTH_GITHUB_CLIENT_SECRET} OAUTH_DISCORD_CLIENT_ID=${OAUTH_DISCORD_CLIENT_ID} OAUTH_DISCORD_CLIENT_SECRET=${OAUTH_DISCORD_CLIENT_SECRET} bash /tmp/deploy.sh"
             ],
             "executionTimeout": ["600"],
             "workingDirectory": ["/"]
@@ -299,7 +258,6 @@ jobs:
 
           echo "SSM CommandId: ${COMMAND_ID}"
 
-          # If there are no instance ids, nothing to wait on (keep behavior as warn-only)
           if [[ -z "${INSTANCE_IDS}" || "${INSTANCE_IDS}" == "None" ]]; then
             echo "WARN: No instance ids to wait on."
             exit 0
