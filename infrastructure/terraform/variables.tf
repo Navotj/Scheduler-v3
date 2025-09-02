@@ -49,3 +49,46 @@ variable "origin_secret" {
   type        = string
   sensitive   = true
 }
+
+# Optional secrets passed through to backend user-data; empty string is acceptable.
+variable "jwt_secret" {
+  type      = string
+  default   = ""
+  sensitive = true
+}
+
+variable "oauth_google_client_id" {
+  type      = string
+  default   = ""
+  sensitive = true
+}
+
+variable "oauth_google_client_secret" {
+  type      = string
+  default   = ""
+  sensitive = true
+}
+
+variable "oauth_github_client_id" {
+  type      = string
+  default   = ""
+  sensitive = true
+}
+
+variable "oauth_github_client_secret" {
+  type      = string
+  default   = ""
+  sensitive = true
+}
+
+variable "oauth_discord_client_id" {
+  type      = string
+  default   = ""
+  sensitive = true
+}
+
+variable "oauth_discord_client_secret" {
+  type      = string
+  default   = ""
+  sensitive = true
+}

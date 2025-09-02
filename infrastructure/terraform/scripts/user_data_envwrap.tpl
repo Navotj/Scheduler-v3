@@ -14,6 +14,34 @@ export DATABASE_NAME="${database_name}"
 export DATABASE_HOST="${database_host}"
 %{ endif }
 
+%{ if root_domain != "" }
+export ROOT_DOMAIN="${root_domain}"
+%{ endif }
+
+%{ if jwt_secret != "" }
+export JWT_SECRET="${jwt_secret}"
+%{ endif }
+
+# Optional OAuth provider credentials (conditionally exported)
+%{ if oauth_google_client_id != "" }
+export OAUTH_GOOGLE_CLIENT_ID="${oauth_google_client_id}"
+%{ endif }
+%{ if oauth_google_client_secret != "" }
+export OAUTH_GOOGLE_CLIENT_SECRET="${oauth_google_client_secret}"
+%{ endif }
+%{ if oauth_github_client_id != "" }
+export OAUTH_GITHUB_CLIENT_ID="${oauth_github_client_id}"
+%{ endif }
+%{ if oauth_github_client_secret != "" }
+export OAUTH_GITHUB_CLIENT_SECRET="${oauth_github_client_secret}"
+%{ endif }
+%{ if oauth_discord_client_id != "" }
+export OAUTH_DISCORD_CLIENT_ID="${oauth_discord_client_id}"
+%{ endif }
+%{ if oauth_discord_client_secret != "" }
+export OAUTH_DISCORD_CLIENT_SECRET="${oauth_discord_client_secret}"
+%{ endif }
+
 # ---------- Minimal AL2023: make sure needed tools exist ----------
 log "DNF makecache"
 dnf -y makecache

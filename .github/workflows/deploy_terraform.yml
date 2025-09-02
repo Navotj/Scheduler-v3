@@ -28,25 +28,36 @@ jobs:
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       AWS_PAGER: ""
 
-      TF_VAR_app_prefix: ${{ vars.APP_PREFIX }}
-      TF_VAR_root_domain: ${{ vars.ROOT_DOMAIN }}
+      TF_VAR_app_prefix:        ${{ vars.APP_PREFIX }}
+      TF_VAR_root_domain:       ${{ vars.ROOT_DOMAIN }}
       TF_VAR_ec2_instance_type: ${{ vars.EC2_INSTANCE_TYPE }}
 
-      DATABASE_USER: ${{ secrets.database_user }}
-      DATABASE_PASSWORD: ${{ secrets.database_password }}
-      TF_VAR_database_user: ${{ secrets.database_user }}
+      DATABASE_USER:            ${{ secrets.database_user }}
+      DATABASE_PASSWORD:        ${{ secrets.database_password }}
+      TF_VAR_database_user:     ${{ secrets.database_user }}
       TF_VAR_database_password: ${{ secrets.database_password }}
-      TF_VAR_database_host: ${{ vars.DATABASE_HOST }}
-      
-      TF_VAR_origin_secret: ${{ secrets.ORIGIN_SECRET }}
+      TF_VAR_database_host:     ${{ vars.DATABASE_HOST }}
 
-      OAUTH_GOOGLE_CLIENT_ID:            ${{ secrets.OAUTH_GOOGLE_CLIENT_ID }}
-      OAUTH_GOOGLE_CLIENT_SECRET:        ${{ secrets.OAUTH_GOOGLE_CLIENT_SECRET }}
-      OAUTH_GITHUB_CLIENT_ID:            ${{ secrets.OAUTH_GITHUB_CLIENT_ID }}
-      OAUTH_GITHUB_CLIENT_SECRET:        ${{ secrets.OAUTH_GITHUB_CLIENT_SECRET }}
-      OAUTH_DISCORD_CLIENT_ID:           ${{ secrets.OAUTH_DISCORD_CLIENT_ID }}
-      OAUTH_DISCORD_CLIENT_SECRET:       ${{ secrets.OAUTH_DISCORD_CLIENT_SECRET }}
-      
+      TF_VAR_origin_secret:     ${{ secrets.ORIGIN_SECRET }}
+
+      # Optional: pass-through for backend .env via user-data (empty is OK)
+      OAUTH_GOOGLE_CLIENT_ID:             ${{ secrets.OAUTH_GOOGLE_CLIENT_ID }}
+      OAUTH_GOOGLE_CLIENT_SECRET:         ${{ secrets.OAUTH_GOOGLE_CLIENT_SECRET }}
+      OAUTH_GITHUB_CLIENT_ID:             ${{ secrets.OAUTH_GITHUB_CLIENT_ID }}
+      OAUTH_GITHUB_CLIENT_SECRET:         ${{ secrets.OAUTH_GITHUB_CLIENT_SECRET }}
+      OAUTH_DISCORD_CLIENT_ID:            ${{ secrets.OAUTH_DISCORD_CLIENT_ID }}
+      OAUTH_DISCORD_CLIENT_SECRET:        ${{ secrets.OAUTH_DISCORD_CLIENT_SECRET }}
+      JWT_SECRET:                         ${{ secrets.JWT_SECRET }}
+
+      # Terraform will read these via var.*
+      TF_VAR_oauth_google_client_id:      ${{ secrets.OAUTH_GOOGLE_CLIENT_ID }}
+      TF_VAR_oauth_google_client_secret:  ${{ secrets.OAUTH_GOOGLE_CLIENT_SECRET }}
+      TF_VAR_oauth_github_client_id:      ${{ secrets.OAUTH_GITHUB_CLIENT_ID }}
+      TF_VAR_oauth_github_client_secret:  ${{ secrets.OAUTH_GITHUB_CLIENT_SECRET }}
+      TF_VAR_oauth_discord_client_id:     ${{ secrets.OAUTH_DISCORD_CLIENT_ID }}
+      TF_VAR_oauth_discord_client_secret: ${{ secrets.OAUTH_DISCORD_CLIENT_SECRET }}
+      TF_VAR_jwt_secret:                  ${{ secrets.JWT_SECRET }}
+
       TF_IN_AUTOMATION: true
 
     steps:
