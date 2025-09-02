@@ -29,7 +29,7 @@ jobs:
     env:
       AWS_ACCESS_KEY_ID:                 ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY:             ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      # --- OAuth provider secrets (set these in GitHub Secrets) ---
+      # --- OAuth provider secrets (must be set in GitHub Secrets) ---
       OAUTH_GOOGLE_CLIENT_ID:           ${{ secrets.OAUTH_GOOGLE_CLIENT_ID }}
       OAUTH_GOOGLE_CLIENT_SECRET:       ${{ secrets.OAUTH_GOOGLE_CLIENT_SECRET }}
       OAUTH_GITHUB_CLIENT_ID:           ${{ secrets.OAUTH_GITHUB_CLIENT_ID }}
@@ -185,7 +185,7 @@ jobs:
           curl -fsSL https://rpm.nodesource.com/setup_22.x | bash -
           dnf install -y -q nodejs
 
-          # === ensure required env keys exist in /opt/app/.env (append-only) ===
+          # === ensure /opt/app/.env is correct (append-only; also purge legacy keys) ===
           ENV_FILE="${WORKDIR}/.env"
           touch "${ENV_FILE}"
           chmod 0600 "${ENV_FILE}"
@@ -219,10 +219,19 @@ jobs:
             printf '%s=%s\n' "${k}" "${v}" >> "${ENV_FILE}"
           }
 
+          # Purge legacy SES/email keys so they never resurrect
+          purge_legacy() {
+            local pattern='^(EMAIL_PROVIDER|SES_REGION|MAIL_FROM|VERIFICATION_TOKEN_TTL_MIN|RESET_TOKEN_TTL_MIN)='
+            if grep -Eq "${pattern}" "${ENV_FILE}"; then
+              sed -i -E "/${pattern}/d" "${ENV_FILE}"
+            fi
+          }
+          purge_legacy
+
           FRONTEND_URL="https://www.${ROOT_DOMAIN}"
           API_URL="https://api.${ROOT_DOMAIN}"
 
-          # Non-secret defaults
+          # Non-secret defaults (only add if missing)
           ensure_env "COOKIE_DOMAIN" ".${ROOT_DOMAIN}"
           ensure_env "COOKIE_SECURE" "true"
           ensure_env "OAUTH_CALLBACK_ORIGIN" "${FRONTEND_URL}"
