@@ -66,3 +66,5 @@ chmod 0600 "${APP_DIR}/.env"
 chown ec2-user:ec2-user "${APP_DIR}/.env"
 
 log "Backend user-data bootstrap complete"
+
+#adding a comment to force a recreate.

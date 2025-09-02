@@ -268,3 +268,43 @@ jobs:
             --max-errors "0" \
             --region "${AWS_REGION}" \
             --output text --query "Command.CommandId"
+
+      - name: Fetch EC2 console logs
+        if: always()
+        run: |
+          set -euo pipefail
+
+          DB_ID="$(terraform output -raw database_instance_id 2>/dev/null || true)"
+          BE_ID="$(terraform output -raw backend_instance_id 2>/dev/null || true)"
+
+          fetch_logs () {
+            local id="$1"
+            echo "===== Console log for ${id} ====="
+            # Use --latest; avoid piping to grep to prevent BrokenPipeError from awscli (Python).
+            local out
+            out="$(aws ec2 get-console-output \
+              --region "${AWS_REGION}" \
+              --instance-id "${id}" \
+              --latest \
+              --query 'Output' \
+              --output text 2>/dev/null || true)"
+            if [[ -n "${out}" && "${out}" != "None" ]]; then
+              printf '%s\n' "${out}"
+              return 0
+            fi
+            return 1
+          }
+
+          for ID in $DB_ID $BE_ID; do
+            if [[ -n "${ID}" && "${ID}" != "None" ]]; then
+              # Retry because the console buffer can lag a bit after boot
+              attempt=1
+              until fetch_logs "${ID}" || (( attempt >= 8 )); do
+                sleep 8
+                ((attempt++))
+              done
+              if (( attempt >= 8 )); then
+                echo "No console output available yet for ${ID}."
+              fi
+            fi
+          done
