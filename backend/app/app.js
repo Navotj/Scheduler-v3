@@ -34,7 +34,8 @@ const cookieParser = require('cookie-parser');
 
 
 // Routers
-const authRoutes = require('./routes/auth');                 // /auth/*, /logout, /check
+const authRoutes = require('./routes/auth');                 // /auth/*, /logout, /check, /auth/username
+const oauthRoutes = require('./routes/oauth');               // /auth/oauth/*
 const availabilityRoutes = require('./routes/availability'); // /availability/*
 const settingsRoutes = require('./routes/settings');         // /settings (GET/POST)
 const usersRoutes = require('./routes/users');               // /users/*
@@ -166,9 +167,8 @@ app.get('/__debug/dbping', async (_req, res) => {
   }
 });
 
-/* ========= Routes =========
-   Note: Do NOT mount the auth router at root without a path llkkkfilter; some auth routers end with a catch-all 404 which would swallow other routes.
-*/
+/* ========= Routes ========= */
+app.use('/auth/oauth', oauthRoutes);        // mount OAuth FIRST
 app.use('/auth', authRoutes);
 app.use('/availability', availabilityRoutes);
 app.use(settingsRoutes);
