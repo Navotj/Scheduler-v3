@@ -23,6 +23,7 @@ jobs:
     env:
       APP_PREFIX: ${{ vars.APP_PREFIX }}
       AWS_REGION: ${{ vars.AWS_REGION }}
+      ROOT_DOMAIN: ${{ vars.ROOT_DOMAIN }}
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       AWS_PAGER: ""
