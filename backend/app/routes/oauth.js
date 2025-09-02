@@ -262,7 +262,7 @@ router.get('/:provider/callback', async (req, res) => {
       if (!email || !emailVerified) return res.status(403).send('email_required');
     }
 
-    // Upsert user (prevent duplicate providers)
+    // Upsert user + lastLoggedAt
     let user = await userModel.findOne({ email });
     if (!user) {
       user = await userModel.create({
@@ -270,7 +270,8 @@ router.get('/:provider/callback', async (req, res) => {
         emailVerifiedAt: emailVerified ? new Date() : null,
         displayName: displayName || null,
         avatarUrl: avatarUrl || null,
-        providers: [{ name: provider, id: providerId }]
+        providers: [{ name: provider, id: providerId }],
+        lastLoggedAt: new Date()
       });
       console.log(`[OAUTH][${reqId}] user created`, { id: String(user._id), provider, email });
     } else {
@@ -280,24 +281,12 @@ router.get('/:provider/callback', async (req, res) => {
           $set: {
             emailVerifiedAt: user.emailVerifiedAt || (emailVerified ? new Date() : null),
             displayName: user.displayName || (displayName || null),
-            avatarUrl: user.avatarUrl || (avatarUrl || null)
-          }
+            avatarUrl: user.avatarUrl || (avatarUrl || null),
+            lastLoggedAt: new Date()
+          },
+          $addToSet: { providers: { name: provider, id: providerId } }
         }
       );
-
-      const hasProvider = Array.isArray(user.providers) && user.providers.some(p => p && p.name === provider);
-      if (hasProvider) {
-        await userModel.updateOne(
-          { _id: user._id, 'providers.name': provider },
-          { $set: { 'providers.$.id': providerId } }
-        );
-      } else {
-        await userModel.updateOne(
-          { _id: user._id },
-          { $push: { providers: { name: provider, id: providerId } } }
-        );
-      }
-
       user = await userModel.findById(user._id);
       console.log(`[OAUTH][${reqId}] user linked`, { id: String(user._id), provider });
     }
@@ -307,11 +296,10 @@ router.get('/:provider/callback', async (req, res) => {
 
     clearTempCookies(res);
 
-    // If username missing OR looks like an email, append flag so frontend opens username modal
+    // If username missing, append flag so frontend opens username modal
     let dest = sanitizeReturnTo(returnTo || '/');
     const frontOrigin = process.env.PUBLIC_FRONTEND_URL || 'https://www.nat20scheduling.com';
-    const looksLikeEmail = !!(user.username && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(user.username)));
-    if (!user.username || looksLikeEmail) {
+    if (!user.username) {
       const u = new URL(dest, frontOrigin);
       u.searchParams.set('needsUsername', '1');
       dest = u.pathname + u.search + u.hash;
