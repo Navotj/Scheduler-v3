@@ -64,6 +64,9 @@ main() {
   copy_dir_if_exists "${SRC}/scripts" "${OUT}/scripts"
   copy_dir_if_exists "${SRC}/assets"  "${OUT}/assets"
 
+  # root-level files (AdSense, etc.)
+  if [[ -f "${SRC}/ads.txt" ]]; then cp "${SRC}/ads.txt" "${OUT}/ads.txt"; fi
+
   echo "build complete -> ${OUT}"
 }
 
