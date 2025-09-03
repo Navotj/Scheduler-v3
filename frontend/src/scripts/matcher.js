@@ -24,6 +24,10 @@
   const userSlotSets = new Map();
   let totalMembers = 0;
 
+  // Friends cache (usernames only, case-insensitive compare)
+  let friendUsernames = new Set();
+  let friendsLoaded = false;
+
   const ROWS_PER_DAY = (HOURS_END - HOURS_START) * SLOTS_PER_HOUR;
   let WEEK_ROWS = 7 * ROWS_PER_DAY;
   let counts = [];
@@ -45,6 +49,29 @@
 
   function applySlotHeight() {
     shared.setSlotHeight(gridContent, slotHeight);
+  }
+
+  async function fetchFriendUsernames() {
+    try {
+      const url = `${window.API_BASE_URL}/friends/list`;
+      const res = await fetch(url, { credentials: 'include', cache: 'no-cache' });
+      if (!res.ok) {
+        friendUsernames = new Set();
+        friendsLoaded = true;
+        return;
+      }
+      const data = await res.json();
+      const set = new Set();
+      const arr = (data && Array.isArray(data.friends)) ? data.friends : [];
+      for (const f of arr) {
+        if (f && f.username) set.add(String(f.username).toLowerCase());
+      }
+      friendUsernames = set;
+      friendsLoaded = true;
+    } catch {
+      friendUsernames = new Set();
+      friendsLoaded = true;
+    }
   }
 
   const wheelZoomHandler = shared.createWheelZoomHandler({
@@ -792,6 +819,11 @@
   function setAuth(ok, username) {
     isAuthenticated = !!ok;
     currentUsername = ok ? username : null;
+
+    // Refresh friends list when auth state changes (fire-and-forget)
+    friendsLoaded = false;
+    fetchFriendUsernames();
+
     if (isAuthenticated && currentUsername) {
       if (!members.includes(currentUsername)) {
         members.push(currentUsername);
@@ -848,10 +880,28 @@
       const input = document.getElementById('add-username');
       const name = (input.value || '').trim();
       if (!name) return;
+
+      // Prevent duplicates
       if (members.includes(name)) { input.value = ''; return; }
+
+      // Load friends on demand if not loaded yet
+      if (!friendsLoaded) await fetchFriendUsernames();
+
       setMemberError('');
+
+      // Self can always be added
+      const isSelf = currentUsername && name.toLowerCase() === String(currentUsername).toLowerCase();
+
+      // Check existence first (to preserve "User not found" semantics)
       const exists = await userExists(name);
       if (!exists) { setMemberError('User not found'); return; }
+
+      // If not self, enforce friendship
+      if (!isSelf) {
+        const isFriend = friendUsernames.has(name.toLowerCase());
+        if (!isFriend) { setMemberError('Not friends with specified user'); return; }
+      }
+
       members.push(name);
       input.value = '';
       renderMembers();
