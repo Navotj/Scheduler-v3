@@ -334,3 +334,48 @@ h1,h2,h3,p{margin:0}
     grid-template-rows: repeat(4, 1fr);
   }
 }
+
+/* === Rail + Layout hardening (AdSense isolation) === */
+
+/* Ensure page structure can occupy full viewport height */
+html, body { height: 100%; }
+.shell { min-height: 100vh; display: flex; flex-direction: column; }
+
+/* Prevent layout from shrinking to rail/ad content; stretch to viewport */
+.layout {
+  min-height: calc(100vh - var(--topbar-h, 0px));
+  align-items: stretch; /* works for both grid and flex containers */
+}
+
+/* Default rail width if not already defined */
+:root { --rail-w: 300px; }
+
+/* Lock the rail column to a fixed track/slot and isolate its content from affecting layout */
+.rail {
+  inline-size: var(--rail-w);
+  max-inline-size: var(--rail-w);
+  flex: 0 0 var(--rail-w);               /* if .layout is flex */
+  align-self: stretch;
+  overflow: hidden;                       /* ad must not spill into layout */
+  contain: size layout paint style;       /* descendants cannot influence outer sizing/paint */
+}
+
+/* If .layout is grid, enforce fixed rail track + remaining main area */
+.layout {
+  grid-template-columns: var(--rail-w) 1fr !important; /* no content-based sizing for rail */
+}
+
+/* Main area must be allowed to shrink its min-content width */
+.main { min-width: 0; }
+
+/* Ads should fill the rail box without changing container size */
+.rail ins.adsbygoogle,
+.rail .adsbygoogle {
+  display: block !important;
+  inline-size: 100% !important;
+  block-size: 100% !important;
+  max-inline-size: 100% !important;
+  max-block-size: 100% !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
