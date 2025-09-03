@@ -11,42 +11,43 @@
       .ua-menu{
         position:absolute;z-index:99999;max-height:280px;overflow:auto;
         background:var(--bg-1,#0e1117);border:1px solid var(--border,#1a1c20);
-        border-radius:10px;box-shadow:0 8px 28px rgba(0,0,0,.5);padding:6px;
-        display:none;cursor:default
+        border-radius:10px;box-shadow:0 8px 28px rgba(0,0,0,.5);
+        padding:4px;display:none;cursor:default;box-sizing:border-box;
+        width:auto; /* JS sets exact width; box-sizing keeps borders/padding inside */
       }
       .ua-menu[data-open="1"]{display:block}
 
       /* suggestion rows */
       .ua-option{
         display:block;width:100%;box-sizing:border-box;
-        padding:6px 10px;border-radius:8px;
+        padding:5px 8px;border-radius:8px;
         cursor:default;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
         font-size:14px;line-height:1.35
       }
       .ua-option:hover{background:var(--card,#141820)}
       .ua-option[aria-selected="true"]{outline:1px solid var(--ring,#3a78ff);background:var(--card,#141820)}
-      .ua-empty{padding:6px 10px;color:var(--fg-2,#8b95ae);font-size:13px}
+      .ua-empty{padding:5px 8px;color:var(--fg-2,#8b95ae);font-size:13px}
 
-      /* STICKY SELECTED (vertical, full width, no cropped descenders) */
-      .ua-sticky-wrap{display:block;margin:2px 2px 6px 2px}
+      /* STICKY SELECTED (vertical, full width, tight + no cropped descenders) */
+      .ua-sticky-wrap{display:block;margin:0 0 4px 0}
       .ua-chip{
         position:relative;display:flex;align-items:center;
         width:100%;box-sizing:border-box;
         background:#164a2e;color:#d2f8e1;border:1px solid #2e7d32;border-radius:8px;
-        padding:6px 10px;margin:0 0 4px 0;
+        padding:5px 6px;margin:0 0 4px 0;
         font-size:14px;line-height:1.4;user-select:none;cursor:default
       }
       .ua-chip-label{
         flex:1 1 auto;min-width:0;
         overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
-        padding-right:24px; /* room for the X */
+        padding-right:18px; /* only what the X needs */
       }
       .ua-chip-x{
-        position:absolute;top:3px;right:4px;
-        width:16px;height:16px;display:flex;align-items:center;justify-content:center;
-        font-size:14px;line-height:1;color:#d2f8e1;cursor:pointer
+        position:absolute;top:2px;right:3px;
+        width:14px;height:14px;display:flex;align-items:center;justify-content:center;
+        font-size:12px;line-height:1;color:#d2f8e1;cursor:pointer
       }
-      .ua-divider{height:1px;background:var(--border,#1a1c20);margin:4px 0}
+      .ua-divider{height:1px;background:var(--border,#1a1c20);margin:3px 0}
     `;
     const style = document.createElement('style');
     style.id = 'ua-style';
@@ -220,7 +221,7 @@
     uaMenu.style.top = `${Math.max(4, top)}px`;
     uaMenu.style.left = `${left}px`;
 
-    // Conform to the input width exactly
+    // Conform exactly to input width (box-sizing keeps padding/borders inside)
     uaMenu.style.width = `${r.width}px`;
     uaMenu.style.maxWidth = `${r.width}px`;
     uaMenu.style.minWidth = `${r.width}px`;
