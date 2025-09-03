@@ -182,12 +182,12 @@ h1,h2,h3,p{margin:0}
   background:var(--card);
   border:1px solid var(--border);
   border-radius:var(--radius);
-  padding:var(--gap-lg);
-  height:100%;        /* match layout block-size */
-  min-height:0;       /* avoid overflow from auto min-size */
-  min-width:0;        /* allow grid item to shrink below intrinsic ad width */
-  contain:size;/* prevent ad intrinsic width from influencing siblings */
-  overflow:auto;      /* scroll internally if content exceeds */
+  padding:0;
+  height:100%;
+  min-height:0;
+  min-width:0;
+  contain:size;
+  overflow:auto;
 }
 
 .main{
@@ -202,18 +202,7 @@ h1,h2,h3,p{margin:0}
   overflow:auto;          /* internal scrolling without growing page */
 }
 
-/* rail content */
-.support-card{
-  display:grid; gap:10px;
-  background:rgba(255,255,255,0.02);
-  border:1px solid var(--border);
-  border-radius:var(--radius-sm);
-  padding:0px;
-  height:100%;
-  width: 100%
-}
-.support-card h2{text-transform:lowercase; font-size:14px; color:var(--fg-1); letter-spacing:.4px}
-.support-card p{font-size:13px; color:var(--fg-1)}
+
 .support-actions{margin-top:4px}
 .btn{
   display:inline-flex; align-items:center; justify-content:center;
