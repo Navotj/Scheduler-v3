@@ -4,18 +4,38 @@
   const API = (window.API_BASE_URL || '/api').replace(/\/$/, '');
   const MAX_SUGGESTIONS = 8;
 
+  // ===== styles =====
   (function injectStyles() {
     if (document.getElementById('ua-style')) return;
     const css = `
-      .ua-menu{position:absolute;z-index:99999;min-width:160px;max-width:320px;max-height:280px;overflow:auto;background:var(--bg-1,#0e1117);border:1px solid var(--border,#1a1c20);border-radius:10px;box-shadow:0 8px 28px rgba(0,0,0,.5);padding:6px;display:none;cursor:default}
+      .ua-menu{
+        position:absolute;z-index:99999;max-height:280px;overflow:auto;
+        background:var(--bg-1,#0e1117);border:1px solid var(--border,#1a1c20);
+        border-radius:10px;box-shadow:0 8px 28px rgba(0,0,0,.5);padding:6px;
+        display:none;cursor:default
+      }
       .ua-menu[data-open="1"]{display:block}
-      .ua-option{padding:6px 10px;border-radius:8px;cursor:default;white-space:nowrap;font-size:14px;line-height:1.2}
+      .ua-option{
+        width:100%;box-sizing:border-box;padding:6px 10px;border-radius:8px;
+        cursor:default;white-space:nowrap;font-size:14px;line-height:1.2
+      }
       .ua-option:hover{background:var(--card,#141820)}
       .ua-option[aria-selected="true"]{outline:1px solid var(--ring,#3a78ff);background:var(--card,#141820)}
       .ua-empty{padding:6px 10px;color:var(--fg-2,#8b95ae);font-size:13px}
-      .ua-sticky-wrap{display:flex;flex-wrap:wrap;gap:6px;margin:2px 2px 6px 2px}
-      .ua-chip{display:inline-block;position:relative;background:#164a2e;color:#d2f8e1;border:1px solid #2e7d32;border-radius:8px;padding:6px 22px 6px 8px;font-size:13px;line-height:1;user-select:none;cursor:default}
-      .ua-chip-x{position:absolute;top:2px;right:6px;font-size:16px;line-height:1;color:#d2f8e1;cursor:pointer}
+
+      /* STICKY SELECTED (vertical, full width) */
+      .ua-sticky-wrap{display:block;margin:2px 2px 6px 2px}
+      .ua-chip{
+        display:flex;align-items:center;justify-content:space-between;gap:10px;
+        width:100%;box-sizing:border-box;
+        background:#164a2e;color:#d2f8e1;border:1px solid #2e7d32;border-radius:8px;
+        padding:8px 10px;margin:0 0 6px 0;
+        font-size:13px;line-height:1;user-select:none;cursor:default
+      }
+      .ua-chip-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      .ua-chip-x{
+        flex:0 0 auto;font-size:16px;line-height:1;color:#d2f8e1;cursor:pointer
+      }
       .ua-divider{height:1px;background:var(--border,#1a1c20);margin:4px 0}
     `;
     const style = document.createElement('style');
@@ -24,6 +44,7 @@
     document.head.appendChild(style);
   })();
 
+  // ===== username modal (unchanged) =====
   function usernameFormHTML(){
     return `
       <header style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
@@ -112,6 +133,7 @@
     });
   };
 
+  // ===== dropdown autocomplete =====
   let uaInput = null;
   let uaMenu = null;
   let uaMenuOpen = false;
@@ -183,13 +205,15 @@
     const r = uaInput.getBoundingClientRect();
     const mh = Math.min(uaMenu.scrollHeight, 280);
     const gap = 6;
-    const top = window.scrollY + r.top - gap - mh;
+    const top = window.scrollY + r.top - gap - mh; // above the input
     const left = window.scrollX + r.left;
-    const width = Math.max(r.width, 160);
     uaMenu.style.top = `${Math.max(4, top)}px`;
     uaMenu.style.left = `${left}px`;
-    uaMenu.style.minWidth = `${width}px`;
-    uaMenu.style.maxWidth = `${Math.max(240, r.width)}px`;
+
+    // Conform exactly to the input width to avoid visual jumps/expansion
+    uaMenu.style.width = `${r.width}px`;
+    uaMenu.style.maxWidth = `${r.width}px`;
+    uaMenu.style.minWidth = `${r.width}px`;
     uaMenu.style.maxHeight = '280px';
   }
 
@@ -217,6 +241,7 @@
     return opt;
   }
 
+  // Pull the selected members from scheduler (preferred) or the visible text list.
   function getSelectedMembers() {
     try {
       if (window.scheduler && typeof window.scheduler.getMembers === 'function') {
@@ -246,7 +271,10 @@
     for (const uname of selected) {
       const chip = document.createElement('div');
       chip.className = 'ua-chip';
-      chip.textContent = uname;
+
+      const label = document.createElement('span');
+      label.className = 'ua-chip-label';
+      label.textContent = uname;
 
       const close = document.createElement('span');
       close.className = 'ua-chip-x';
@@ -262,12 +290,12 @@
         uaUpdateSuggestions();
       });
 
+      chip.appendChild(label);
       chip.appendChild(close);
       wrap.appendChild(chip);
     }
 
     container.appendChild(wrap);
-
     const divider = document.createElement('div');
     divider.className = 'ua-divider';
     container.appendChild(divider);
@@ -277,7 +305,7 @@
     if (!uaMenu) return;
     uaMenu.innerHTML = '';
 
-    // Sticky selected members (green chips with removable X) always at the top
+    // Sticky selected members (vertical, full width)
     uaRenderStickyChips(uaMenu);
 
     if (uaFiltered.length === 0) {
