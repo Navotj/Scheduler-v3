@@ -18,12 +18,10 @@
   --filter-label-color: var(--fg-1, #b6bfd4);
 
   /* Legend */
-  --legend-gap: 4px;          /* gap between chips/labels */
+  --legend-gap: 4px;          /* gap between cells */
   --legend-label-fs: 12px;
-  --legend-chip-h: 10px;
   --legend-chip-br: 6px;
   --legend-min-w: 10ch;
-
 }
 
 /* Short username field and compact Add button (matcher-only elements) */
@@ -72,20 +70,51 @@ input[type="number"]::-webkit-inner-spin-button{ -webkit-appearance:none; margin
   margin: 0;
 }
 
-/* Legend blocks (compact, two-row) */
-.legend-field{ position:relative; display:inline-flex; align-items:stretch; height:var(--ctrl-h); }
-.legend-field > label{ position:absolute; bottom:calc(100% + 2px); left:0; }
+/* ===== Legend (compact 2-row, 6-column table) ===== */
+.legend-field{
+  position:relative;
+  display:inline-flex;
+  align-items:stretch;
+  height:var(--ctrl-h);
+}
+.legend-field > label{
+  position:absolute;
+  bottom:calc(100% + 2px);
+  left:0;
+}
+
 .legend-blocks{
   display:grid;
-  grid-template-rows: 1fr 1fr; /* chips row + numbers row */
+  grid-template-rows: 1fr auto;                 /* colors row + numbers row */
+  grid-template-columns: repeat(6, 1fr);        /* always 6 columns */
   gap: var(--legend-gap);
-  height:100%;
-  min-width: var(--legend-min-w);
+  height: 100%;                                 /* match control height */
+  min-width: calc(6 * 22px);                    /* avoid collapsing too small */
 }
-.legend-blocks .steps-row{ display:grid; grid-auto-flow:column; gap: var(--legend-gap); align-items:start; }
-.legend-blocks .labels-row{ display:grid; grid-auto-flow:column; gap:6px; align-items:end; font-size: var(--legend-label-fs); line-height:1; }
-.legend-blocks .chip{ width:100%; height: var(--legend-chip-h); border-radius: var(--legend-chip-br); border:1px solid var(--border,#1a1c20); }
-.legend-blocks .spacer{ visibility:hidden; }
+
+.legend-blocks .color-cell{
+  width: 100%;
+  height: 100%;
+  border-radius: var(--legend-chip-br);
+  border:1px solid var(--border,#1a1c20);
+  grid-row: 1 / 2;                              /* top row */
+}
+
+.legend-blocks .num-cell{
+  grid-row: 2 / 3;                               /* bottom row */
+  text-align: center;
+  font-size: var(--legend-label-fs);
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.legend-blocks .empty{
+  background: transparent !important;
+  border-color: transparent !important;
+}
+.legend-blocks .num-cell.empty{
+  visibility: hidden;
+}
 
 /* Inline error hidden (use toast) */
 #member-error{ display:none !important; }

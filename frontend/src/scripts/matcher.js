@@ -315,7 +315,9 @@
   }
 
   function applyFilterDimming() {
-    const maxMissing = parseInt(document.getElementById('max-missing').value || '0', 10);
+    const maxMissingEl = document.getElementById('max-missing');
+    if (maxMissingEl) enforceMaxMissingLimit();
+    const maxMissing = parseInt((maxMissingEl && maxMissingEl.value) || '0', 10);
     const minHours = parseFloat(document.getElementById('min-hours').value || '1');
     const needed = Math.max(0, totalMembers - maxMissing);
     const minSlots = Math.max(1, Math.ceil(minHours * SLOTS_PER_HOUR));
@@ -349,61 +351,56 @@
     const blocks = document.getElementById('legend-blocks');
     if (!blocks) return;
 
-    const n = members.length;
-    const chips = [];
-    document.documentElement.classList.toggle('compress-low', n >= 11);
+    const n = totalMembers;
+    const MAX_COLS = 6;
 
-    if (n >= 11) {
-      const threshold = Math.max(0, n - 10);
-      chips.push({ raw: 0, label: `≤${threshold}` });
-      for (let i = threshold + 1; i <= n; i++) chips.push({ raw: i, label: String(i) });
+    // Determine which values to display
+    const values = [];
+    if (n + 1 <= MAX_COLS) {
+      // 0..n, then pad with empty to reach 6
+      for (let i = 0; i <= n; i++) values.push(i);
+      while (values.length < MAX_COLS) values.push(null);
     } else {
-      for (let i = 0; i <= n; i++) chips.push({ raw: i, label: String(i) });
+      // Highest six: n-5..n
+      for (let v = n - (MAX_COLS - 1); v <= n; v++) values.push(v);
     }
 
+    // Leftmost aggregation: when we show n-5..n and n>=5, the first column (values[0])
+    // represents 0..values[0] and should use the "zero" color.
+    const aggregateLeftVal = (n + 1 > MAX_COLS) ? values[0] : null;
+
+    // Build grid (2 rows x 6 cols)
     blocks.innerHTML = '';
-    const COLS = 5;
+    blocks.className = 'legend-blocks';
 
-    for (let i = 0; i < chips.length; i += COLS) {
-      const group = chips.slice(i, i + COLS);
-
-      const stepsRow = document.createElement('div');
-      stepsRow.className = 'steps-row';
-
-      const labelsRow = document.createElement('div');
-      labelsRow.className = 'labels-row';
-
-      for (const item of group) {
-        const chip = document.createElement('div');
-        chip.className = 'chip slot-cell';
-        chip.style.setProperty('background-color', shadeForCount(item.raw), 'important');
-
-        if (n >= 11) {
-          const threshold = Math.max(0, n - 10);
-          chip.dataset.c = (item.raw <= threshold) ? '0' : '7';
-        } else {
-          chip.dataset.c = item.raw > 0 ? '7' : '0';
-        }
-
-        stepsRow.appendChild(chip);
-
-        const lab = document.createElement('span');
-        lab.textContent = item.label;
-        labelsRow.appendChild(lab);
+    // Colors row
+    for (let i = 0; i < MAX_COLS; i++) {
+      const val = values[i];
+      const cell = document.createElement('div');
+      cell.className = 'color-cell';
+      if (val === null) {
+        cell.classList.add('empty');
+      } else {
+        const color = (aggregateLeftVal !== null && val === aggregateLeftVal)
+          ? shadeForCount(0)           // aggregated bucket "0..k" uses zero color (black)
+          : shadeForCount(val);        // normal bucket color
+        cell.style.setProperty('background-color', color, 'important');
       }
+      blocks.appendChild(cell);
+    }
 
-      for (let f = group.length; f < COLS; f++) {
-        const spacerChip = document.createElement('div');
-        spacerChip.className = 'chip spacer';
-        stepsRow.appendChild(spacerChip);
-
-        const spacerLab = document.createElement('span');
-        spacerLab.className = 'spacer';
-        labelsRow.appendChild(spacerLab);
+    // Numbers row
+    for (let i = 0; i < MAX_COLS; i++) {
+      const val = values[i];
+      const lab = document.createElement('div');
+      lab.className = 'num-cell';
+      if (val === null) {
+        lab.classList.add('empty');
+        lab.textContent = '';
+      } else {
+        lab.textContent = String(val);
       }
-
-      blocks.appendChild(stepsRow);
-      blocks.appendChild(labelsRow);
+      blocks.appendChild(lab);
     }
   }
 
@@ -711,6 +708,13 @@
     }
   }
 
+  function buildDiscordInvite(s) {
+    // Keep previous behavior (unchanged)
+    const head = fmtRangeSec(s.start, s.end);
+    const list = s.users.join(', ');
+    return `**Session window:** ${head}\n**Participants (${s.participants}/${totalMembers}):** ${list}`;
+  }
+
   function highlightRangeGlobal(gStart, gEnd, on) {
     for (let g = gStart; g < gEnd; g++) {
       const day = Math.floor(g / ROWS_PER_DAY);
@@ -760,6 +764,7 @@
       totalMembers = 0;
       paintCounts();
       shadePast();
+      enforceMaxMissingLimit();
       applyFilterDimming();
       updateLegend();
       findCandidates();
@@ -806,6 +811,7 @@
     }
     totalMembers = members.length;
 
+    enforceMaxMissingLimit();
     paintCounts();
     shadePast();
     applyFilterDimming();
@@ -832,6 +838,7 @@
       if (!members.includes(currentUsername)) {
         members.push(currentUsername);
         renderMembers();
+        enforceMaxMissingLimit();
       }
       fetchMembersAvail();
     }
@@ -843,7 +850,11 @@
 
     setInterval(updateNowMarker, 30000);
 
-    document.getElementById('max-missing').addEventListener('input', () => { applyFilterDimming(); findCandidates(); });
+    document.getElementById('max-missing').addEventListener('input', () => {
+      enforceMaxMissingLimit();
+      applyFilterDimming();
+      findCandidates();
+    });
     document.getElementById('min-hours').addEventListener('input', () => { applyFilterDimming(); findCandidates(); });
     document.getElementById('sort-method').addEventListener('change', () => { findCandidates(); });
 
@@ -909,6 +920,7 @@
       members.push(name);
       input.value = '';
       renderMembers();
+      enforceMaxMissingLimit();
       await fetchMembersAvail();
     } finally {
       __addingUser = false;
@@ -922,6 +934,7 @@
       if (!currentUsername) { setMemberError('Please login first.'); return; }
       if (!members.includes(currentUsername)) members.push(currentUsername);
       renderMembers();
+      enforceMaxMissingLimit();
       await fetchMembersAvail();
     } finally {
       __addingMe = false;
@@ -933,6 +946,18 @@
       const raw = localStorage.getItem('nat20_settings');
       return raw ? JSON.parse(raw) : null;
     } catch { return null; }
+  }
+
+  function enforceMaxMissingLimit() {
+    const el = document.getElementById('max-missing');
+    if (!el) return;
+    const currentPlayers = totalMembers || members.length || 0;
+    const maxAllowed = Math.max(0, currentPlayers - 1);
+    el.max = String(maxAllowed);
+    let val = parseInt((el.value || '0'), 10);
+    if (Number.isNaN(val)) val = 0;
+    if (val > maxAllowed) el.value = String(maxAllowed);
+    if (val < 0) el.value = '0';
   }
 
   async function init() {
@@ -956,6 +981,7 @@
 
     buildTable();
     attachHandlers();
+    enforceMaxMissingLimit();
 
     // Detect auth via existing allowlisted endpoint and auto-add current user
     try {
@@ -991,6 +1017,7 @@
     if (idx >= 0) {
       members.splice(idx, 1);
       renderMembers();
+      enforceMaxMissingLimit();
       fetchMembersAvail();
     }
   }
