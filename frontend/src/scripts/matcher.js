@@ -938,6 +938,31 @@
 
     buildTable();
     attachHandlers();
+
+    // Proactively detect the logged-in user and auto-add them (in case auth.js hasn't called setAuth yet)
+    try {
+      const endpoints = [
+        `${window.API_BASE_URL}/auth/me`,
+        `${window.API_BASE_URL}/users/me`
+      ];
+      for (const url of endpoints) {
+        try {
+          const res = await fetch(url, { credentials: 'include', cache: 'no-cache' });
+          if (!res.ok) continue;
+          const data = await res.json();
+          // Support a few common shapes
+          const obj = (data && (data.user || data.me || data.account)) || data || {};
+          const uname = (typeof obj.username === 'string' && obj.username.trim())
+            ? obj.username.trim()
+            : (typeof obj.name === 'string' && obj.name.trim() ? obj.name.trim() : null);
+          if (uname) {
+            setAuth(true, uname);
+            break;
+          }
+        } catch {}
+      }
+    } catch {}
+
     await fetchMembersAvail();
   }
 
