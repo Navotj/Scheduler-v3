@@ -725,29 +725,15 @@
       el.classList.remove('is-error');
       el.setAttribute('aria-hidden', 'true');
     }
-    if (msg) showToast(msg, 'error');
-  }
-
-  function renderMembers() {
-    const ul = document.getElementById('member-list');
-    if (!ul) { updateLegend(); return; }
-    ul.innerHTML = '';
-    for (const name of members) {
-      const li = document.createElement('li');
-      const txt = document.createElement('div');
-      txt.textContent = name;
-      const btn = document.createElement('button');
-      btn.textContent = 'Remove';
-      btn.addEventListener('click', async () => {
-        members = members.filter(u => u !== name);
-        renderMembers();
-        await fetchMembersAvail();
-      });
-      li.appendChild(txt);
-      li.appendChild(btn);
-      ul.appendChild(li);
+    if (msg) {
+      if (typeof shared !== 'undefined' && typeof shared.showToast === 'function') {
+        shared.showToast(msg, 'error');
+      } else if (typeof window !== 'undefined' && typeof window.showToast === 'function') {
+        window.showToast(msg, 'error');
+      } else {
+        console.error('[toast]', msg);
+      }
     }
-    updateLegend();
   }
 
   async function fetchMembersAvail() {
