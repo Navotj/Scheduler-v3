@@ -939,29 +939,25 @@
     buildTable();
     attachHandlers();
 
-    // Proactively detect the logged-in user and auto-add them (in case auth.js hasn't called setAuth yet)
+    // Detect auth via existing allowlisted endpoint and auto-add current user
     try {
-      const endpoints = [
-        `${window.API_BASE_URL}/auth/me`,
-        `${window.API_BASE_URL}/users/me`
-      ];
-      for (const url of endpoints) {
-        try {
-          const res = await fetch(url, { credentials: 'include', cache: 'no-cache' });
-          if (!res.ok) continue;
-          const data = await res.json();
-          // Support a few common shapes
-          const obj = (data && (data.user || data.me || data.account)) || data || {};
-          const uname = (typeof obj.username === 'string' && obj.username.trim())
-            ? obj.username.trim()
-            : (typeof obj.name === 'string' && obj.name.trim() ? obj.name.trim() : null);
-          if (uname) {
-            setAuth(true, uname);
-            break;
-          }
-        } catch {}
+      const url = `${window.API_BASE_URL}/auth/check`;
+      const res = await fetch(url, { credentials: 'include', cache: 'no-store' });
+      if (res.ok) {
+        const data = await res.json();
+        const obj = (data && (data.user || data.me || data.account)) || data || {};
+        let uname = null;
+        if (typeof obj.username === 'string' && obj.username.trim()) uname = obj.username.trim();
+        else if (typeof data.username === 'string' && data.username.trim()) uname = data.username.trim();
+
+        const isAuthedFlag = (data && (data.authenticated === true || data.isAuthenticated === true)) || !!uname;
+        setAuth(!!isAuthedFlag, uname || null);
+      } else if (res.status === 401) {
+        setAuth(false, null);
       }
-    } catch {}
+    } catch {
+      // leave unauthenticated if the check fails
+    }
 
     await fetchMembersAvail();
   }
