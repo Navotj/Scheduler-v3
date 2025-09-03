@@ -32,4 +32,21 @@
       (window.adsbygoogle = window.adsbygoogle || []).push({});
     })();
   </script>
+  <script>
+  (function enforceShellHeight() {
+    function placeLast() {
+      var head = document.head || document.documentElement;
+      var s = document.getElementById('force-shell-height');
+      if (s && s.parentNode) s.parentNode.removeChild(s);
+      s = document.createElement('style');
+      s.id = 'force-shell-height';
+      s.textContent = 'body > .shell{height:100% !important;min-height:100dvh !important}';
+      head.appendChild(s);
+    }
+    // Place now, and again after common async ad injections
+    placeLast();
+    [200, 1000, 3000].forEach(t => setTimeout(placeLast, t));
+  })();
+</script>
+
 </aside>
