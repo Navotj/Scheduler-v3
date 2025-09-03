@@ -185,6 +185,8 @@ h1,h2,h3,p{margin:0}
   padding:var(--gap-lg);
   height:100%;        /* match layout block-size */
   min-height:0;       /* avoid overflow from auto min-size */
+  min-width:0;        /* allow grid item to shrink below intrinsic ad width */
+  contain:inline-size;/* prevent ad intrinsic width from influencing siblings */
   overflow:auto;      /* scroll internally if content exceeds */
 }
 
@@ -337,5 +339,5 @@ h1,h2,h3,p{margin:0}
 
 /* --- ads: rail behavior --- */
 .rail[data-ads-ok="1"] .support-card { display: none; } /* keep fallback visible when blocked */
-.rail-slot { display: grid; place-items: center; }
-.rail-slot .adsbygoogle { display: block; width: 100%; }
+.rail-slot { display: grid; place-items: center; overflow: hidden; }
+.rail-slot .adsbygoogle { display: block; width: 100% !important; max-width: 100% !important; height: auto !important; box-sizing: border-box; }

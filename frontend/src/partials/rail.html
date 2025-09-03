@@ -26,10 +26,13 @@
       }
 
       function checkRendered(){
+        var rail = document.querySelector('.rail');
         var ins = rail && rail.querySelector('ins.adsbygoogle');
         if (!ins) return;
-        if (ins.querySelector('iframe') || ins.clientHeight > 0) {
-          rail && rail.setAttribute('data-ads-ok','1'); // hide fallback card only if an ad rendered
+        /* Only hide fallback after the actual ad iframe exists */
+        var hasAdIframe = !!ins.querySelector('iframe[src*="googleads"][src*="ads"]');
+        if (hasAdIframe) {
+          rail.setAttribute('data-ads-ok','1');
         }
       }
 
