@@ -1,52 +1,13 @@
 <aside class="rail" aria-label="Support rail">
   <section class="support-card" aria-labelledby="support-title">
     <h2 id="support-title">support hosting</h2>
-    <p>help cover aws costs. When blocked, this stays visible instead.</p>
+    <p>help cover aws costs. if you block ads, this stays visible instead.</p>
     <div class="support-actions">
       <a class="btn" href="/support.html">learn more</a>
     </div>
   </section>
 
-  <section class="rail-slot" aria-label="rail unit">
-    <div class="ad-wrap">
-      <ins class="adsbygoogle"
-           style="display:block"
-           data-ad-client="ca-pub-6755507449793087"
-           data-ad-slot="REPLACE_WITH_SLOT_ID"
-           data-ad-format="auto"
-           data-full-width-responsive="true"></ins>
-    </div>
+  <section class="ad-slot" aria-label="ad unit">
+    <!-- third-party ad unit can mount here -->
   </section>
 </aside>
-
-<script>
-(function(){
-  var rail = document.querySelector('.rail');
-
-  function pushAd() {
-    try { (window.adsbygoogle = window.adsbygoogle || []).push({}); } catch(e) {}
-    setTimeout(checkRendered, 1200);
-  }
-
-  function checkRendered(){
-    if (!rail) return;
-    var ins = rail.querySelector('ins.adsbygoogle');
-    if (!ins) return;
-    var hasAdIframe = !!ins.querySelector('iframe[src*="googleads"]');
-    if (hasAdIframe) {
-      rail.setAttribute('data-ads-ok','1'); // hide fallback only after a real ad is present
-    }
-  }
-
-  if (!document.querySelector('script[src*="pagead2.googlesyndication.com/pagead/js/adsbygoogle.js"]')) {
-    var s = document.createElement('script');
-    s.async = true;
-    s.src = "https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-6755507449793087";
-    s.crossOrigin = "anonymous";
-    s.onload = pushAd;
-    document.head.appendChild(s);
-  } else {
-    pushAd();
-  }
-})();
-</script>
