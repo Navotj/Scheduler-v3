@@ -338,6 +338,8 @@ h1,h2,h3,p{margin:0}
 }
 
 /* --- ads: rail behavior --- */
-.rail[data-ads-ok="1"] .support-card { display: none; } /* keep fallback visible when blocked */
-.rail-slot { display: grid; place-items: start stretch; overflow: hidden; }
-.rail-slot .adsbygoogle { display: block; width: 100% !important; max-width: 100% !important; height: auto !important; box-sizing: border-box; }
+/* --- ads: isolate rail height so contents can't resize the page --- */
+.rail{ display:grid; grid-template-rows:auto 1fr; }     /* top: fallback, bottom: slot fills rest */
+.rail-slot{ min-height:0; }                              /* allow 1fr child to actually shrink */
+.rail-slot .ad-wrap{ height:100%; width:100%; overflow:auto; }  /* scroll ad if it exceeds slot */
+.rail-slot .adsbygoogle{ display:block; width:100% !important; max-width:100% !important; max-height:100% !important; }
