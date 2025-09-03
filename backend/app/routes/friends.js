@@ -1,15 +1,14 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const User = require('../models/user');
-const Friendship = require('../models/friendship');
+const FriendList = require('../models/friend_list');
 const FriendRequest = require('../models/friend_request');
 const Block = require('../models/block');
 
 const router = express.Router();
 
-/**
- * Resolve the authenticated user id from common locations.
- */
+/* ====================== helpers ====================== */
+
 function getAuthedUserId(req) {
   return (
     (req.user && (req.user._id || req.user.id)) ||
@@ -21,39 +20,22 @@ function getAuthedUserId(req) {
   );
 }
 
-/**
- * Username-only validation for any friend/block operations.
- * EMAILS ARE FOR AUTH ONLY. Under no circumstance should they be used here.
- */
 const USERNAME_RE = /^[a-zA-Z0-9._-]{3,20}$/;
 
-/**
- * Validate an incoming user identifier.
- * Accepts:
- *  - body.userId: ObjectId string
- *  - body.username or body.target: *username only* (3-20 chars a-z A-Z 0-9 . _ -)
- *    If a string contains '@' or fails the regex, treat as not found.
- */
+// Username-only resolution; emails forbidden.
+// Case-insensitive exact match using collation strength:2.
 async function resolveTargetUser(body) {
-  const USERNAME_RE = /^[a-zA-Z0-9._-]{3,20}$/;
-
   if (body.userId && mongoose.isValidObjectId(body.userId)) {
     return User.findById(body.userId).exec();
   }
-
   const s = (body.username ?? body.target ?? '').trim();
   if (!s || s.includes('@') || !USERNAME_RE.test(s)) return null;
 
-  // Case-insensitive exact match (emails are NOT allowed here)
-  // strength:2 = case-insensitive, diacritic-sensitive
   return User.findOne({ username: s })
     .collation({ locale: 'en', strength: 2 })
     .exec();
 }
 
-/**
- * Check if either direction of block exists between A and B.
- */
 async function isBlockedEitherWay(aId, bId) {
   const [ab, ba] = await Promise.all([
     Block.findOne({ blocker: aId, blocked: bId }).lean().exec(),
@@ -62,17 +44,30 @@ async function isBlockedEitherWay(aId, bId) {
   return Boolean(ab || ba);
 }
 
-/**
- * Get existing friendship doc (if any) between two users.
- */
-async function findFriendship(aId, bId) {
-  const [u1, u2] = Friendship.normalizePair(aId, bId);
-  return Friendship.findOne({ u1, u2 }).exec();
+// Ensure a friend list doc exists for userId, return it (lean if requested)
+async function ensureFriendList(userId) {
+  await FriendList.updateOne(
+    { user: userId },
+    { $setOnInsert: { user: userId, friends: [] } },
+    { upsert: true }
+  ).exec();
+  return FriendList.findOne({ user: userId }).exec();
 }
 
-/**
- * Require auth middleware (non-opinionated).
- */
+async function addFriends(aId, bId) {
+  await Promise.all([
+    FriendList.updateOne({ user: aId }, { $addToSet: { friends: bId } }, { upsert: true }).exec(),
+    FriendList.updateOne({ user: bId }, { $addToSet: { friends: aId } }, { upsert: true }).exec(),
+  ]);
+}
+
+async function removeFriends(aId, bId) {
+  await Promise.all([
+    FriendList.updateOne({ user: aId }, { $pull: { friends: bId } }).exec(),
+    FriendList.updateOne({ user: bId }, { $pull: { friends: aId } }).exec(),
+  ]);
+}
+
 function requireAuth(req, res, next) {
   const uid = getAuthedUserId(req);
   if (!uid) return res.status(401).json({ ok: false, error: 'unauthorized' });
@@ -80,27 +75,26 @@ function requireAuth(req, res, next) {
   next();
 }
 
+/* ====================== routes ====================== */
+
 /**
  * GET /friends/list
- * Return ONLY { id, username } for each friend. Never include email here.
+ * Return ONLY { id, username } for each friend.
  */
 router.get('/list', requireAuth, async (req, res) => {
   try {
     const myId = new mongoose.Types.ObjectId(req.authedUserId);
-    const frs = await Friendship.find({ $or: [{ u1: myId }, { u2: myId }] })
-      .lean()
-      .exec();
+    const fl = await FriendList.findOne({ user: myId }).lean().exec();
+    const ids = (fl?.friends || []).map((x) => new mongoose.Types.ObjectId(x));
 
-    const otherIds = frs.map((f) => (f.u1.toString() === myId.toString() ? f.u2 : f.u1));
-    if (otherIds.length === 0) return res.json({ ok: true, friends: [] });
+    if (ids.length === 0) return res.json({ ok: true, friends: [] });
 
-    const users = await User.find({ _id: { $in: otherIds } }, { username: 1 }).lean().exec();
-    const usersMap = new Map(users.map((u) => [u._id.toString(), u]));
+    const users = await User.find({ _id: { $in: ids } }, { username: 1 }).lean().exec();
+    const map = new Map(users.map((u) => [u._id.toString(), u.username ?? null]));
 
-    const friends = otherIds
-      .map((oid) => usersMap.get(oid.toString()))
-      .filter(Boolean)
-      .map((u) => ({ id: u._id, username: u.username ?? null }));
+    const friends = ids
+      .map((id) => ({ id, username: map.get(id.toString()) }))
+      .filter((x) => x.username !== undefined && x.username !== null);
 
     res.json({ ok: true, friends });
   } catch (err) {
@@ -110,7 +104,6 @@ router.get('/list', requireAuth, async (req, res) => {
 
 /**
  * GET /friends/requests
- * List incoming and outgoing pending friend requests for authed user.
  * Only { id, username } are returned. No emails ever.
  */
 router.get('/requests', requireAuth, async (req, res) => {
@@ -152,14 +145,6 @@ router.get('/requests', requireAuth, async (req, res) => {
 /**
  * POST /friends/request
  * Body: { userId?: string, username?: string, target?: string }
- * Behavior:
- *  - Username-only (or userId). Any string with '@' is rejected as not found.
- *  - If target has a pending request to me, auto-accept (create friendship & delete pending).
- *  - If already friends -> "user is already in friend list"
- *  - If blocked either way -> "user not found"
- *  - If my pending to target exists -> "already have pending request to user"
- *  - If target is me -> "cannot add yourself"
- *  - Else create pending -> "request sent"
  */
 router.post('/request', requireAuth, async (req, res) => {
   try {
@@ -168,50 +153,40 @@ router.post('/request', requireAuth, async (req, res) => {
 
     const targetUser = await resolveTargetUser(req.body);
     if (!targetUser) return res.json({ ok: true, message: 'user not found' });
+
     const targetId = targetUser._id;
     const targetStr = targetId.toString();
     if (meStr === targetStr) return res.json({ ok: true, message: 'cannot add yourself' });
 
-    // Blocks hide existence
     if (await isBlockedEitherWay(myId, targetId)) {
       return res.json({ ok: true, message: 'user not found' });
     }
 
     // Already friends?
-    const existingFriendship = await findFriendship(myId, targetId);
-    if (existingFriendship) {
+    const myList = await ensureFriendList(myId);
+    if (myList.friends.some((f) => f.toString() === targetStr)) {
       return res.json({ ok: true, message: 'user is already in friend list' });
     }
 
-    // Does target already have a pending request to me? -> auto-accept
+    // Reciprocal pending? -> auto-accept
     const reciprocal = await FriendRequest.findOne({ from: targetId, to: myId }).exec();
     if (reciprocal) {
-      const [u1, u2] = Friendship.normalizePair(myId, targetId);
-      await Friendship.updateOne(
-        { u1, u2 },
-        { $setOnInsert: { u1, u2, since: new Date() } },
-        { upsert: true }
-      ).exec();
-
-      // Clean up both directions if any
+      await addFriends(myId, targetId);
       await Promise.all([
         FriendRequest.deleteOne({ from: targetId, to: myId }).exec(),
         FriendRequest.deleteOne({ from: myId, to: targetId }).exec(),
       ]);
-
       return res.json({ ok: true, message: 'friend added' });
     }
 
-    // Do I already have a pending to target?
+    // Outgoing already exists?
     const mine = await FriendRequest.findOne({ from: myId, to: targetId }).exec();
     if (mine) return res.json({ ok: true, message: 'already have pending request to user' });
 
-    // Create new pending
     await FriendRequest.create({ from: myId, to: targetId });
     return res.json({ ok: true, message: 'request sent' });
   } catch (err) {
     if (err?.code === 11000) {
-      // Unique collision on (from,to) -> treat as already pending
       return res.json({ ok: true, message: 'already have pending request to user' });
     }
     return res.status(500).json({ ok: false, error: 'internal' });
@@ -221,7 +196,6 @@ router.post('/request', requireAuth, async (req, res) => {
 /**
  * POST /friends/accept
  * Body: { userId?: string, username?: string, target?: string }
- * Accept a pending request FROM that user TO me.
  */
 router.post('/accept', requireAuth, async (req, res) => {
   try {
@@ -232,7 +206,6 @@ router.post('/accept', requireAuth, async (req, res) => {
       return res.json({ ok: true, message: 'cannot accept yourself' });
     }
 
-    // Ensure a pending exists from fromUser -> me
     const pending = await FriendRequest.findOne({ from: fromUser._id, to: myId }).exec();
     if (!pending) return res.json({ ok: true, message: 'user not found' });
 
@@ -241,13 +214,7 @@ router.post('/accept', requireAuth, async (req, res) => {
       return res.json({ ok: true, message: 'user not found' });
     }
 
-    const [u1, u2] = Friendship.normalizePair(myId, fromUser._id);
-    await Friendship.updateOne(
-      { u1, u2 },
-      { $setOnInsert: { u1, u2, since: new Date() } },
-      { upsert: true }
-    ).exec();
-
+    await addFriends(myId, fromUser._id);
     await Promise.all([
       FriendRequest.deleteOne({ _id: pending._id }).exec(),
       FriendRequest.deleteOne({ from: myId, to: fromUser._id }).exec(),
@@ -262,7 +229,6 @@ router.post('/accept', requireAuth, async (req, res) => {
 /**
  * POST /friends/decline
  * Body: { userId?: string, username?: string, target?: string }
- * Decline a pending request FROM that user TO me.
  */
 router.post('/decline', requireAuth, async (req, res) => {
   try {
@@ -286,7 +252,6 @@ router.post('/decline', requireAuth, async (req, res) => {
 /**
  * POST /friends/cancel
  * Body: { userId?: string, username?: string, target?: string }
- * Cancel my outgoing pending request TO that user.
  */
 router.post('/cancel', requireAuth, async (req, res) => {
   try {
@@ -310,7 +275,6 @@ router.post('/cancel', requireAuth, async (req, res) => {
 /**
  * POST /friends/remove
  * Body: { userId?: string, username?: string, target?: string }
- * Remove friendship (both sides).
  */
 router.post('/remove', requireAuth, async (req, res) => {
   try {
@@ -321,11 +285,7 @@ router.post('/remove', requireAuth, async (req, res) => {
       return res.json({ ok: true, message: 'cannot remove yourself' });
     }
 
-    const [u1, u2] = Friendship.normalizePair(myId, user._id);
-    const out = await Friendship.deleteOne({ u1, u2 }).exec();
-    if (out.deletedCount === 0) {
-      return res.json({ ok: true, message: 'user not found' });
-    }
+    await removeFriends(myId, user._id);
     return res.json({ ok: true, message: 'removed' });
   } catch (err) {
     return res.status(500).json({ ok: false, error: 'internal' });
@@ -335,7 +295,7 @@ router.post('/remove', requireAuth, async (req, res) => {
 /**
  * POST /friends/block
  * Body: { userId?: string, username?: string, target?: string }
- * Create a block (me -> user). Also removes friendship and pending requests both ways.
+ * Also removes friendship and pending requests both ways.
  */
 router.post('/block', requireAuth, async (req, res) => {
   try {
@@ -352,9 +312,8 @@ router.post('/block', requireAuth, async (req, res) => {
       { upsert: true }
     ).exec();
 
-    const [u1, u2] = Friendship.normalizePair(myId, user._id);
     await Promise.all([
-      Friendship.deleteOne({ u1, u2 }).exec(),
+      removeFriends(myId, user._id),
       FriendRequest.deleteOne({ from: myId, to: user._id }).exec(),
       FriendRequest.deleteOne({ from: user._id, to: myId }).exec(),
     ]);
@@ -371,7 +330,6 @@ router.post('/block', requireAuth, async (req, res) => {
 /**
  * POST /friends/unblock
  * Body: { userId?: string, username?: string, target?: string }
- * Remove a block (me -> user).
  */
 router.post('/unblock', requireAuth, async (req, res) => {
   try {
