@@ -46,7 +46,7 @@ h1,h2,h3,p{margin:0}
 :focus-visible{box-shadow:0 0 0 3px var(--ring); border-radius:8px}
 
 .shell{
-  height:100dvh; /* lock overall shell to viewport height */
+  height:100% !important; /* lock overall shell to viewport height */
   display:grid;
   grid-template-rows:var(--topbar-h) 1fr;
   background:linear-gradient(180deg,var(--bg-1) 0%, var(--bg-0) 100%);
