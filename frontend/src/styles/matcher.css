@@ -8,8 +8,8 @@
 :root{
   /* Field widths */
   --mmw: 6.5ch;               /* width for #max-missing / #min-hours */
-  --username-w: 12ch;         /* #add-username width */
-  --username-min-w: 10ch;     /* #add-username min-width */
+  --username-w: 16ch;         /* #add-username width */
+  --username-min-w: 12ch;     /* #add-username min-width */
   --add-btn-xpad: 8px;        /* #add-user-btn horizontal padding */
 
   /* Filter label text */

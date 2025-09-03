@@ -15,26 +15,34 @@
         display:none;cursor:default
       }
       .ua-menu[data-open="1"]{display:block}
+
+      /* suggestion rows */
       .ua-option{
-        width:100%;box-sizing:border-box;padding:6px 10px;border-radius:8px;
-        cursor:default;white-space:nowrap;font-size:14px;line-height:1.2
+        display:block;width:100%;box-sizing:border-box;
+        padding:8px 14px;border-radius:8px;
+        cursor:default;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+        font-size:14px;line-height:1.2
       }
       .ua-option:hover{background:var(--card,#141820)}
       .ua-option[aria-selected="true"]{outline:1px solid var(--ring,#3a78ff);background:var(--card,#141820)}
-      .ua-empty{padding:6px 10px;color:var(--fg-2,#8b95ae);font-size:13px}
+      .ua-empty{padding:8px 14px;color:var(--fg-2,#8b95ae);font-size:13px}
 
       /* STICKY SELECTED (vertical, full width) */
       .ua-sticky-wrap{display:block;margin:2px 2px 6px 2px}
       .ua-chip{
-        display:flex;align-items:center;justify-content:space-between;gap:10px;
+        display:flex;align-items:center;gap:10px;
         width:100%;box-sizing:border-box;
         background:#164a2e;color:#d2f8e1;border:1px solid #2e7d32;border-radius:8px;
-        padding:8px 10px;margin:0 0 6px 0;
+        padding:8px 12px;margin:0 0 6px 0;
         font-size:13px;line-height:1;user-select:none;cursor:default
       }
-      .ua-chip-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      .ua-chip-label{
+        flex:1 1 auto;min-width:0; /* allows proper ellipsis */
+        overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+      }
       .ua-chip-x{
-        flex:0 0 auto;font-size:16px;line-height:1;color:#d2f8e1;cursor:pointer
+        flex:0 0 auto;margin-left:auto;
+        font-size:16px;line-height:1;color:#d2f8e1;cursor:pointer
       }
       .ua-divider{height:1px;background:var(--border,#1a1c20);margin:4px 0}
     `;
@@ -210,7 +218,7 @@
     uaMenu.style.top = `${Math.max(4, top)}px`;
     uaMenu.style.left = `${left}px`;
 
-    // Conform exactly to the input width to avoid visual jumps/expansion
+    // Conform to the input width exactly (prevents odd padding/overflow mismatches)
     uaMenu.style.width = `${r.width}px`;
     uaMenu.style.maxWidth = `${r.width}px`;
     uaMenu.style.minWidth = `${r.width}px`;
@@ -234,6 +242,7 @@
     opt.className = 'ua-option';
     opt.setAttribute('role', 'option');
     opt.setAttribute('data-index', String(idx));
+    opt.setAttribute('title', name);
     opt.textContent = name;
     opt.addEventListener('mouseenter', () => uaSetActiveIndex(idx, true));
     opt.addEventListener('mousedown', (ev) => { ev.preventDefault(); });
@@ -275,6 +284,7 @@
       const label = document.createElement('span');
       label.className = 'ua-chip-label';
       label.textContent = uname;
+      label.title = uname;
 
       const close = document.createElement('span');
       close.className = 'ua-chip-x';
