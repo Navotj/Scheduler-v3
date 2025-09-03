@@ -8,6 +8,42 @@
   </section>
 
   <section class="rail-slot" aria-label="rail unit">
-    <!-- third-party rail unit can mount here -->
+    <!-- Google AdSense: rail unit -->
+    <ins class="adsbygoogle"
+        style="display:block"
+        data-ad-client="ca-pub-6755507449793087"
+        data-ad-slot="5902965618"
+        data-ad-format="auto"
+        data-full-width-responsive="true"></ins>
+
+    <script>
+    (function(){
+      var rail = document.currentScript.closest('.rail') || document.querySelector('.rail');
+
+      function pushAd() {
+        try { (window.adsbygoogle = window.adsbygoogle || []).push({}); } catch(e) {}
+        setTimeout(checkRendered, 1500);
+      }
+
+      function checkRendered(){
+        var ins = rail && rail.querySelector('ins.adsbygoogle');
+        if (!ins) return;
+        if (ins.querySelector('iframe') || ins.clientHeight > 0) {
+          rail && rail.setAttribute('data-ads-ok','1'); // hide fallback card only if an ad rendered
+        }
+      }
+
+      if (!document.querySelector('script[src*="pagead2.googlesyndication.com/pagead/js/adsbygoogle.js"]')) {
+        var s = document.createElement('script');
+        s.async = true;
+        s.src = "https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-6755507449793087";
+        s.crossOrigin = "anonymous";
+        s.onload = pushAd;
+        document.head.appendChild(s);
+      } else {
+        pushAd();
+      }
+    })();
+    </script>
   </section>
 </aside>
