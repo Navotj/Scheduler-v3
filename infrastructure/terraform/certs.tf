@@ -2,9 +2,10 @@
 # Viewer cert for CloudFront (us-east-1), WWW ONLY
 ########################################
 resource "aws_acm_certificate" "origin" {
-  provider          = aws.us_east_1
-  domain_name       = local.frontend_hostname
-  validation_method = "DNS"
+  provider                  = aws.us_east_1
+  domain_name               = var.root_domain
+  subject_alternative_names = ["www.${var.root_domain}"]
+  validation_method         = "DNS"
 
   lifecycle {
     create_before_destroy = true
