@@ -594,6 +594,24 @@
     renderResults(finalSessions);
   }
 
+  function renderMembers() {
+    try {
+      // Try common container ids used in the UI; no-op if none exist.
+      const container =
+        document.getElementById('members') ||
+        document.getElementById('members-list') ||
+        document.getElementById('member-list');
+
+      if (!container) return;
+
+      // Minimal rendering: show the current members list as comma-separated text.
+      // Avoid introducing new handlers or dependencies.
+      container.textContent = members.join(', ');
+    } catch {
+      // Silent no-op to ensure this never throws.
+    }
+  }
+
   function renderResults(list) {
     if (!resultsEl) return; // guard if panel not present
     resultsEl.innerHTML = '';
