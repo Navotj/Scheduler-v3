@@ -7,3 +7,21 @@
   <meta name="theme-color" content="#0d1117" />
   <link rel="icon" href="/assets/favicon.ico" />
   <link rel="stylesheet" href="/styles/base.css" />
+  <script async src="https://fundingchoicesmessages.google.com/i/pub-6755507449793087?ers=1"></script>
+  <script>
+    (function() {
+      function signalGooglefcPresent() {
+        if (!window.frames['googlefcPresent']) {
+          if (document.body) {
+            var f = document.createElement('iframe');
+            f.style.display = 'none';
+            f.name = 'googlefcPresent';
+            document.body.appendChild(f);
+          } else {
+            setTimeout(signalGooglefcPresent, 0);
+          }
+        }
+      }
+      signalGooglefcPresent();
+    })();
+  </script>
