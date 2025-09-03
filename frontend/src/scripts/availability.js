@@ -299,7 +299,7 @@
         return;
       }
       markSaved();
-      alert('Saved!');
+      shared.showToast('Saved!', 'success');
     } catch {
       alert('Connection error while saving');
     }
