@@ -45,7 +45,7 @@ h1,h2,h3,p{margin:0}
 :focus{outline:none}
 :focus-visible{box-shadow:0 0 0 3px var(--ring); border-radius:8px}
 
-.layout-shell{
+.shell{
   height:100dvh; /* lock overall shell to viewport height */
   display:grid;
   grid-template-rows:var(--topbar-h) 1fr;
@@ -339,3 +339,8 @@ h1,h2,h3,p{margin:0}
 
 .ad-card .ad-box{display:block;margin:0;padding:0;border:0;width:100%;min-height:120px;isolation:isolate;overflow:hidden}
 .ad-card .ad-box>.adsbygoogle{display:block!important;width:100%!important;margin:0!important;padding:0!important;border:0!important}
+
+html body .shell{
+  height:100% !important;      /* keep your 100% fix */
+  min-height:100dvh;           /* ensure at least viewport height */
+}
