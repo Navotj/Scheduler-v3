@@ -208,7 +208,9 @@ h1,h2,h3,p{margin:0}
   background:rgba(255,255,255,0.02);
   border:1px solid var(--border);
   border-radius:var(--radius-sm);
-  padding:12px;
+  padding:0px;
+  height:100%;
+  width: 100%
 }
 .support-card h2{text-transform:lowercase; font-size:14px; color:var(--fg-1); letter-spacing:.4px}
 .support-card p{font-size:13px; color:var(--fg-1)}
