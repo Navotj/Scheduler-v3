@@ -185,6 +185,8 @@ h1,h2,h3,p{margin:0}
   padding:var(--gap-lg);
   height:100%;        /* match layout block-size */
   min-height:0;       /* avoid overflow from auto min-size */
+  min-width:0;        /* allow grid item to shrink below intrinsic ad width */
+  contain:size;/* prevent ad intrinsic width from influencing siblings */
   overflow:auto;      /* scroll internally if content exceeds */
 }
 
@@ -335,47 +337,9 @@ h1,h2,h3,p{margin:0}
   }
 }
 
-/* === Rail + Layout hardening (AdSense isolation) === */
-
-/* Ensure page structure can occupy full viewport height */
-html, body { height: 100%; }
-.shell { min-height: 100vh; display: flex; flex-direction: column; }
-
-/* Prevent layout from shrinking to rail/ad content; stretch to viewport */
-.layout {
-  min-height: calc(100vh - var(--topbar-h, 0px));
-  align-items: stretch; /* works for both grid and flex containers */
-}
-
-/* Default rail width if not already defined */
-:root { --rail-w: 300px; }
-
-/* Lock the rail column to a fixed track/slot and isolate its content from affecting layout */
-.rail {
-  inline-size: var(--rail-w);
-  max-inline-size: var(--rail-w);
-  flex: 0 0 var(--rail-w);               /* if .layout is flex */
-  align-self: stretch;
-  overflow: hidden;                       /* ad must not spill into layout */
-  contain: size layout paint style;       /* descendants cannot influence outer sizing/paint */
-}
-
-/* If .layout is grid, enforce fixed rail track + remaining main area */
-.layout {
-  grid-template-columns: var(--rail-w) 1fr !important; /* no content-based sizing for rail */
-}
-
-/* Main area must be allowed to shrink its min-content width */
-.main { min-width: 0; }
-
-/* Ads should fill the rail box without changing container size */
-.rail ins.adsbygoogle,
-.rail .adsbygoogle {
-  display: block !important;
-  inline-size: 100% !important;
-  block-size: 100% !important;
-  max-inline-size: 100% !important;
-  max-block-size: 100% !important;
-  margin: 0 !important;
-  padding: 0 !important;
-}
+/* --- ads: rail behavior --- */
+/* --- ads: isolate rail height so contents can't resize the page --- */
+.rail{ display:grid; grid-template-rows:auto 1fr; }     /* top: fallback, bottom: slot fills rest */
+.rail-slot{ min-height:0; }                              /* allow 1fr child to actually shrink */
+.rail-slot .ad-wrap{ height:100%; width:100%; overflow:auto; }  /* scroll ad if it exceeds slot */
+.rail-slot .adsbygoogle{ display:block; width:100% !important; max-width:100% !important; max-height:100% !important; }
