@@ -36,3 +36,29 @@ resource "aws_route53_record" "api_a" {
     evaluate_target_health = false
   }
 }
+
+resource "aws_route53_record" "apex_a" {
+  zone_id         = data.aws_route53_zone.root.zone_id
+  name            = var.root_domain
+  type            = "A"
+  allow_overwrite = true
+
+  alias {
+    name                   = aws_cloudfront_distribution.frontend.domain_name
+    zone_id                = aws_cloudfront_distribution.frontend.hosted_zone_id
+    evaluate_target_health = false
+  }
+}
+
+resource "aws_route53_record" "apex_aaaa" {
+  zone_id         = data.aws_route53_zone.root.zone_id
+  name            = var.root_domain
+  type            = "AAAA"
+  allow_overwrite = true
+
+  alias {
+    name                   = aws_cloudfront_distribution.frontend.domain_name
+    zone_id                = aws_cloudfront_distribution.frontend.hosted_zone_id
+    evaluate_target_health = false
+  }
+}

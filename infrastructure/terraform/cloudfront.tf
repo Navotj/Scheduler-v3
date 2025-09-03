@@ -58,6 +58,39 @@ function handler(event) {
 EOF
 }
 
+# CloudFront Function to 301 apex -> www (preserve path & query)
+resource "aws_cloudfront_function" "redirect_apex_to_www" {
+  name    = "${var.app_prefix}-redirect-apex-to-www"
+  runtime = "cloudfront-js-2.0"
+  comment = "301 ${var.root_domain} -> www.${var.root_domain} (preserve path/query)"
+  publish = true
+
+  code = <<EOF
+function handler(event) {
+  var req = event.request;
+  var host = req.headers.host && req.headers.host.value;
+  if (host === '${var.root_domain}') {
+    var loc = 'https://www.${var.root_domain}' + req.uri;
+    var qs = req.querystring;
+    var parts = [];
+    for (var k in qs) {
+      var v = qs[k];
+      if (v.multiValue) {
+        for (var i = 0; i < v.multiValue.length; i++) {
+          parts.push(k + '=' + v.multiValue[i].value);
+        }
+      } else if (v.value) {
+        parts.push(k + '=' + v.value);
+      }
+    }
+    if (parts.length) loc += '?' + parts.join('&');
+    return { statusCode: 301, statusDescription: 'Moved Permanently', headers: { location: { value: loc } } };
+  }
+  return req;
+}
+EOF
+}
+
 resource "aws_cloudfront_distribution" "frontend" {
   enabled             = true
   is_ipv6_enabled     = true
@@ -66,7 +99,7 @@ resource "aws_cloudfront_distribution" "frontend" {
   default_root_object = "index.html"
   http_version        = "http2and3"
 
-  aliases = ["www.${var.root_domain}"]
+  aliases = ["www.${var.root_domain}", var.root_domain]
 
   # Origins
   origin {
@@ -108,6 +141,11 @@ resource "aws_cloudfront_distribution" "frontend" {
     cache_policy_id            = data.aws_cloudfront_cache_policy.caching_disabled.id
     origin_request_policy_id   = data.aws_cloudfront_origin_request_policy.cors_s3_origin.id
     response_headers_policy_id = data.aws_cloudfront_response_headers_policy.security_headers.id
+
+    function_association {
+      event_type   = "viewer-request"
+      function_arn = aws_cloudfront_function.redirect_apex_to_www.arn
+    }
   }
 
   # Static assets: long-cache at edge
