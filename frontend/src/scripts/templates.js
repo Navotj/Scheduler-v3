@@ -195,7 +195,7 @@
     if (saveBtn) saveBtn.addEventListener('click', async () => {
       if (!isAuthenticated) return;
       const name = (nameInput && nameInput.value.trim()) || '';
-      if (!name) { alert('Enter a template name'); return; }
+      if (!name) { shared.showToast('Enter a template name.', 'warn'); return; }
       const payload = buildTemplatePayload(name);
       const tpl = await apiSaveTemplate(payload);
       if (!tpl) { shared.showToast('Save failed.', 'error'); return; }
@@ -218,7 +218,7 @@
 
     if (deleteBtn) deleteBtn.addEventListener('click', async () => {
       const id = select ? select.value : '';
-      if (!id) { alert('Choose a template to delete'); return; }
+      if (!id) { shared.showToast('Choose a template to delete.', 'warn'); return; }
       const ok = window.confirm('Delete this template?');
       if (!ok) return;
       const okDel = await apiDeleteTemplate({ id });
@@ -232,7 +232,7 @@
 
     if (exportBtn) exportBtn.addEventListener('click', async () => {
       const id = select ? select.value : '';
-      if (!id) { alert('Choose a template to export'); return; }
+      if (!id) { shared.showToast('Choose a template to export.', 'warn'); return; }
       const tpl = await apiGetTemplate({ id });
       if (!tpl) { shared.showToast('Template not found.', 'warn'); return; }
       const json = JSON.stringify(tpl, null, 2);
