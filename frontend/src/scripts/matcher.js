@@ -39,9 +39,6 @@
   let __addingUser = false;
   let __addingMe = false;
 
-  let __usernameSuggestEl = null;
-  const __SUGGEST_LIMIT = 20;
-
   function getWeekStartEpochAndYMD() {
     return shared.getWeekStartEpochAndYMD(tz, (weekStartIdx === 1 ? 'mon' : 'sun'), weekOffset);
   }
@@ -982,223 +979,23 @@
 
     await fetchMembersAvail();
   }
-  
-    function __ensureUsernameSuggestEl() {
-    if (__usernameSuggestEl) return __usernameSuggestEl;
 
-    __usernameSuggestEl = document.createElement('div');
-    __usernameSuggestEl.id = 'username-suggest-box';
-    Object.assign(__usernameSuggestEl.style, {
-      position: 'absolute',
-      background: 'var(--card, #121315)',
-      border: '1px solid var(--border, #1a1c20)',
-      borderRadius: '10px',
-      boxShadow: '0 6px 18px rgba(0,0,0,0.35)',
-      padding: '6px',
-      maxHeight: '260px',
-      overflowY: 'auto',
-      zIndex: '9999',
-      cursor: 'default',
-      minWidth: '220px',
-      display: 'none'
-    });
-
-    // Prevent outside clicks from immediately closing via input blur
-    __usernameSuggestEl.addEventListener('mousedown', (e) => e.stopPropagation());
-
-    document.body.appendChild(__usernameSuggestEl);
-    return __usernameSuggestEl;
+  // === Exposed helpers for username dropdown integration ===
+  function getMembers() {
+    return members.slice();
   }
 
-  function __positionUsernameSuggestEl() {
-    const input = document.getElementById('add-username');
-    if (!input || !__usernameSuggestEl) return;
-
-    const rect = input.getBoundingClientRect();
-    const scrollX = window.pageXOffset || document.documentElement.scrollLeft || 0;
-    const scrollY = window.pageYOffset || document.documentElement.scrollTop || 0;
-
-    __usernameSuggestEl.style.left = `${rect.left + scrollX}px`;
-    __usernameSuggestEl.style.top = `${rect.bottom + scrollY + 6}px`;
-    __usernameSuggestEl.style.width = `${rect.width}px`;
-  }
-
-  function hideUsernameSuggestions() {
-    if (__usernameSuggestEl) __usernameSuggestEl.style.display = 'none';
-  }
-
-  function renderUsernameSuggestions(filterText = '') {
-    const input = document.getElementById('add-username');
-    if (!input) return;
-
-    const el = __ensureUsernameSuggestEl();
-    __positionUsernameSuggestEl();
-    el.innerHTML = '';
-
-    // Sticky chips for already-added members
-    if (Array.isArray(members) && members.length) {
-      const stickyWrap = document.createElement('div');
-      stickyWrap.style.display = 'flex';
-      stickyWrap.style.flexWrap = 'wrap';
-      stickyWrap.style.gap = '6px';
-      stickyWrap.style.margin = '2px 2px 6px 2px';
-
-      for (const uname of members) {
-        const chip = document.createElement('div');
-        chip.className = 'sticky-chip';
-        Object.assign(chip.style, {
-          display: 'inline-block',
-          position: 'relative',
-          background: '#164a2e',
-          color: '#d2f8e1',
-          border: '1px solid #2e7d32',
-          borderRadius: '8px',
-          padding: '6px 22px 6px 8px',
-          fontSize: '13px',
-          lineHeight: '1',
-          cursor: 'default',
-          userSelect: 'none'
-        });
-        chip.textContent = uname;
-
-        const close = document.createElement('span');
-        close.textContent = '×';
-        Object.assign(close.style, {
-          position: 'absolute',
-          top: '2px',
-          right: '6px',
-          fontSize: '16px',
-          lineHeight: '1',
-          cursor: 'pointer',
-          color: '#d2f8e1'
-        });
-        close.title = 'Remove from selected';
-        close.addEventListener('click', async (e) => {
-          e.stopPropagation();
-          // Remove this user from the members list
-          const idx = members.findIndex((u) => String(u).toLowerCase() === String(uname).toLowerCase());
-          if (idx >= 0) members.splice(idx, 1);
-          if (typeof renderMembers === 'function') renderMembers();
-          try { await fetchMembersAvail(); } catch {}
-          // Refresh suggestions after removal
-          renderUsernameSuggestions(input.value || '');
-        });
-
-        chip.appendChild(close);
-        stickyWrap.appendChild(chip);
-      }
-
-      el.appendChild(stickyWrap);
-
-      const divider = document.createElement('div');
-      Object.assign(divider.style, {
-        height: '1px',
-        background: 'var(--border, #1a1c20)',
-        margin: '4px 0'
-      });
-      el.appendChild(divider);
+  function removeMember(name) {
+    if (!name) return;
+    const idx = members.findIndex(u => String(u).toLowerCase() === String(name).toLowerCase());
+    if (idx >= 0) {
+      members.splice(idx, 1);
+      renderMembers();
+      fetchMembersAvail();
     }
-
-    // Friends list (alphabetized), excluding already-selected members
-    const lowerSelected = new Set(Array.from(members || []).map((x) => String(x).toLowerCase()));
-
-    const ensureFriends = async () => {
-      if (!friendsLoaded) {
-        try { await fetchFriendUsernames(); } catch {}
-      }
-    };
-
-    // Render after ensuring friends list is available
-    (async () => {
-      await ensureFriends();
-
-      const allFriends = Array.from(friendUsernames || []);
-      allFriends.sort((a, b) => a.localeCompare(b));
-
-      const q = (filterText || '').trim().toLowerCase();
-      const filtered = allFriends.filter((f) => !lowerSelected.has(f) && (!q || f.includes(q)));
-
-      const lim = Math.max(1, __SUGGEST_LIMIT);
-      const limited = filtered.slice(0, lim);
-
-      const listWrap = document.createElement('div');
-      listWrap.id = 'username-suggest-list';
-
-      // If there are no friend results, show an empty state
-      if (!limited.length) {
-        const empty = document.createElement('div');
-        empty.textContent = q ? 'No friends match your search.' : 'No friends available.';
-        Object.assign(empty.style, {
-          padding: '8px',
-          color: 'var(--fg-1, #b6bfd4)',
-          fontSize: '13px'
-        });
-        listWrap.appendChild(empty);
-      } else {
-        for (const f of limited) {
-          const row = document.createElement('div');
-          row.className = 'suggest-item';
-          Object.assign(row.style, {
-            padding: '6px 8px',
-            fontSize: '14px',
-            color: 'var(--fg-0, #e7eaf2)',
-            borderRadius: '6px',
-            margin: '2px',
-            cursor: 'default'
-          });
-          row.textContent = f;
-          listWrap.appendChild(row);
-        }
-      }
-
-      el.appendChild(listWrap);
-      el.style.display = 'block';
-    })();
   }
 
-  function __bindUsernameSuggestEvents() {
-    const input = document.getElementById('add-username');
-    if (!input) return;
-
-    input.addEventListener('focus', () => {
-      renderUsernameSuggestions(input.value || '');
-    });
-
-    input.addEventListener('input', () => {
-      renderUsernameSuggestions(input.value || '');
-    });
-
-    input.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') hideUsernameSuggestions();
-    });
-
-    // Reposition dropdown on viewport changes
-    window.addEventListener('resize', __positionUsernameSuggestEl);
-    window.addEventListener('scroll', __positionUsernameSuggestEl, true);
-
-    // Click outside to hide
-    document.addEventListener('mousedown', (e) => {
-      if (!__usernameSuggestEl) return;
-      if (e.target === __usernameSuggestEl || __usernameSuggestEl.contains(e.target)) return;
-      hideUsernameSuggestions();
-    });
-  }
-
-  // Bootstrap bindings on load (without touching existing init/handlers)
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', __bindUsernameSuggestEvents);
-  } else {
-    __bindUsernameSuggestEvents();
-  }
-
-  // Optional: expose controls for debugging
-  try {
-    window.scheduler = window.scheduler || {};
-    window.scheduler.renderUsernameSuggestions = renderUsernameSuggestions;
-    window.scheduler.hideUsernameSuggestions = hideUsernameSuggestions;
-  } catch {}
-
-  window.scheduler = { init, setAuth };
+  window.scheduler = { init, setAuth, getMembers, removeMember };
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);

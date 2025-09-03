@@ -7,11 +7,16 @@
   (function injectStyles() {
     if (document.getElementById('ua-style')) return;
     const css = `
-      .ua-menu{position:absolute;z-index:99999;min-width:160px;max-width:280px;max-height:240px;overflow:auto;background:var(--bg-1,#0e1117);border:1px solid var(--border,#1a1c20);border-radius:10px;box-shadow:0 8px 28px rgba(0,0,0,.5);padding:6px;display:none}
+      .ua-menu{position:absolute;z-index:99999;min-width:160px;max-width:320px;max-height:280px;overflow:auto;background:var(--bg-1,#0e1117);border:1px solid var(--border,#1a1c20);border-radius:10px;box-shadow:0 8px 28px rgba(0,0,0,.5);padding:6px;display:none;cursor:default}
       .ua-menu[data-open="1"]{display:block}
-      .ua-option{padding:6px 10px;border-radius:8px;cursor:pointer;white-space:nowrap;font-size:14px;line-height:1.2}
+      .ua-option{padding:6px 10px;border-radius:8px;cursor:default;white-space:nowrap;font-size:14px;line-height:1.2}
+      .ua-option:hover{background:var(--card,#141820)}
       .ua-option[aria-selected="true"]{outline:1px solid var(--ring,#3a78ff);background:var(--card,#141820)}
       .ua-empty{padding:6px 10px;color:var(--fg-2,#8b95ae);font-size:13px}
+      .ua-sticky-wrap{display:flex;flex-wrap:wrap;gap:6px;margin:2px 2px 6px 2px}
+      .ua-chip{display:inline-block;position:relative;background:#164a2e;color:#d2f8e1;border:1px solid #2e7d32;border-radius:8px;padding:6px 22px 6px 8px;font-size:13px;line-height:1;user-select:none;cursor:default}
+      .ua-chip-x{position:absolute;top:2px;right:6px;font-size:16px;line-height:1;color:#d2f8e1;cursor:pointer}
+      .ua-divider{height:1px;background:var(--border,#1a1c20);margin:4px 0}
     `;
     const style = document.createElement('style');
     style.id = 'ua-style';
@@ -176,7 +181,7 @@
     if (!uaMenuOpen || !uaMenu || !uaInput || !uaIsVisible(uaInput)) return;
     uaMenu.style.display = 'block';
     const r = uaInput.getBoundingClientRect();
-    const mh = Math.min(uaMenu.scrollHeight, 240);
+    const mh = Math.min(uaMenu.scrollHeight, 280);
     const gap = 6;
     const top = window.scrollY + r.top - gap - mh;
     const left = window.scrollX + r.left;
@@ -184,8 +189,8 @@
     uaMenu.style.top = `${Math.max(4, top)}px`;
     uaMenu.style.left = `${left}px`;
     uaMenu.style.minWidth = `${width}px`;
-    uaMenu.style.maxWidth = `${Math.max(220, r.width)}px`;
-    uaMenu.style.maxHeight = '240px';
+    uaMenu.style.maxWidth = `${Math.max(240, r.width)}px`;
+    uaMenu.style.maxHeight = '280px';
   }
 
   function uaOnWindowChange() {
@@ -212,9 +217,69 @@
     return opt;
   }
 
+  function getSelectedMembers() {
+    try {
+      if (window.scheduler && typeof window.scheduler.getMembers === 'function') {
+        const arr = window.scheduler.getMembers() || [];
+        return Array.isArray(arr) ? arr.slice() : [];
+      }
+    } catch {}
+    try {
+      const el =
+        document.getElementById('members') ||
+        document.getElementById('members-list') ||
+        document.getElementById('member-list');
+      if (!el) return [];
+      const txt = (el.textContent || '').trim();
+      if (!txt) return [];
+      return txt.split(',').map(s => s.trim()).filter(Boolean);
+    } catch { return []; }
+  }
+
+  function uaRenderStickyChips(container) {
+    const selected = getSelectedMembers();
+    if (!selected.length) return;
+
+    const wrap = document.createElement('div');
+    wrap.className = 'ua-sticky-wrap';
+
+    for (const uname of selected) {
+      const chip = document.createElement('div');
+      chip.className = 'ua-chip';
+      chip.textContent = uname;
+
+      const close = document.createElement('span');
+      close.className = 'ua-chip-x';
+      close.textContent = '×';
+      close.title = 'Remove from selected';
+      close.addEventListener('mousedown', (e) => e.preventDefault());
+      close.addEventListener('click', () => {
+        try {
+          if (window.scheduler && typeof window.scheduler.removeMember === 'function') {
+            window.scheduler.removeMember(uname);
+          }
+        } catch {}
+        uaUpdateSuggestions();
+      });
+
+      chip.appendChild(close);
+      wrap.appendChild(chip);
+    }
+
+    container.appendChild(wrap);
+
+    const divider = document.createElement('div');
+    divider.className = 'ua-divider';
+    container.appendChild(divider);
+  }
+
   function uaRenderMenu() {
     if (!uaMenu) return;
     uaMenu.innerHTML = '';
+
+    // Sticky selected members (green chips with removable X) always at the top
+    uaRenderStickyChips(uaMenu);
+
     if (uaFiltered.length === 0) {
       const empty = document.createElement('div');
       empty.className = 'ua-empty';
@@ -251,17 +316,26 @@
 
   function uaCommitSelection(idx) {
     if (idx < 0 || idx >= uaFiltered.length) return;
-    uaInput.value = uaFiltered[idx];
+    const name = uaFiltered[idx];
+    uaInput.value = name;
     uaCloseMenu();
-    uaInput.focus();
+
+    // Prefer triggering the existing add logic
+    const btn = document.getElementById('add-user-btn');
+    if (btn) {
+      try { btn.click(); } catch {}
+    }
   }
 
   function uaComputeFiltered(query) {
     const q = uaNorm(query);
-    if (!q) return uaAllFriends.slice(0, MAX_SUGGESTIONS);
-    const prefix = uaAllFriends.filter(n => uaNorm(n).startsWith(q));
+    const selectedSet = new Set(getSelectedMembers().map(uaNorm));
+    const available = uaAllFriends.filter(n => !selectedSet.has(uaNorm(n)));
+
+    if (!q) return available.slice(0, MAX_SUGGESTIONS);
+    const prefix = available.filter(n => uaNorm(n).startsWith(q));
     if (prefix.length >= MAX_SUGGESTIONS) return prefix.slice(0, MAX_SUGGESTIONS);
-    const infix = uaAllFriends.filter(n => !uaNorm(n).startsWith(q) && uaNorm(n).includes(q));
+    const infix = available.filter(n => !uaNorm(n).startsWith(q) && uaNorm(n).includes(q));
     return prefix.concat(infix).slice(0, MAX_SUGGESTIONS);
   }
 
