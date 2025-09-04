@@ -332,10 +332,10 @@ resource "aws_apigatewayv2_route" "post_friends_unblock" {
   authorizer_id      = local.authz
 }
 
-# POST /friends/blocklist
-resource "aws_apigatewayv2_route" "post_friends_blocklist" {
+# replace block (friends_blocklist route)
+resource "aws_apigatewayv2_route" "get_friends_blocklist" {
   api_id             = local.api_id
-  route_key          = "POST /friends/blocklist"
+  route_key          = "GET /friends/blocklist"
   target             = "integrations/${local.int_id}"
   authorization_type = "CUSTOM"
   authorizer_id      = local.authz
