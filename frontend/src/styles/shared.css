@@ -114,13 +114,14 @@
 }
 
 /* Controls container spans full width under grid & right panel */
-.availability .controls-pane {
-  grid-area: controls;
-  min-height: 0;
+/* Unified controls bar: single row; allow focus outlines to paint outside without shifting layout */
+.availability .picker-controls {
   display: flex;
-  flex-direction: column;
-  justify-content: center;
-  overflow: visible; /* allow focus outlines/labels above without shifting layout */
+  flex-wrap: nowrap;               /* one line */
+  align-items: flex-end;           /* bottoms align */
+  gap: var(--gap-md);
+  margin: 0;
+  overflow: visible;               /* let outlines overlap surrounding padding */
 }
 
 /* Unified controls bar: single row, clipped (no internal scrollbars) */
