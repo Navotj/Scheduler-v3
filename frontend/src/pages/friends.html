@@ -13,8 +13,9 @@
       <main id="page" class="main" tabindex="-1" aria-label="Main content">
         <section class="friends">
           <div class="friends-layout">
-            <section class="friends-left">
-              <div class="panel">
+            <!-- Row 1: add + requests -->
+            <div class="row-1">
+              <section class="panel add-friend">
                 <h1 class="panel-title">Add a Friend</h1>
                 <form id="add-form" class="row" autocomplete="off">
                   <label for="add-target" class="label">Username</label>
@@ -22,50 +23,47 @@
                   <button id="add-send" type="submit" class="btn">Send request</button>
                   <output id="add-status" class="status" role="status" aria-live="polite"></output>
                 </form>
-              </div>
+              </section>
 
-              <div class="columns">
-                <div class="panel">
-                  <h2 class="panel-title">Incoming requests</h2>
-                  <ul id="incoming-list" class="list" aria-live="polite"></ul>
+              <section class="panel requests">
+                <div class="tabs" role="tablist">
+                  <button id="tab-incoming" class="tab active" role="tab" aria-selected="true">Incoming</button>
+                  <button id="tab-outgoing" class="tab" role="tab" aria-selected="false">Outgoing</button>
                 </div>
+                <ul id="incoming-list" class="list" aria-live="polite"></ul>
+                <ul id="outgoing-list" class="list" aria-live="polite" hidden></ul>
+              </section>
+            </div>
 
-                <div class="panel">
-                  <h2 class="panel-title">Outgoing requests</h2>
-                  <ul id="outgoing-list" class="list" aria-live="polite"></ul>
-                </div>
-              </div>
+            <!-- Row 2: friends grid + block/unblock -->
+            <div class="row-2">
+              <section class="panel friends-col">
+                <h2 class="panel-title">Friends</h2>
+                <ul id="friends-list" class="friends-grid" aria-live="polite"></ul>
+              </section>
 
-              <div class="panel">
-                <div class="panel-header">
-                  <h2 class="panel-title">Friends</h2>
-                  <button id="refresh" type="button" class="btn btn-lite" title="Reload lists">Reload</button>
-                </div>
-                <ul id="friends-list" class="grid-list" aria-live="polite"></ul>
-              </div>
-
-              <div class="columns">
-                <div class="panel">
-                  <h2 class="panel-title">Block a user</h2>
+              <section class="panel block-col">
+                <div class="block-top">
+                  <h2 class="panel-title">Block / Unblock</h2>
                   <form id="block-form" class="row" autocomplete="off">
-                    <label for="block-target" class="label">Username</label>
+                    <label for="block-target" class="label">Block user</label>
                     <input id="block-target" name="username" type="text" required placeholder="Username" />
                     <button id="block-send" type="submit" class="btn btn-danger">Block</button>
                     <output id="block-status" class="status" role="status" aria-live="polite"></output>
                   </form>
-                </div>
-
-                <div class="panel">
-                  <h2 class="panel-title">Unblock a user</h2>
                   <form id="unblock-form" class="row" autocomplete="off">
-                    <label for="unblock-target" class="label">Username</label>
+                    <label for="unblock-target" class="label">Unblock user</label>
                     <input id="unblock-target" name="username" type="text" required placeholder="Username" />
                     <button id="unblock-send" type="submit" class="btn btn-warning">Unblock</button>
                     <output id="unblock-status" class="status" role="status" aria-live="polite"></output>
                   </form>
                 </div>
-              </div>
-            </section>
+                <div class="block-list">
+                  <h3 class="panel-subtitle">Blocked users</h3>
+                  <ul id="blocked-list" class="friends-grid" aria-live="polite"></ul>
+                </div>
+              </section>
+            </div>
           </div>
         </section>
       </main>

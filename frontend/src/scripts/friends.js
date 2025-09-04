@@ -9,7 +9,9 @@
 
   const incomingList = document.getElementById('incoming-list');
   const outgoingList = document.getElementById('outgoing-list');
+
   const friendsList  = document.getElementById('friends-list');
+  const blockedList  = document.getElementById('blocked-list');
 
   const blockForm = document.getElementById('block-form');
   const blockTarget = document.getElementById('block-target');
@@ -21,7 +23,8 @@
   const unblockStatus = document.getElementById('unblock-status');
   const unblockBtn = document.getElementById('unblock-send');
 
-  const refreshBtn = document.getElementById('refresh');
+  const tabIncoming = document.getElementById('tab-incoming');
+  const tabOutgoing = document.getElementById('tab-outgoing');
 
   // ====== API helper ======
   const API_PREFIX = '/api';
@@ -40,23 +43,12 @@
       });
       clearTimeout(t);
       let data = null;
-      try { data = await res.json(); } catch (_) { /* ignore parse errors */ }
-
-      if (res.ok) {
-        return data || { ok: true };
-      }
-
-      const error =
-        res.status === 401 ? 'unauthorized' :
-        res.status === 429 ? 'rate_limited' :
-        (data && typeof data.error === 'string') ? data.error :
-        (res.status >= 500 ? 'internal' : 'bad_request');
-
-      return { ok: false, error, message: data && data.message };
+      try { data = await res.json(); } catch (_) {}
+      if (res.ok) return data || { ok:true };
+      return { ok:false, error: data?.error || 'bad_request', message: data?.message };
     } catch (err) {
       clearTimeout(t);
-      if (err && err.name === 'AbortError') return { ok: false, error: 'timeout' };
-      return { ok: false, error: 'network' };
+      return { ok:false, error: 'network' };
     }
   }
 
@@ -64,46 +56,21 @@
   function el(tag, attrs = {}, children = []) {
     const e = document.createElement(tag);
     for (const [k, v] of Object.entries(attrs)) {
-        if (k === 'class') {
-        e.className = v;
-        } else if (k === 'dataset') {
-        for (const [dk, dv] of Object.entries(v)) e.dataset[dk] = dv;
-        } else if (k.toLowerCase().startsWith('on') && typeof v === 'function') {
-        const ev = k.slice(2).toLowerCase(); // normalize e.g. onClick -> 'click'
-        e.addEventListener(ev, v);
-        } else {
-        e.setAttribute(k, v);
-        }
+      if (k === 'class') e.className = v;
+      else if (k === 'dataset') for (const [dk, dv] of Object.entries(v)) e.dataset[dk] = dv;
+      else if (k.toLowerCase().startsWith('on') && typeof v === 'function') {
+        e.addEventListener(k.slice(2).toLowerCase(), v);
+      } else e.setAttribute(k, v);
     }
     for (const c of children) e.append(c);
     return e;
   }
 
   function showInlineStatus(node, msg){
-    if (!node) return;
-    node.textContent = msg || '';
+    if (node) node.textContent = msg || '';
   }
 
-  function displayName(u){
-    if (!u) return '';
-    return (u.username && u.username.trim()) ? u.username : '(unknown)';
-  }
-
-  // username-only validation (3–20 chars; letters, numbers, dot, underscore, dash)
-  const USERNAME_RE = /^[a-zA-Z0-9._-]{3,20}$/;
-  function validateTargetInput(value){
-    const v = (value || '').trim();
-    if (!v) return { ok:false, msg:'enter a username' };
-    if (v.includes('@')) return { ok:false, msg:'emails are not allowed here' };
-    if (!USERNAME_RE.test(v)) return { ok:false, msg:'username must be 3–20 chars (a–z, 0–9, . _ -)' };
-    return { ok:true, val:v };
-  }
-
-  async function withDisabled(btn, fn){
-    if (btn) btn.disabled = true;
-    try { return await fn(); }
-    finally { if (btn) btn.disabled = false; }
-  }
+  function displayName(u){ return (u?.username || '').trim() || '(unknown)'; }
 
   // ====== Renderers ======
   function renderIncoming(list){
@@ -114,13 +81,10 @@
     }
     for (const u of list){
       const li = el('li',{class:'list-item'});
-      const left = el('div',{class:'identity'},[
-        el('span',{class:'name'},[text(displayName(u))])
-      ]);
-      const accept = el('button',{class:'btn', type:'button', onClick:()=>acceptRequest(u.id)},[text('Accept')]);
-      const decline = el('button',{class:'btn btn-lite', type:'button', onClick:()=>declineRequest(u.id)},[text('Decline')]);
-      const right = el('div',{},[accept, decline]);
-      li.append(left, right);
+      const name = el('span',{class:'name'},[text(displayName(u))]);
+      const accept = el('button',{class:'btn',type:'button',onClick:()=>acceptRequest(u.id)},[text('✓')]);
+      const decline = el('button',{class:'btn btn-lite',type:'button',onClick:()=>declineRequest(u.id)},[text('✕')]);
+      li.append(name, accept, decline);
       incomingList.append(li);
     }
   }
@@ -133,12 +97,9 @@
     }
     for (const u of list){
       const li = el('li',{class:'list-item'});
-      const left = el('div',{class:'identity'},[
-        el('span',{class:'name'},[text(displayName(u))])
-      ]);
-      const cancel = el('button',{class:'btn btn-warning', type:'button', onClick:()=>cancelOutgoing(u.id)},[text('Cancel')]);
-      const right = el('div',{},[cancel]);
-      li.append(left, right);
+      const name = el('span',{class:'name'},[text(displayName(u))]);
+      const cancel = el('button',{class:'btn btn-warning',type:'button',onClick:()=>cancelOutgoing(u.id)},[text('✕')]);
+      li.append(name, cancel);
       outgoingList.append(li);
     }
   }
@@ -151,155 +112,93 @@
     }
     for (const u of list){
       const card = el('li',{class:'friend-card'});
-      const who = el('div',{class:'identity'},[
-        el('span',{class:'name'},[text(displayName(u))])
-      ]);
-      const actions = el('div',{class:'friend-actions'},[
-        el('button',{class:'btn btn-lite', type:'button', onClick:()=>removeFriend(u.id)},[text('Remove')]),
-        el('button',{class:'btn btn-danger', type:'button', onClick:()=>blockUserId(u.id)},[text('Block')]),
-      ]);
-      card.append(who, actions);
+      const name = el('div',{class:'identity'},[text(displayName(u))]);
+      const removeBtn = el('button',{class:'icon-btn btn-remove',title:'Remove',onClick:()=>confirmRemove(u.id,u.username)},[text('✕')]);
+      const blockBtn = el('button',{class:'icon-btn btn-block',title:'Block',onClick:()=>confirmBlock(u.id,u.username)},[text('🚫')]);
+      card.append(name, removeBtn, blockBtn);
       friendsList.append(card);
     }
   }
 
-  // ====== Message mapping ======
-  function normalizeMessage(resp){
-    if (typeof resp === 'string') {
-      return mapKnownMessage(resp) || (resp || 'Something went wrong.');
+  function renderBlocked(list){
+    blockedList.replaceChildren();
+    if (!list || list.length === 0){
+      blockedList.append(el('li',{class:'muted small'},[text('No blocked users')]));
+      return;
     }
-    if (!resp || typeof resp !== 'object') return 'Something went wrong.';
-    if (resp.ok) {
-      return mapKnownMessage(resp.message) || resp.message || 'Done.';
-    }
-    switch ((resp.error || '').toLowerCase()) {
-      case 'unauthorized': return 'Please sign in to manage friends.';
-      case 'internal': return 'Internal error. Please try again.';
-      case 'network': return 'Network error. Check your connection.';
-      case 'timeout': return 'Request timed out. Try again.';
-      case 'bad_request': return 'Invalid request.';
-      case 'invalid': return 'Invalid response.';
-      case 'rate_limited': return 'Too many requests. Slow down and try again.';
-      default:
-        if (resp.message) return mapKnownMessage(resp.message) || resp.message;
-        return 'Something went wrong.';
+    for (const u of list){
+      const card = el('li',{class:'friend-card'});
+      const name = el('div',{class:'identity'},[text(displayName(u))]);
+      const unblockBtn = el('button',{class:'icon-btn btn-remove',title:'Unblock',onClick:()=>unblockUserTarget(u.username)},[text('✕')]);
+      card.append(name, unblockBtn);
+      blockedList.append(card);
     }
   }
 
-  function mapKnownMessage(m){
-    switch ((m || '').toLowerCase()) {
-      case 'cannot add yourself': return 'You cannot add yourself.';
-      case 'cannot accept yourself': return 'You cannot accept yourself.';
-      case 'cannot decline yourself': return 'You cannot decline yourself.';
-      case 'cannot remove yourself': return 'You cannot remove yourself.';
-      case 'cannot block yourself': return 'You cannot block yourself.';
-      case 'cannot unblock yourself': return 'You cannot unblock yourself.';
-      case 'cannot cancel yourself': return 'You cannot cancel yourself.';
-      case 'user not found': return 'User not found.';
-      case 'user is already in friend list': return 'Already in your friend list.';
-      case 'already have pending request to user': return 'Already have a pending request to that user.';
-      case 'friend added': return 'Friend added.';
-      case 'request sent': return 'Request sent.';
-      case 'declined': return 'Request declined.';
-      case 'removed': return 'Friend removed.';
-      case 'blocked': return 'User blocked.';
-      case 'unblocked': return 'User unblocked.';
-      case 'cancelled': return 'Request canceled.';
-      default: return null;
-    }
+  // ====== Confirm wrappers ======
+  function confirmRemove(id, username){
+    if (window.confirm(`Remove user ${username}?`)) removeFriend(id);
+  }
+  function confirmBlock(id, username){
+    if (window.confirm(`Block user ${username}?`)) blockUserId(id);
   }
 
   // ====== Actions ======
-  async function sendRequest(target){
-    const out = await api('/friends/request', { method:'POST', body:{ username: target } });
-    const msg = normalizeMessage(out);
-    showInlineStatus(addStatus, msg);
-    await refreshAll();
-  }
-
-  async function acceptRequest(userId){
-    const out = await api('/friends/accept', { method:'POST', body:{ userId } });
-    const msg = normalizeMessage(out);
-    showInlineStatus(addStatus, msg);
-    await refreshAll();
-  }
-
-  async function declineRequest(userId){
-    const out = await api('/friends/decline', { method:'POST', body:{ userId } });
-    const msg = normalizeMessage(out);
-    showInlineStatus(addStatus, msg);
-    await refreshAll();
-  }
-
-  async function cancelOutgoing(userId){
-    const out = await api('/friends/cancel', { method:'POST', body:{ userId } });
-    const msg = normalizeMessage(out);
-    showInlineStatus(addStatus, msg);
-    await refreshAll();
-  }
-
-  async function removeFriend(userId){
-    const out = await api('/friends/remove', { method:'POST', body:{ userId } });
-    const msg = normalizeMessage(out);
-    showInlineStatus(addStatus, msg);
-    await refreshAll();
-  }
-
-  async function blockUserId(userId){
-    const out = await api('/friends/block', { method:'POST', body:{ userId } });
-    const msg = normalizeMessage(out);
-    showInlineStatus(blockStatus, msg);
-    await refreshAll();
-  }
-
-  async function blockUserTarget(target){
-    const out = await api('/friends/block', { method:'POST', body:{ username: target } });
-    const msg = normalizeMessage(out);
-    showInlineStatus(blockStatus, msg);
-    await refreshAll();
-  }
-
-  async function unblockUserTarget(target){
-    const out = await api('/friends/unblock', { method:'POST', body:{ username: target } });
-    const msg = normalizeMessage(out);
-    showInlineStatus(unblockStatus, msg);
-    await refreshAll();
-  }
+  async function sendRequest(target){ await api('/friends/request',{method:'POST',body:{username:target}}); await refreshAll(); }
+  async function acceptRequest(userId){ await api('/friends/accept',{method:'POST',body:{userId}}); await refreshAll(); }
+  async function declineRequest(userId){ await api('/friends/decline',{method:'POST',body:{userId}}); await refreshAll(); }
+  async function cancelOutgoing(userId){ await api('/friends/cancel',{method:'POST',body:{userId}}); await refreshAll(); }
+  async function removeFriend(userId){ await api('/friends/remove',{method:'POST',body:{userId}}); await refreshAll(); }
+  async function blockUserId(userId){ await api('/friends/block',{method:'POST',body:{userId}}); await refreshAll(); }
+  async function blockUserTarget(target){ await api('/friends/block',{method:'POST',body:{username:target}}); await refreshAll(); }
+  async function unblockUserTarget(target){ await api('/friends/unblock',{method:'POST',body:{username:target}}); await refreshAll(); }
 
   // ====== Loaders ======
   async function refreshAll(){
-    const [friends, reqs] = await Promise.all([
+    const [friends, reqs, blocks] = await Promise.all([
       api('/friends/list').catch(()=>({friends:[]})),
       api('/friends/requests').catch(()=>({incoming:[], outgoing:[]})),
+      api('/friends/blocklist').catch(()=>({blocked:[]})),
     ]);
-    renderFriends(friends?.friends || []);
-    renderIncoming(reqs?.incoming || []);
-    renderOutgoing(reqs?.outgoing || []);
+    renderFriends(friends?.friends||[]);
+    renderIncoming(reqs?.incoming||[]);
+    renderOutgoing(reqs?.outgoing||[]);
+    renderBlocked(blocks?.blocked||[]);
   }
 
   // ====== Events ======
-  addForm.addEventListener('submit', (e)=>{
+  addForm.addEventListener('submit', e=>{
     e.preventDefault();
-    const v = validateTargetInput(addTarget.value);
-    if (!v.ok) { showInlineStatus(addStatus, v.msg); return; }
-    withDisabled(addBtn, () => sendRequest(v.val));
+    const val = addTarget.value.trim();
+    if (!val) return;
+    addBtn.disabled=true;
+    sendRequest(val).finally(()=>addBtn.disabled=false);
+  });
+  blockForm.addEventListener('submit', e=>{
+    e.preventDefault();
+    const val = blockTarget.value.trim();
+    if (!val) return;
+    blockBtn.disabled=true;
+    blockUserTarget(val).finally(()=>blockBtn.disabled=false);
+  });
+  unblockForm.addEventListener('submit', e=>{
+    e.preventDefault();
+    const val = unblockTarget.value.trim();
+    if (!val) return;
+    unblockBtn.disabled=true;
+    unblockUserTarget(val).finally(()=>unblockBtn.disabled=false);
   });
 
-  blockForm.addEventListener('submit', (e)=>{
-    e.preventDefault();
-    const v = validateTargetInput(blockTarget.value);
-    if (!v.ok) { showInlineStatus(blockStatus, v.msg); return; }
-    withDisabled(blockBtn, () => blockUserTarget(v.val));
+  tabIncoming.addEventListener('click',()=>{
+    tabIncoming.classList.add('active'); tabIncoming.setAttribute('aria-selected','true');
+    tabOutgoing.classList.remove('active'); tabOutgoing.setAttribute('aria-selected','false');
+    incomingList.hidden=false; outgoingList.hidden=true;
   });
-
-  unblockForm.addEventListener('submit', (e)=>{
-    e.preventDefault();
-    const v = validateTargetInput(unblockTarget.value);
-    if (!v.ok) { showInlineStatus(unblockStatus, v.msg); return; }
-    withDisabled(unblockBtn, () => unblockUserTarget(v.val));
+  tabOutgoing.addEventListener('click',()=>{
+    tabOutgoing.classList.add('active'); tabOutgoing.setAttribute('aria-selected','true');
+    tabIncoming.classList.remove('active'); tabIncoming.setAttribute('aria-selected','false');
+    outgoingList.hidden=false; incomingList.hidden=true;
   });
-
-  refreshBtn.addEventListener('click', ()=>{ refreshAll(); });
 
   // ====== Init ======
   document.addEventListener('DOMContentLoaded', refreshAll);
