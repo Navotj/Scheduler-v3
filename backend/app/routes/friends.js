@@ -347,4 +347,32 @@ router.post('/unblock', requireAuth, async (req, res) => {
   }
 });
 
+  // replace function (GET /friends/blocklist)
+  router.get('/blocklist', requireAuth, async (req, res) => {
+    try {
+      const myId = new mongoose.Types.ObjectId(req.authedUserId);
+
+      // find all users I have blocked
+      const docs = await Block.find({ blocker: myId }, { blocked: 1 }).lean().exec();
+      const ids = docs.map(d => d.blocked).filter(Boolean);
+
+      if (ids.length === 0) {
+        return res.json({ ok: true, blocked: [] });
+      }
+
+      // fetch usernames for those ids
+      const users = await User.find({ _id: { $in: ids } }, { username: 1 }).lean().exec();
+      const map = new Map(users.map(u => [u._id.toString(), u.username ?? null]));
+
+      // return only entries that still resolve to a username
+      const blocked = ids
+        .map(id => ({ id, username: map.get(id.toString()) }))
+        .filter(x => x.username !== undefined && x.username !== null);
+
+      return res.json({ ok: true, blocked });
+    } catch (err) {
+      return res.status(500).json({ ok: false, error: 'internal' });
+    }
+  });
+
 module.exports = router;
