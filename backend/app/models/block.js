@@ -3,19 +3,15 @@ const mongoose = require('mongoose');
 const { Schema } = mongoose;
 
 /**
- * Block: blocker prevents blocked from sending requests.
- * If a block exists in either direction, treat as "user not found" for discovery.
+ * BlockList: one document per user listing all user IDs they have blocked.
+ * Mirrors FriendList structure for simplicity.
  */
-const blockSchema = new Schema(
+const BlockListSchema = new Schema(
   {
-    blocker: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
-    blocked: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
-    createdAt: { type: Date, default: Date.now },
+    user: { type: Schema.Types.ObjectId, ref: 'User', required: true, unique: true, index: true },
+    blocked: { type: [Schema.Types.ObjectId], default: [] }, // array of blocked user _ids
   },
-  { timestamps: true }
+  { versionKey: false }
 );
 
-// Unique per pair (blocker -> blocked)
-blockSchema.index({ blocker: 1, blocked: 1 }, { unique: true });
-
-module.exports = mongoose.model('Block', blockSchema);
+module.exports = mongoose.model('BlockList', BlockListSchema);

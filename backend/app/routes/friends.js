@@ -37,9 +37,10 @@ async function resolveTargetUser(body) {
 }
 
 async function isBlockedEitherWay(aId, bId) {
+  // Using BlockList (one doc per user) where "blocked" is an array of user IDs.
   const [ab, ba] = await Promise.all([
-    Block.findOne({ blocker: aId, blocked: bId }).lean().exec(),
-    Block.findOne({ blocker: bId, blocked: aId }).lean().exec(),
+    Block.findOne({ user: aId, blocked: bId }).lean().exec(),
+    Block.findOne({ user: bId, blocked: aId }).lean().exec(),
   ]);
   return Boolean(ab || ba);
 }
@@ -307,8 +308,8 @@ router.post('/block', requireAuth, async (req, res) => {
     }
 
     await Block.updateOne(
-      { blocker: myId, blocked: user._id },
-      { $setOnInsert: { blocker: myId, blocked: user._id, createdAt: new Date() } },
+      { user: myId },
+      { $addToSet: { blocked: user._id } },
       { upsert: true }
     ).exec();
 
@@ -320,9 +321,6 @@ router.post('/block', requireAuth, async (req, res) => {
 
     return res.json({ ok: true, message: 'blocked' });
   } catch (err) {
-    if (err?.code === 11000) {
-      return res.json({ ok: true, message: 'blocked' });
-    }
     return res.status(500).json({ ok: false, error: 'internal' });
   }
 });
@@ -340,39 +338,43 @@ router.post('/unblock', requireAuth, async (req, res) => {
       return res.json({ ok: true, message: 'cannot unblock yourself' });
     }
 
-    await Block.deleteOne({ blocker: myId, blocked: user._id }).exec();
+    await Block.updateOne(
+      { user: myId },
+      { $pull: { blocked: user._id } }
+    ).exec();
+
     return res.json({ ok: true, message: 'unblocked' });
   } catch (err) {
     return res.status(500).json({ ok: false, error: 'internal' });
   }
 });
 
-  // replace function (GET /friends/blocklist)
-  router.get('/blocklist', requireAuth, async (req, res) => {
-    try {
-      const myId = new mongoose.Types.ObjectId(req.authedUserId);
+/**
+ * GET /friends/blocklist
+ * Return ONLY { id, username } for each blocked user.
+ */
+router.get('/blocklist', requireAuth, async (req, res) => {
+  try {
+    const myId = new mongoose.Types.ObjectId(req.authedUserId);
 
-      // find all users I have blocked
-      const docs = await Block.find({ blocker: myId }, { blocked: 1 }).lean().exec();
-      const ids = docs.map(d => d.blocked).filter(Boolean);
+    const doc = await Block.findOne({ user: myId }, { blocked: 1 }).lean().exec();
+    const ids = (doc?.blocked || []).map((x) => new mongoose.Types.ObjectId(x));
 
-      if (ids.length === 0) {
-        return res.json({ ok: true, blocked: [] });
-      }
-
-      // fetch usernames for those ids
-      const users = await User.find({ _id: { $in: ids } }, { username: 1 }).lean().exec();
-      const map = new Map(users.map(u => [u._id.toString(), u.username ?? null]));
-
-      // return only entries that still resolve to a username
-      const blocked = ids
-        .map(id => ({ id, username: map.get(id.toString()) }))
-        .filter(x => x.username !== undefined && x.username !== null);
-
-      return res.json({ ok: true, blocked });
-    } catch (err) {
-      return res.status(500).json({ ok: false, error: 'internal' });
+    if (ids.length === 0) {
+      return res.json({ ok: true, blocked: [] });
     }
-  });
+
+    const users = await User.find({ _id: { $in: ids } }, { username: 1 }).lean().exec();
+    const map = new Map(users.map((u) => [u._id.toString(), u.username ?? null]));
+
+    const blocked = ids
+      .map((id) => ({ id, username: map.get(id.toString()) }))
+      .filter((x) => x.username !== undefined && x.username !== null);
+
+    return res.json({ ok: true, blocked });
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: 'internal' });
+  }
+});
 
 module.exports = router;
