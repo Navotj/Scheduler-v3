@@ -1,170 +1,109 @@
-:root {
+:root{
   --friend-cell-w: 220px;
   --friend-row-h: 44px;
   --grid-line: color-mix(in srgb, var(--border) 85%, transparent);
   --gap-sm: 8px;
 }
 
-/* full-height canvas */
-.friends,
-.friends > .friends-layout {
-  height: 100%;
-  min-height: 0;
-}
-
-/* ===== Three-column layout: 45% / 30% / 25% ===== */
-.friends-layout {
-  display: grid;
-  grid-template-columns: 45% 30% 25%;
+/* make the page area fill the main pane */
+.friends{ height:100%; min-height:0; }
+.friends-columns{
+  display:grid;
+  grid-template-columns: minmax(0,45%) minmax(0,30%) minmax(0,25%);
   gap: var(--gap);
-  height: 100%;
-  min-height: 0;
+  height:100%;
+  min-height:0;
 }
 
-.col {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  gap: var(--gap);
-}
+/* columns */
+.col-left,.col-mid,.col-right{ min-height:0; display:flex; flex-direction:column; gap:var(--gap); }
 
-/* Column 1: Add (auto) + Friends (fills rest) */
-.col-1 .add-friend { flex: 0 0 auto; }
-.col-1 .friends-col { flex: 1 1 0; min-height: 0; }
+/* left: add (auto) + friends (fills) */
+.add-friend{ flex:0 0 auto; }
+.friends-panel{ flex:1 1 0; min-height:0; }
 
-/* Column 2: Incoming + Outgoing, each exactly half height with scroll */
-.col-2 > .panel { flex: 1 1 0; min-height: 0; }
-.col-2 .list { flex: 1; min-height: 0; overflow: auto; }
+/* middle: two equal rows with internal scroll */
+.col-mid{ display:grid; grid-template-rows: 1fr 1fr; gap:var(--gap); min-height:0; }
+.col-mid > .panel{ min-height:0; display:flex; flex-direction:column; }
 
-/* Column 3: Block, Unblock (auto) + Blocked list (fills rest) */
-.col-3 .block-form-panel,
-.col-3 .unblock-form-panel { flex: 0 0 auto; }
-.col-3 .block-list-panel { flex: 1 1 0; min-height: 0; }
+/* right: two forms (auto) + list (fills) */
+.block-form-panel,.unblock-form-panel{ flex:0 0 auto; }
+.block-list-panel{ flex:1 1 0; min-height:0; display:flex; flex-direction:column; }
 
 /* panels */
-.panel {
+.panel{
   background: var(--bg-1);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: var(--gap-lg);
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
+  min-height:0;
+  display:flex; flex-direction:column;
 }
+.panel-title{ font-size:16px; font-weight:600; margin-bottom:8px; }
 
-.panel-title {
-  font-size: 16px;
-  font-weight: 600;
-  margin-bottom: 8px;
-}
-
-.row {
-  display: grid;
+/* form row */
+.row{
+  display:grid;
   grid-template-columns: auto 1fr auto;
-  gap: 8px;
-  align-items: center;
+  gap:8px;
+  align-items:center;
 }
+.label{ color:var(--fg-1); font-size:12px; }
+.status{ color:var(--muted); font-size:12px; margin-left:8px; }
 
-.label { color: var(--fg-1); font-size: 12px; }
-.status { color: var(--muted); font-size: 12px; margin-left: 8px; }
-
-/* request lists */
-.list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+/* request lists (scroll inside panel) */
+.list{
+  list-style:none; margin:0; padding:0;
+  display:flex; flex-direction:column; gap:6px;
+  overflow:auto; flex:1; min-height:0;
 }
-
-.list-item {
-  display: grid;
-  grid-template-columns: 1fr auto auto;
-  gap: 8px;
-  align-items: center;
-  padding: 6px 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--card);
+.list-item{
+  display:grid; grid-template-columns: 1fr auto auto; gap:8px; align-items:center;
+  padding:6px 8px; border:1px solid var(--border);
+  border-radius: var(--radius-sm); background: var(--card);
 }
+.list-item .name{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--fg-0); }
 
-.list-item .name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--fg-0);
-}
-
-/* ===== True grid (no bulky cards) for friends/blocked ===== */
-.friends-grid {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
+/* friends/blocked grids (thin 1px lines, not bulky cards) */
+.friends-grid{
+  list-style:none; margin:0; padding:0;
+  display:grid;
   grid-template-columns: repeat(auto-fill, minmax(var(--friend-cell-w), 1fr));
   grid-auto-rows: var(--friend-row-h);
-  gap: 0;
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
+  gap:0;
+  flex:1; min-height:0; overflow:auto;
 
-  /* thin 1px outline around the whole grid */
-  outline: 1px solid var(--grid-line);
+  outline:1px solid var(--grid-line);
   background:
     linear-gradient(var(--grid-line) 0 0) top/100% 1px no-repeat,
     linear-gradient(var(--grid-line) 0 0) bottom/100% 1px no-repeat,
     linear-gradient(90deg, var(--grid-line) 0 0) left/1px 100% no-repeat,
     linear-gradient(90deg, var(--grid-line) 0 0) right/1px 100% no-repeat;
 }
-
-.friend-cell {
-  position: relative;
-  display: flex;
-  align-items: center;
-  padding: 4px 26px 4px 8px;           /* room for right-edge icons */
-  border-right: 1px solid var(--grid-line);
-  border-bottom: 1px solid var(--grid-line);
+.friend-cell{
+  position:relative;
+  display:flex; align-items:center;
+  padding:4px 24px 4px 8px; /* room for icons on right */
+  border-right:1px solid var(--grid-line);
+  border-bottom:1px solid var(--grid-line);
   background: var(--card);
 }
-
-/* compact username */
-.friend-cell .identity {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--fg-0);
-  line-height: 1.2;
+.friend-cell .identity{
+  flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  color:var(--fg-0); line-height:1.2;
 }
 
-/* compact outline-only icons (no white fill) */
-.icon-btn {
-  position: absolute;
-  right: 6px;
-  width: 18px;
-  height: 18px;
-  padding: 0;
-  display: inline-grid;
-  place-items: center;
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  line-height: 1;
+/* compact outline-only icons (no fill) */
+.icon-btn{
+  position:absolute; right:6px; width:18px; height:18px; padding:0;
+  display:inline-grid; place-items:center;
+  border:none; background:transparent; cursor:pointer; line-height:1;
 }
+.icon-btn svg{ width:14px; height:14px; fill:none; stroke:#ff4d4d; stroke-width:2; }
+.btn-remove{ top:3px; }
+.btn-block{ bottom:3px; }
 
-.icon-btn svg {
-  width: 14px;
-  height: 14px;
-  fill: none;                 /* no infill */
-  stroke: #ff4d4d;            /* red outline */
-  stroke-width: 2;
-}
-
-.btn-remove { top: 4px; }
-.btn-block  { bottom: 4px; }
-
-/* responsive collapse to single column if needed */
-@media (max-width: 1100px) {
-  .friends-layout { grid-template-columns: 1fr; }
+/* responsive fallback */
+@media (max-width:1100px){
+  .friends-columns{ grid-template-columns: 1fr; }
 }

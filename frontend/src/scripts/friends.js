@@ -43,7 +43,7 @@
       if (res.ok) return data || { ok:true };
       const error = data && typeof data.error === 'string' ? data.error : (res.status >= 500 ? 'internal' : 'bad_request');
       return { ok:false, error, message: data && data.message };
-    } catch (err) {
+    } catch (_) {
       clearTimeout(t);
       return { ok:false, error:'network' };
     }
