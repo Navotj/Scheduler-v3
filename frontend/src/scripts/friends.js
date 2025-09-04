@@ -9,7 +9,6 @@
 
   const incomingList = document.getElementById('incoming-list');
   const outgoingList = document.getElementById('outgoing-list');
-
   const friendsList  = document.getElementById('friends-list');
   const blockedList  = document.getElementById('blocked-list');
 
@@ -43,12 +42,13 @@
       });
       clearTimeout(t);
       let data = null;
-      try { data = await res.json(); } catch (_) {}
+      try { data = await res.json(); } catch(_) {}
       if (res.ok) return data || { ok:true };
-      return { ok:false, error: data?.error || 'bad_request', message: data?.message };
+      const error = data && typeof data.error === 'string' ? data.error : (res.status >= 500 ? 'internal' : 'bad_request');
+      return { ok:false, error, message: data && data.message };
     } catch (err) {
       clearTimeout(t);
-      return { ok:false, error: 'network' };
+      return { ok:false, error:'network' };
     }
   }
 
@@ -58,19 +58,35 @@
     for (const [k, v] of Object.entries(attrs)) {
       if (k === 'class') e.className = v;
       else if (k === 'dataset') for (const [dk, dv] of Object.entries(v)) e.dataset[dk] = dv;
-      else if (k.toLowerCase().startsWith('on') && typeof v === 'function') {
-        e.addEventListener(k.slice(2).toLowerCase(), v);
-      } else e.setAttribute(k, v);
+      else if (k.toLowerCase().startsWith('on') && typeof v === 'function') e.addEventListener(k.slice(2).toLowerCase(), v);
+      else e.setAttribute(k, v);
     }
     for (const c of children) e.append(c);
     return e;
   }
 
-  function showInlineStatus(node, msg){
-    if (node) node.textContent = msg || '';
+  function showInlineStatus(node, msg){ if (node) node.textContent = msg || ''; }
+
+  function displayName(u){
+    if (!u) return '';
+    return (u.username && u.username.trim()) ? u.username : '(unknown)';
   }
 
-  function displayName(u){ return (u?.username || '').trim() || '(unknown)'; }
+  // username-only validation (3–20 chars; letters, numbers, dot, underscore, dash)
+  const USERNAME_RE = /^[a-zA-Z0-9._-]{3,20}$/;
+  function validateTargetInput(value){
+    const v = (value || '').trim();
+    if (!v) return { ok:false, msg:'enter a username' };
+    if (v.includes('@')) return { ok:false, msg:'emails are not allowed here' };
+    if (!USERNAME_RE.test(v)) return { ok:false, msg:'username must be 3–20 chars (a–z, 0–9, . _ -)' };
+    return { ok:true, val:v };
+  }
+
+  async function withDisabled(btn, fn){
+    if (btn) btn.disabled = true;
+    try { return await fn(); }
+    finally { if (btn) btn.disabled = false; }
+  }
 
   // ====== Renderers ======
   function renderIncoming(list){
@@ -114,7 +130,7 @@
       const card = el('li',{class:'friend-card'});
       const name = el('div',{class:'identity'},[text(displayName(u))]);
       const removeBtn = el('button',{class:'icon-btn btn-remove',title:'Remove',onClick:()=>confirmRemove(u.id,u.username)},[text('✕')]);
-      const blockBtn = el('button',{class:'icon-btn btn-block',title:'Block',onClick:()=>confirmBlock(u.id,u.username)},[text('🚫')]);
+      const blockBtn  = el('button',{class:'icon-btn btn-block', title:'Block', onClick:()=>confirmBlock(u.id,u.username)},[text('🚫')]);
       card.append(name, removeBtn, blockBtn);
       friendsList.append(card);
     }
@@ -143,15 +159,28 @@
     if (window.confirm(`Block user ${username}?`)) blockUserId(id);
   }
 
+  // ====== Message mapping (kept for inline statuses) ======
+  function normalizeMessage(resp){
+    if (typeof resp === 'string') return resp || 'Done.';
+    if (!resp || typeof resp !== 'object') return 'Something went wrong.';
+    if (resp.ok) return resp.message || 'Done.';
+    if (resp.message) return resp.message;
+    return 'Something went wrong.';
+  }
+
   // ====== Actions ======
-  async function sendRequest(target){ await api('/friends/request',{method:'POST',body:{username:target}}); await refreshAll(); }
-  async function acceptRequest(userId){ await api('/friends/accept',{method:'POST',body:{userId}}); await refreshAll(); }
-  async function declineRequest(userId){ await api('/friends/decline',{method:'POST',body:{userId}}); await refreshAll(); }
-  async function cancelOutgoing(userId){ await api('/friends/cancel',{method:'POST',body:{userId}}); await refreshAll(); }
-  async function removeFriend(userId){ await api('/friends/remove',{method:'POST',body:{userId}}); await refreshAll(); }
-  async function blockUserId(userId){ await api('/friends/block',{method:'POST',body:{userId}}); await refreshAll(); }
-  async function blockUserTarget(target){ await api('/friends/block',{method:'POST',body:{username:target}}); await refreshAll(); }
-  async function unblockUserTarget(target){ await api('/friends/unblock',{method:'POST',body:{username:target}}); await refreshAll(); }
+  async function sendRequest(target){
+    const out = await api('/friends/request', { method:'POST', body:{ username: target } });
+    showInlineStatus(addStatus, normalizeMessage(out));
+    await refreshAll();
+  }
+  async function acceptRequest(userId){ await api('/friends/accept', { method:'POST', body:{ userId } }); await refreshAll(); }
+  async function declineRequest(userId){ await api('/friends/decline', { method:'POST', body:{ userId } }); await refreshAll(); }
+  async function cancelOutgoing(userId){ await api('/friends/cancel', { method:'POST', body:{ userId } }); await refreshAll(); }
+  async function removeFriend(userId){ await api('/friends/remove', { method:'POST', body:{ userId } }); await refreshAll(); }
+  async function blockUserId(userId){ const r=await api('/friends/block', { method:'POST', body:{ userId } }); showInlineStatus(blockStatus, normalizeMessage(r)); await refreshAll(); }
+  async function blockUserTarget(target){ const r=await api('/friends/block', { method:'POST', body:{ username: target } }); showInlineStatus(blockStatus, normalizeMessage(r)); await refreshAll(); }
+  async function unblockUserTarget(target){ const r=await api('/friends/unblock', { method:'POST', body:{ username: target } }); showInlineStatus(unblockStatus, normalizeMessage(r)); await refreshAll(); }
 
   // ====== Loaders ======
   async function refreshAll(){
@@ -160,44 +189,43 @@
       api('/friends/requests').catch(()=>({incoming:[], outgoing:[]})),
       api('/friends/blocklist').catch(()=>({blocked:[]})),
     ]);
-    renderFriends(friends?.friends||[]);
-    renderIncoming(reqs?.incoming||[]);
-    renderOutgoing(reqs?.outgoing||[]);
-    renderBlocked(blocks?.blocked||[]);
+    renderFriends(friends?.friends || []);
+    renderIncoming(reqs?.incoming || []);
+    renderOutgoing(reqs?.outgoing || []);
+    renderBlocked(blocks?.blocked || []);
   }
 
   // ====== Events ======
-  addForm.addEventListener('submit', e=>{
+  addForm.addEventListener('submit', (e)=>{
     e.preventDefault();
-    const val = addTarget.value.trim();
-    if (!val) return;
-    addBtn.disabled=true;
-    sendRequest(val).finally(()=>addBtn.disabled=false);
-  });
-  blockForm.addEventListener('submit', e=>{
-    e.preventDefault();
-    const val = blockTarget.value.trim();
-    if (!val) return;
-    blockBtn.disabled=true;
-    blockUserTarget(val).finally(()=>blockBtn.disabled=false);
-  });
-  unblockForm.addEventListener('submit', e=>{
-    e.preventDefault();
-    const val = unblockTarget.value.trim();
-    if (!val) return;
-    unblockBtn.disabled=true;
-    unblockUserTarget(val).finally(()=>unblockBtn.disabled=false);
+    const v = validateTargetInput(addTarget.value);
+    if (!v.ok) { showInlineStatus(addStatus, v.msg); return; }
+    withDisabled(addBtn, () => sendRequest(v.val));
   });
 
-  tabIncoming.addEventListener('click',()=>{
+  blockForm.addEventListener('submit', (e)=>{
+    e.preventDefault();
+    const v = validateTargetInput(blockTarget.value);
+    if (!v.ok) { showInlineStatus(blockStatus, v.msg); return; }
+    withDisabled(blockBtn, () => blockUserTarget(v.val));
+  });
+
+  unblockForm.addEventListener('submit', (e)=>{
+    e.preventDefault();
+    const v = validateTargetInput(unblockTarget.value);
+    if (!v.ok) { showInlineStatus(unblockStatus, v.msg); return; }
+    withDisabled(unblockBtn, () => unblockUserTarget(v.val));
+  });
+
+  tabIncoming.addEventListener('click', ()=>{
     tabIncoming.classList.add('active'); tabIncoming.setAttribute('aria-selected','true');
     tabOutgoing.classList.remove('active'); tabOutgoing.setAttribute('aria-selected','false');
-    incomingList.hidden=false; outgoingList.hidden=true;
+    incomingList.hidden = false; outgoingList.hidden = true;
   });
-  tabOutgoing.addEventListener('click',()=>{
+  tabOutgoing.addEventListener('click', ()=>{
     tabOutgoing.classList.add('active'); tabOutgoing.setAttribute('aria-selected','true');
     tabIncoming.classList.remove('active'); tabIncoming.setAttribute('aria-selected','false');
-    outgoingList.hidden=false; incomingList.hidden=true;
+    outgoingList.hidden = false; incomingList.hidden = true;
   });
 
   // ====== Init ======

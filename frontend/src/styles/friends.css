@@ -1,14 +1,16 @@
 :root {
   --friend-card-w: 220px;
   --friend-card-h: 64px;
+  --gap-sm: 8px;
 }
 
-/* layout for friends page */
+/* page layout */
 .friends-layout {
   display: flex;
   flex-direction: column;
   gap: var(--gap);
   height: 100%;
+  min-height: 0;
 }
 
 .row-1 {
@@ -41,6 +43,30 @@
   margin-bottom: 8px;
 }
 
+.panel-subtitle {
+  font-size: 14px;
+  font-weight: 500;
+  margin-bottom: 6px;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.label {
+  color: var(--fg-1);
+  font-size: 12px;
+}
+
+.status {
+  color: var(--muted);
+  font-size: 12px;
+  margin-left: 8px;
+}
+
 /* tabs */
 .tabs {
   display: flex;
@@ -49,19 +75,21 @@
 }
 
 .tab {
-  background: none;
-  border: none;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--fg-1);
   padding: 6px 12px;
   border-radius: var(--radius-sm);
   cursor: pointer;
-  color: var(--fg-1);
 }
+
 .tab.active {
   background: var(--accent);
+  border-color: var(--accent);
   color: #fff;
 }
 
-/* lists */
+/* request lists */
 .list {
   list-style: none;
   margin: 0;
@@ -72,8 +100,9 @@
 }
 
 .list-item {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 8px;
   align-items: center;
   padding: 6px 8px;
   border: 1px solid var(--border);
@@ -81,16 +110,24 @@
   background: var(--card);
 }
 
-/* friends grid */
+.list-item .name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-0);
+}
+
+/* friends / blocked grids */
 .friends-grid {
   list-style: none;
   margin: 0;
   padding: 0;
   display: flex;
   flex-wrap: wrap;
-  gap: var(--gap-sm, 8px);
+  gap: var(--gap-sm);
   overflow-y: auto;
   flex: 1;
+  min-height: 0;
 }
 
 .friend-card {
@@ -111,6 +148,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: var(--fg-0);
 }
 
 .friend-card .icon-btn {
@@ -118,23 +156,24 @@
   right: 6px;
   width: 24px;
   height: 24px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  display: inline-grid;
+  place-items: center;
   border: none;
   background: transparent;
   cursor: pointer;
   color: #ff4d4d;
+  line-height: 1;
 }
 
-.friend-card .btn-remove {
-  top: 4px;
-}
-.friend-card .btn-block {
-  bottom: 4px;
+.friend-card .btn-remove { top: 4px; }
+.friend-card .btn-block  { bottom: 4px; }
+
+/* block column structure */
+.block-top {
+  display: grid;
+  gap: 10px;
 }
 
-/* block list */
 .block-list {
   margin-top: 12px;
   flex: 1;
@@ -142,8 +181,8 @@
   overflow-y: auto;
 }
 
-.panel-subtitle {
-  font-size: 14px;
-  font-weight: 500;
-  margin-bottom: 6px;
+/* responsive */
+@media (max-width: 991px) {
+  .row-1 { grid-template-columns: 1fr; }
+  .row-2 { grid-template-columns: 1fr; }
 }

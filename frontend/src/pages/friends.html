@@ -13,7 +13,6 @@
       <main id="page" class="main" tabindex="-1" aria-label="Main content">
         <section class="friends">
           <div class="friends-layout">
-            <!-- Row 1: add + requests -->
             <div class="row-1">
               <section class="panel add-friend">
                 <h1 class="panel-title">Add a Friend</h1>
@@ -26,16 +25,15 @@
               </section>
 
               <section class="panel requests">
-                <div class="tabs" role="tablist">
-                  <button id="tab-incoming" class="tab active" role="tab" aria-selected="true">Incoming</button>
-                  <button id="tab-outgoing" class="tab" role="tab" aria-selected="false">Outgoing</button>
+                <div class="tabs" role="tablist" aria-label="Friend requests">
+                  <button id="tab-incoming" class="tab active" role="tab" aria-selected="true" aria-controls="incoming-list">Incoming</button>
+                  <button id="tab-outgoing" class="tab" role="tab" aria-selected="false" aria-controls="outgoing-list">Outgoing</button>
                 </div>
                 <ul id="incoming-list" class="list" aria-live="polite"></ul>
                 <ul id="outgoing-list" class="list" aria-live="polite" hidden></ul>
               </section>
             </div>
 
-            <!-- Row 2: friends grid + block/unblock -->
             <div class="row-2">
               <section class="panel friends-col">
                 <h2 class="panel-title">Friends</h2>
