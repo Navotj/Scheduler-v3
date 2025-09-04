@@ -22,9 +22,6 @@
   const unblockStatus = document.getElementById('unblock-status');
   const unblockBtn = document.getElementById('unblock-send');
 
-  const tabIncoming = document.getElementById('tab-incoming');
-  const tabOutgoing = document.getElementById('tab-outgoing');
-
   // ====== API helper ======
   const API_PREFIX = '/api';
 
@@ -88,7 +85,7 @@
     finally { if (btn) btn.disabled = false; }
   }
 
-  // ====== Small red-outline icons (SVG; transparent fill) ======
+  // outline-only icons
   function svgX() {
     const s = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6 L18 18 M18 6 L6 18"/></svg>';
     const span = document.createElement('span'); span.innerHTML = s;
@@ -224,17 +221,6 @@
     const v = validateTargetInput(unblockTarget.value);
     if (!v.ok) { showInlineStatus(unblockStatus, v.msg); return; }
     withDisabled(unblockBtn, () => unblockUserTarget(v.val));
-  });
-
-  tabIncoming.addEventListener('click', ()=>{
-    tabIncoming.classList.add('active'); tabIncoming.setAttribute('aria-selected','true');
-    tabOutgoing.classList.remove('active'); tabOutgoing.setAttribute('aria-selected','false');
-    incomingList.hidden = false; outgoingList.hidden = true;
-  });
-  tabOutgoing.addEventListener('click', ()=>{
-    tabOutgoing.classList.add('active'); tabOutgoing.setAttribute('aria-selected','true');
-    tabIncoming.classList.remove('active'); tabIncoming.setAttribute('aria-selected','false');
-    outgoingList.hidden = false; incomingList.hidden = true;
   });
 
   // ====== Init ======

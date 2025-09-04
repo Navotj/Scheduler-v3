@@ -1,39 +1,47 @@
 :root {
-  /* fixed friend cell width and compact row height */
   --friend-cell-w: 220px;
   --friend-row-h: 44px;
   --grid-line: color-mix(in srgb, var(--border) 85%, transparent);
   --gap-sm: 8px;
 }
 
-/* ensure the whole page section can stretch to the bottom */
+/* full-height canvas */
 .friends,
 .friends > .friends-layout {
   height: 100%;
   min-height: 0;
 }
 
-/* page layout */
+/* ===== Three-column layout: 45% / 30% / 25% ===== */
 .friends-layout {
+  display: grid;
+  grid-template-columns: 45% 30% 25%;
+  gap: var(--gap);
+  height: 100%;
+  min-height: 0;
+}
+
+.col {
   display: flex;
   flex-direction: column;
+  min-height: 0;
   gap: var(--gap);
 }
 
-.row-1 {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--gap);
-}
+/* Column 1: Add (auto) + Friends (fills rest) */
+.col-1 .add-friend { flex: 0 0 auto; }
+.col-1 .friends-col { flex: 1 1 0; min-height: 0; }
 
-.row-2 {
-  display: grid;
-  grid-template-columns: 2fr 1fr;
-  gap: var(--gap);
-  flex: 1;
-  min-height: 0; /* allow children to scroll inside */
-}
+/* Column 2: Incoming + Outgoing, each exactly half height with scroll */
+.col-2 > .panel { flex: 1 1 0; min-height: 0; }
+.col-2 .list { flex: 1; min-height: 0; overflow: auto; }
 
+/* Column 3: Block, Unblock (auto) + Blocked list (fills rest) */
+.col-3 .block-form-panel,
+.col-3 .unblock-form-panel { flex: 0 0 auto; }
+.col-3 .block-list-panel { flex: 1 1 0; min-height: 0; }
+
+/* panels */
 .panel {
   background: var(--bg-1);
   border: 1px solid var(--border);
@@ -41,19 +49,13 @@
   padding: var(--gap-lg);
   display: flex;
   flex-direction: column;
-  min-height: 0; /* enable internal scroll areas */
+  min-height: 0;
 }
 
 .panel-title {
   font-size: 16px;
   font-weight: 600;
   margin-bottom: 8px;
-}
-
-.panel-subtitle {
-  font-size: 14px;
-  font-weight: 500;
-  margin-bottom: 6px;
 }
 
 .row {
@@ -63,38 +65,8 @@
   align-items: center;
 }
 
-.label {
-  color: var(--fg-1);
-  font-size: 12px;
-}
-
-.status {
-  color: var(--muted);
-  font-size: 12px;
-  margin-left: 8px;
-}
-
-/* tabs */
-.tabs {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 8px;
-}
-
-.tab {
-  background: transparent;
-  border: 1px solid var(--border);
-  color: var(--fg-1);
-  padding: 6px 12px;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-}
-
-.tab.active {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
-}
+.label { color: var(--fg-1); font-size: 12px; }
+.status { color: var(--muted); font-size: 12px; margin-left: 8px; }
 
 /* request lists */
 .list {
@@ -124,15 +96,7 @@
   color: var(--fg-0);
 }
 
-/* ===== Friends / Blocked as a true grid (no bulky cards) ===== */
-.friends-col,
-.block-col {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-}
-
-/* grid container draws outer outline; cells draw only right/bottom lines to avoid doubles */
+/* ===== True grid (no bulky cards) for friends/blocked ===== */
 .friends-grid {
   list-style: none;
   margin: 0;
@@ -144,6 +108,8 @@
   flex: 1;
   min-height: 0;
   overflow: auto;
+
+  /* thin 1px outline around the whole grid */
   outline: 1px solid var(--grid-line);
   background:
     linear-gradient(var(--grid-line) 0 0) top/100% 1px no-repeat,
@@ -156,7 +122,7 @@
   position: relative;
   display: flex;
   align-items: center;
-  padding: 4px 28px 4px 8px;        /* room for right-edge icons */
+  padding: 4px 26px 4px 8px;           /* room for right-edge icons */
   border-right: 1px solid var(--grid-line);
   border-bottom: 1px solid var(--grid-line);
   background: var(--card);
@@ -172,12 +138,12 @@
   line-height: 1.2;
 }
 
-/* compact icon buttons (16px, transparent fill) */
+/* compact outline-only icons (no white fill) */
 .icon-btn {
   position: absolute;
   right: 6px;
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
   padding: 0;
   display: inline-grid;
   place-items: center;
@@ -188,31 +154,17 @@
 }
 
 .icon-btn svg {
-  width: 16px;
-  height: 16px;
-  fill: none;                 /* no white fill */
-  stroke: #ff4d4d;            /* red outline only */
+  width: 14px;
+  height: 14px;
+  fill: none;                 /* no infill */
+  stroke: #ff4d4d;            /* red outline */
   stroke-width: 2;
 }
 
 .btn-remove { top: 4px; }
 .btn-block  { bottom: 4px; }
 
-/* block column structure */
-.block-top {
-  display: grid;
-  gap: 10px;
-}
-
-.block-list {
-  margin-top: 12px;
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-}
-
-/* responsive */
-@media (max-width: 991px) {
-  .row-1 { grid-template-columns: 1fr; }
-  .row-2 { grid-template-columns: 1fr; }
+/* responsive collapse to single column if needed */
+@media (max-width: 1100px) {
+  .friends-layout { grid-template-columns: 1fr; }
 }
