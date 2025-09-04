@@ -194,6 +194,15 @@
 
     if (saveBtn) saveBtn.addEventListener('click', async () => {
       if (!isAuthenticated) return;
+      const MAX_TEMPLATES = 5;
+
+      // Enforce max templates before attempting a save
+      const existing = await apiListTemplates();
+      if (Array.isArray(existing) && existing.length >= MAX_TEMPLATES) {
+        shared.showToast(`Max templates reached (${MAX_TEMPLATES}). Delete one to add a new one.`, 'warn');
+        return;
+      }
+
       const name = (nameInput && nameInput.value.trim()) || '';
       if (!name) { shared.showToast('Enter a template name.', 'warn'); return; }
       const payload = buildTemplatePayload(name);
