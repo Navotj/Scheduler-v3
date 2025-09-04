@@ -349,13 +349,3 @@ resource "aws_apigatewayv2_route" "post_friends_cancel" {
   authorization_type = "CUSTOM"
   authorizer_id      = local.authz
 }
-
-# ---------- USERS (mounted at /users) ----------
-# GET /users/exists
-resource "aws_apigatewayv2_route" "get_users_exists" {
-  api_id             = local.api_id
-  route_key          = "GET /users/exists"
-  target             = "integrations/${local.int_id}"
-  authorization_type = "CUSTOM"
-  authorizer_id      = local.authz
-}
