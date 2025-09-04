@@ -1,28 +1,26 @@
-<header class="topbar">
+<header class="topbar" style="position:relative">
   <nav class="topnav" aria-label="Primary">
     <a class="navbtn" href="/availability.html" aria-label="Availability" title="Availability">
       <svg viewBox="0 0 30 30" aria-hidden="true">
         <defs>
           <filter id="icon-outline-availability" filterUnits="objectBoundingBox" x="-25%" y="-25%" width="150%" height="150%" color-interpolation-filters="sRGB">
-            <feMorphology in="SourceAlpha" operator="dilate" radius="2" result="dilated"/>
-            <feComposite in="dilated" in2="SourceAlpha" operator="out" result="outside"/>
-            <feFlood flood-color="#000" flood-opacity="0.5" result="color"/>
-            <feComposite in="color" in2="outside" operator="in" result="outline"/>
+            <feMorphology in="SourceAlpha" operator="dilate" radius="2" result="dilated"></feMorphology>
+            <feComposite in="dilated" in2="SourceAlpha" operator="out" result="outside"></feComposite>
+            <feFlood flood-color="#000" flood-opacity="0.5" result="color"></feFlood>
+            <feComposite in="color" in2="outside" operator="in" result="outline"></feComposite>
             <feMerge>
-              <feMergeNode in="outline"/>
-              <feMergeNode in="SourceGraphic"/>
+              <feMergeNode in="outline"></feMergeNode>
+              <feMergeNode in="SourceGraphic"></feMergeNode>
             </feMerge>
           </filter>
         </defs>
 
-        <!-- Calendar base -->
         <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M9 2.5v3.5M21 2.5v3.5M4.5 9h21" stroke-width="1.8"/>
-          <rect x="5" y="6.5" width="20" height="17.5" rx="1" stroke-width="1.8"/>
-          <path d="M9.5 12.5h3.8m4 0h3.8m-11.6 5h3.8m4 0h3.8" stroke-width="1.4"/>
+          <path d="M9 2.5v3.5M21 2.5v3.5M4.5 9h21" stroke-width="1.8"></path>
+          <rect x="5" y="6.5" width="20" height="17.5" rx="1" stroke-width="1.8"></rect>
+          <path d="M9.5 12.5h3.8m4 0h3.8m-11.6 5h3.8m4 0h3.8" stroke-width="1.4"></path>
         </g>
 
-        <!-- Overlay: thin pen leaning RIGHT + squiggle -->
         <g transform="translate(22,19) scale(1.2)" filter="url(#icon-outline-availability)" stroke="currentColor" fill="currentColor" stroke-linejoin="round" stroke-linecap="round">
           <path d="M -13 6.5
                    C -12 7.3, -11 7.3, -10 6.5
@@ -30,10 +28,10 @@
                    S -5 7.4, -4 6.5
                    S -2 5.6, -1 6.5" fill="none" stroke-width="0.8"></path>
           <g transform="translate(2,4.5) rotate(33)">
-            <rect x="-0.55" y="-8.2" width="1.1" height="8.2" rx="0.55"/>
-            <rect x="-0.65" y="-3.3" width="1.3" height="0.7" rx="0.35"/>
-            <path d="M -0.55 0 L 0.55 0 L 0 2 Z"/>
-            <path d="M 0.45 -7.2 L 1.7 -5.6" fill="none" stroke-width="0.6"/>
+            <rect x="-0.55" y="-8.2" width="1.1" height="8.2" rx="0.55"></rect>
+            <rect x="-0.65" y="-3.3" width="1.3" height="0.7" rx="0.35"></rect>
+            <path d="M -0.55 0 L 0.55 0 L 0 2 Z"></path>
+            <path d="M 0.45 -7.2 L 1.7 -5.6" fill="none" stroke-width="0.6"></path>
           </g>
         </g>
       </svg>
@@ -43,28 +41,26 @@
       <svg viewBox="0 0 30 30" aria-hidden="true">
         <defs>
           <filter id="icon-outline-matcher" filterUnits="objectBoundingBox" x="-25%" y="-25%" width="150%" height="150%" color-interpolation-filters="sRGB">
-            <feMorphology in="SourceAlpha" operator="dilate" radius="2" result="dilated"/>
-            <feComposite in="dilated" in2="SourceAlpha" operator="out" result="outside"/>
-            <feFlood flood-color="#000" flood-opacity="0.5" result="color"/>
-            <feComposite in="color" in2="outside" operator="in" result="outline"/>
+            <feMorphology in="SourceAlpha" operator="dilate" radius="2" result="dilated"></feMorphology>
+            <feComposite in="dilated" in2="SourceAlpha" operator="out" result="outside"></feComposite>
+            <feFlood flood-color="#000" flood-opacity="0.5" result="color"></feFlood>
+            <feComposite in="color" in2="outside" operator="in" result="outline"></feComposite>
             <feMerge>
-              <feMergeNode in="outline"/>
-              <feMergeNode in="SourceGraphic"/>
+              <feMergeNode in="outline"></feMergeNode>
+              <feMergeNode in="SourceGraphic"></feMergeNode>
             </feMerge>
           </filter>
         </defs>
 
-        <!-- Calendar base -->
         <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M9 2.5v3.5M21 2.5v3.5M4.5 9h21" stroke-width="1.8"/>
-          <rect x="5" y="6.5" width="20" height="17.5" rx="1" stroke-width="1.8"/>
-          <path d="M9.5 12.5h3.8m4 0h3.8m-11.6 5h3.8m4 0h3.8" stroke-width="1.4"/>
+          <path d="M9 2.5v3.5M21 2.5v3.5M4.5 9h21" stroke-width="1.8"></path>
+          <rect x="5" y="6.5" width="20" height="17.5" rx="1" stroke-width="1.8"></rect>
+          <path d="M9.5 12.5h3.8m4 0h3.8m-11.6 5h3.8m4 0h3.8" stroke-width="1.4"></path>
         </g>
 
-        <!-- Magnifying glass -->
         <g transform="translate(15,15) scale(1.25)" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" filter="url(#icon-outline-matcher)">
-          <circle cx="5.2" cy="5.2" r="3.8" stroke-width="1.6"/>
-          <path d="M8.6 8.6l2.7 2.7" stroke-width="1.8"/>
+          <circle cx="5.2" cy="5.2" r="3.8" stroke-width="1.6"></circle>
+          <path d="M8.6 8.6l2.7 2.7" stroke-width="1.8"></path>
         </g>
       </svg>
     </a>
@@ -73,48 +69,59 @@
       <svg viewBox="0 0 30 30" aria-hidden="true">
         <defs>
           <filter id="icon-outline-templates" filterUnits="objectBoundingBox" x="-25%" y="-25%" width="150%" height="150%" color-interpolation-filters="sRGB">
-            <feMorphology in="SourceAlpha" operator="dilate" radius="2" result="dilated"/>
-            <feComposite in="dilated" in2="SourceAlpha" operator="out" result="outside"/>
-            <feFlood flood-color="#000" flood-opacity="0.5" result="color"/>
-            <feComposite in="color" in2="outside" operator="in" result="outline"/>
+            <feMorphology in="SourceAlpha" operator="dilate" radius="2" result="dilated"></feMorphology>
+            <feComposite in="dilated" in2="SourceAlpha" operator="out" result="outside"></feComposite>
+            <feFlood flood-color="#000" flood-opacity="0.5" result="color"></feFlood>
+            <feComposite in="color" in2="outside" operator="in" result="outline"></feComposite>
             <feMerge>
-              <feMergeNode in="outline"/>
-              <feMergeNode in="SourceGraphic"/>
+              <feMergeNode in="outline"></feMergeNode>
+              <feMergeNode in="SourceGraphic"></feMergeNode>
             </feMerge>
           </filter>
         </defs>
 
-        <!-- Calendar base -->
         <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M9 2.5v3.5M21 2.5v3.5M4.5 9h21" stroke-width="1.8"/>
-          <rect x="5" y="6.5" width="20" height="17.5" rx="1" stroke-width="1.8"/>
-          <path d="M9.5 12.5h3.8m4 0h3.8m-11.6 5h3.8m4 0h3.8" stroke-width="1.4"/>
+          <path d="M9 2.5v3.5M21 2.5v3.5M4.5 9h21" stroke-width="1.8"></path>
+          <rect x="5" y="6.5" width="20" height="17.5" rx="1" stroke-width="1.8"></rect>
+          <path d="M9.5 12.5h3.8m4 0h3.8m-11.6 5h3.8m4 0h3.8" stroke-width="1.4"></path>
         </g>
 
-        <!-- Bookmark symbol (no fill, bottom visible) -->
         <g transform="translate(22,22) scale(1.2)" filter="url(#icon-outline-templates)" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linejoin="round" stroke-linecap="round">
-          <path d="M-3 -5h6v11l-3-2-3 2z"/>
+          <path d="M-3 -5h6v11l-3-2-3 2z"></path>
+        </g>
+      </svg>
+    </a>
+
+    <a class="navbtn" href="/friends.html" aria-label="Friends" title="Friends">
+      <svg viewBox="0 0 30 30" aria-hidden="true">
+        <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="15" cy="11" r="3.2" stroke-width="1.6"></circle>
+          <path d="M9.5 21c0-3 2.7-5.4 5.5-5.4S20.5 18 20.5 21" stroke-width="1.6"></path>
+          <circle cx="8.5" cy="12.5" r="2.3" stroke-width="1.4"></circle>
+          <path d="M4.5 21.5c0-2.4 2.2-4.3 4.2-4.6" stroke-width="1.4"></path>
+          <circle cx="21.5" cy="12.5" r="2.3" stroke-width="1.4"></circle>
+          <path d="M25.5 21.5c0-2.4-2.2-4.3-4.2-4.6" stroke-width="1.4"></path>
         </g>
       </svg>
     </a>
 
     <button id="settings-btn" class="navbtn" type="button" aria-label="Settings" title="Settings">
       <svg viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm7.5-2.1a8 8 0 0 0 0-1.8l2-1.6-2-3.4-2.5 1a7.9 7.9 0 0 0-1.6-0.9l-0.4-2.6H9.9l-0.4 2.6a7.9 7.9 0 0 0-1.6 0.9l-2.5-1-2 3.4 2 1.6a8 8 0 0 0 0 1.8l-2 1.6 2 3.4 2.5-1a7.9 7.9 0 0 0 1.6 0.9l0.4 2.6h4.2l0.4-2.6a7.9 7.9 0 0 0 1.6-0.9l2.5 1 2-3.4-2-1.6Z" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm7.5-2.1a8 8 0 0 0 0-1.8l2-1.6-2-3.4-2.5 1a7.9 7.9 0 0 0-1.6-0.9l-0.4-2.6H9.9l-0.4 2.6a7.9 7.9 0 0 0-1.6 0.9l-2.5-1-2 3.4 2 1.6a8 8 0 0 0 0 1.8l-2 1.6 2 3.4 2.5-1a7.9 7.9 0 0 0 1.6 0.9l0.4 2.6h4.2l0.4-2.6a7.9 7.9 0 0 0 1.6-0.9l2.5 1 2-3.4-2-1.6Z" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"></path>
       </svg>
     </button>
 
     <button id="auth-btn" class="navbtn navbtn--login" type="button" aria-label="Sign in" title="Sign in" data-state="anonymous">
       <svg id="auth-icon" viewBox="0 0 24 24" aria-hidden="true">
         <g data-icon="login">
-          <path d="M16 4h3a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-          <path d="M3 12h12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-          <path d="M10 7l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M16 4h3a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path>
+          <path d="M3 12h12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path>
+          <path d="M10 7l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path>
         </g>
-        <g data-icon="logout" hidden>
-          <path d="M5 4h3a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-          <path d="M8 12h9" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-          <path d="M12 7l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        <g data-icon="logout" hidden="">
+          <path d="M5 4h3a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path>
+          <path d="M8 12h9" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path>
+          <path d="M12 7l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path>
         </g>
       </svg>
     </button>
@@ -123,32 +130,54 @@
 
   <span class="brand-title" aria-hidden="true">Nat20Scheduling</span>
 
+  <div id="notif-root" style="position:absolute; right:84px; top:50%; transform:translateY(-50%);">
+    <button id="notif-btn" class="navbtn" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="notif-menu" title="Requests">
+      <span style="position:relative; display:inline-block">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18 16v-5a6 6 0 1 0-12 0v5"></path>
+            <path d="M5 16h14"></path>
+            <path d="M9 16v1a3 3 0 0 0 6 0v-1"></path>
+          </g>
+        </svg>
+        <span id="notif-badge" aria-hidden="true" hidden
+              style="position:absolute; top:-2px; right:-2px; min-width:14px; height:14px; padding:0 3px; border-radius:999px; background:#e5484d; color:#fff; font-size:10px; line-height:14px; text-align:center; pointer-events:none;">0</span>
+      </span>
+    </button>
+    <div id="notif-menu" role="menu" aria-label="Friend requests"
+         style="position:absolute; right:0; margin-top:6px; width:260px; max-height:60vh; overflow:auto; background:var(--card,#121315); color:var(--fg-0,#e7eaf2); border:1px solid var(--border,#1a1c20); border-radius:10px; box-shadow:0 8px 24px rgba(0,0,0,.4); padding:6px; display:none; z-index:9999;">
+      <div class="muted small" style="padding:8px 10px">no new requests</div>
+    </div>
+  </div>
+
   <a class="brand" href="/" aria-label="Home">
     <svg class="d20clock" viewBox="0 0 64 64" role="img" aria-label="Current time">
       <g class="die" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-        <polygon points="7.751,46.000 32.000,60.000 56.249,46.000 56.249,18.000 32.000,4.000 7.751,18.000" />
-        <line x1="32.000" y1="14.695" x2="56.249" y2="18.000" />
-        <line x1="32.000" y1="14.695" x2="46.987" y2="40.652" />
-        <line x1="32.000" y1="14.695" x2="32.000" y2="4.000" />
-        <line x1="32.000" y1="14.695" x2="7.751" y2="18.000" />
-        <line x1="32.000" y1="14.695" x2="17.013" y2="40.652" />
-        <line x1="56.249" y1="18.000" x2="46.987" y2="40.652" />
-        <line x1="56.249" y1="18.000" x2="56.249" y2="46.000" />
-        <line x1="46.987" y1="40.652" x2="56.249" y2="46.000" />
-        <line x1="46.987" y1="40.652" x2="32.000" y2="60.000" />
-        <line x1="46.987" y1="40.652" x2="17.013" y2="40.652" />
-        <line x1="6.956" y1="46.000" x2="32.000" y2="60.000" />
-        <line x1="6.956" y1="46.000" x2="17.013" y2="40.652" />
-        <line x1="6.956" y1="46.000" x2="7.751" y2="18.000" />
-        <line x1="32.000" y1="60.000" x2="17.013" y2="40.652" />
-        <line x1="32.000" y1="60.000" x2="17.013" y2="40.652" />
-        <line x1="7.751" y1="18.000" x2="17.013" y2="40.652" />
+        <polygon points="7.751,46.000 32.000,60.000 56.249,46.000 56.249,18.000 32.000,4.000 7.751,18.000"></polygon>
+        <line x1="32.000" y1="14.695" x2="56.249" y2="18.000"></line>
+        <line x1="32.000" y1="14.695" x2="46.987" y2="40.652"></line>
+        <line x1="32.000" y1="14.695" x2="32.000" y2="4.000"></line>
+        <line x1="32.000" y1="14.695" x2="7.751" y2="18.000"></line>
+        <line x1="32.000" y1="14.695" x2="17.013" y2="40.652"></line>
+        <line x1="56.249" y1="18.000" x2="46.987" y2="40.652"></line>
+        <line x1="56.249" y1="18.000" x2="56.249" y2="46.000"></line>
+        <line x1="46.987" y1="40.652" x2="56.249" y2="46.000"></line>
+        <line x1="46.987" y1="40.652" x2="32.000" y2="60.000"></line>
+        <line x1="46.987" y1="40.652" x2="17.013" y2="40.652"></line>
+        <line x1="6.956" y1="46.000" x2="32.000" y2="60.000"></line>
+        <line x1="6.956" y1="46.000" x2="17.013" y2="40.652"></line>
+        <line x1="6.956" y1="46.000" x2="7.751" y2="18.000"></line>
+        <line x1="32.000" y1="60.000" x2="17.013" y2="40.652"></line>
+        <line x1="32.000" y1="60.000" x2="17.013" y2="40.652"></line>
+        <line x1="7.751" y1="18.000" x2="17.013" y2="40.652"></line>
       </g>
       <g class="hands">
-        <line class="hour"   x1="32" y1="32" x2="32" y2="19" />
-        <line class="minute" x1="32" y1="32" x2="32" y2="12" />
-        <circle cx="32" cy="32" r="1.7"/>
+        <line class="hour" x1="32" y1="32" x2="32" y2="19"></line>
+        <line class="minute" x1="32" y1="32" x2="32" y2="12"></line>
+        <circle cx="32" cy="32" r="1.7"></circle>
       </g>
     </svg>
   </a>
+
+  <script src="/scripts/notifications.js" defer></script>
 </header>
