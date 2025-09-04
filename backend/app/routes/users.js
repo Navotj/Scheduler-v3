@@ -18,7 +18,13 @@ router.get('/exists', async (req, res) => {
     // prevent any intermediary caching of existence checks
     res.set('Cache-Control', 'no-store');
 
-    const found = await userModel.exists({ username });
+    // Case-insensitive exact match (e.g., "eeeee" === "EEEEE")
+    const found = await userModel
+      .findOne({ username })
+      .collation({ locale: 'en', strength: 2 })
+      .select({ _id: 1 })
+      .lean();
+
     const exists = !!found;
 
     console.log(`[USERS][${reqId}] exists result`, { username, exists });
