@@ -88,6 +88,18 @@
     finally { if (btn) btn.disabled = false; }
   }
 
+  // ====== Small red-outline icons (SVG; transparent fill) ======
+  function svgX() {
+    const s = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6 L18 18 M18 6 L6 18"/></svg>';
+    const span = document.createElement('span'); span.innerHTML = s;
+    return span.firstChild;
+  }
+  function svgNoEntryOutline() {
+    const s = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M7 12h10"/></svg>';
+    const span = document.createElement('span'); span.innerHTML = s;
+    return span.firstChild;
+  }
+
   // ====== Renderers ======
   function renderIncoming(list){
     incomingList.replaceChildren();
@@ -127,12 +139,17 @@
       return;
     }
     for (const u of list){
-      const card = el('li',{class:'friend-card'});
+      const cell = el('li',{class:'friend-cell'});
       const name = el('div',{class:'identity'},[text(displayName(u))]);
-      const removeBtn = el('button',{class:'icon-btn btn-remove',title:'Remove',onClick:()=>confirmRemove(u.id,u.username)},[text('✕')]);
-      const blockBtn  = el('button',{class:'icon-btn btn-block', title:'Block', onClick:()=>confirmBlock(u.id,u.username)},[text('🚫')]);
-      card.append(name, removeBtn, blockBtn);
-      friendsList.append(card);
+
+      const removeBtn = el('button',{class:'icon-btn btn-remove',title:'Remove',type:'button',onClick:()=>confirmRemove(u.id,u.username)});
+      removeBtn.append(svgX());
+
+      const blockBtn  = el('button',{class:'icon-btn btn-block', title:'Block', type:'button',onClick:()=>confirmBlock(u.id,u.username)});
+      blockBtn.append(svgNoEntryOutline());
+
+      cell.append(name, removeBtn, blockBtn);
+      friendsList.append(cell);
     }
   }
 
@@ -143,11 +160,12 @@
       return;
     }
     for (const u of list){
-      const card = el('li',{class:'friend-card'});
+      const cell = el('li',{class:'friend-cell'});
       const name = el('div',{class:'identity'},[text(displayName(u))]);
-      const unblockBtn = el('button',{class:'icon-btn btn-remove',title:'Unblock',onClick:()=>unblockUserTarget(u.username)},[text('✕')]);
-      card.append(name, unblockBtn);
-      blockedList.append(card);
+      const unblockBtn = el('button',{class:'icon-btn btn-remove',title:'Unblock',type:'button',onClick:()=>unblockUserTarget(u.username)});
+      unblockBtn.append(svgX());
+      cell.append(name, unblockBtn);
+      blockedList.append(cell);
     }
   }
 
@@ -159,28 +177,19 @@
     if (window.confirm(`Block user ${username}?`)) blockUserId(id);
   }
 
-  // ====== Message mapping (kept for inline statuses) ======
-  function normalizeMessage(resp){
-    if (typeof resp === 'string') return resp || 'Done.';
-    if (!resp || typeof resp !== 'object') return 'Something went wrong.';
-    if (resp.ok) return resp.message || 'Done.';
-    if (resp.message) return resp.message;
-    return 'Something went wrong.';
-  }
-
   // ====== Actions ======
   async function sendRequest(target){
     const out = await api('/friends/request', { method:'POST', body:{ username: target } });
-    showInlineStatus(addStatus, normalizeMessage(out));
+    showInlineStatus(addStatus, (out && out.message) || 'Request sent.');
     await refreshAll();
   }
   async function acceptRequest(userId){ await api('/friends/accept', { method:'POST', body:{ userId } }); await refreshAll(); }
   async function declineRequest(userId){ await api('/friends/decline', { method:'POST', body:{ userId } }); await refreshAll(); }
   async function cancelOutgoing(userId){ await api('/friends/cancel', { method:'POST', body:{ userId } }); await refreshAll(); }
   async function removeFriend(userId){ await api('/friends/remove', { method:'POST', body:{ userId } }); await refreshAll(); }
-  async function blockUserId(userId){ const r=await api('/friends/block', { method:'POST', body:{ userId } }); showInlineStatus(blockStatus, normalizeMessage(r)); await refreshAll(); }
-  async function blockUserTarget(target){ const r=await api('/friends/block', { method:'POST', body:{ username: target } }); showInlineStatus(blockStatus, normalizeMessage(r)); await refreshAll(); }
-  async function unblockUserTarget(target){ const r=await api('/friends/unblock', { method:'POST', body:{ username: target } }); showInlineStatus(unblockStatus, normalizeMessage(r)); await refreshAll(); }
+  async function blockUserId(userId){ const r=await api('/friends/block', { method:'POST', body:{ userId } }); showInlineStatus(blockStatus, r && r.message || 'User blocked.'); await refreshAll(); }
+  async function blockUserTarget(target){ const r=await api('/friends/block', { method:'POST', body:{ username: target } }); showInlineStatus(blockStatus, r && r.message || 'User blocked.'); await refreshAll(); }
+  async function unblockUserTarget(target){ const r=await api('/friends/unblock', { method:'POST', body:{ username: target } }); showInlineStatus(unblockStatus, r && r.message || 'User unblocked.'); await refreshAll(); }
 
   // ====== Loaders ======
   async function refreshAll(){
