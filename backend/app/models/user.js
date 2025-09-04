@@ -47,10 +47,4 @@ const userSchema = new mongoose.Schema({
   }
 });
 
-// Unique username only when present (partial index)
-userSchema.index(
-  { username: 1 },
-  { unique: true, partialFilterExpression: { username: { $exists: true, $type: 'string' } } }
-);
-
 module.exports = mongoose.model('User', userSchema);

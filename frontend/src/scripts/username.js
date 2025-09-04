@@ -4,6 +4,11 @@
   const API = (window.API_BASE_URL || '/api').replace(/\/$/, '');
   const MAX_SUGGESTIONS = 8;
 
+  function debounce(fn, ms){
+    let t;
+    return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
+  }
+
   // ===== styles =====
   (function injectStyles() {
     if (document.getElementById('ua-style')) return;
@@ -13,11 +18,10 @@
         background:var(--bg-1,#0e1117);border:1px solid var(--border,#1a1c20);
         border-radius:10px;box-shadow:0 8px 28px rgba(0,0,0,.5);
         padding:4px;display:none;cursor:default;box-sizing:border-box;
-        width:auto; /* JS sets exact width; box-sizing keeps borders/padding inside */
+        width:auto;
       }
       .ua-menu[data-open="1"]{display:block}
 
-      /* suggestion rows */
       .ua-option{
         display:block;width:100%;box-sizing:border-box;
         padding:5px 8px;border-radius:8px;
@@ -28,7 +32,6 @@
       .ua-option[aria-selected="true"]{outline:1px solid var(--ring,#3a78ff);background:var(--card,#141820)}
       .ua-empty{padding:5px 8px;color:var(--fg-2,#8b95ae);font-size:13px}
 
-      /* STICKY SELECTED (vertical, full width, tight + no cropped descenders) */
       .ua-sticky-wrap{display:block;margin:0 0 4px 0}
       .ua-chip{
         position:relative;display:flex;align-items:center;
@@ -40,7 +43,7 @@
       .ua-chip-label{
         flex:1 1 auto;min-width:0;
         overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
-        padding-right:18px; /* only what the X needs */
+        padding-right:18px;
       }
       .ua-chip-x{
         position:absolute;top:2px;right:3px;
@@ -71,7 +74,7 @@
           <div id="username-msg" style="font-size:12px;min-height:16px;color:#b6bfd4"></div>
         </label>
         <div style="display:flex;gap:8px;justify-content:flex-end">
-          <button type="submit"
+          <button id="username-save" type="submit"
             style="height:34px;padding:0 14px;border-radius:8px;border:1px solid rgba(124,92,255,0.5);background:rgba(124,92,255,0.15);color:#e7eaf2;cursor:pointer">Save</button>
         </div>
       </form>
@@ -95,20 +98,89 @@
     const form = document.getElementById('username-form');
     const msg = document.getElementById('username-msg');
     const input = document.getElementById('username');
+    const saveBtn = document.getElementById('username-save');
 
-    if (!form) return;
+    if (!form || !input || !msg || !saveBtn) return;
+
+    msg.setAttribute('aria-live', 'polite');
+
+    const validRe = /^[A-Za-z0-9_]{3,24}$/;
+    let lastAvailability = null; // true=available, false=taken, null=unknown
+
+    function setStatus(text, kind){
+      msg.textContent = text || '';
+      if (kind === 'ok') msg.style.color = '#46d369';
+      else if (kind === 'err') msg.style.color = '#f55';
+      else msg.style.color = 'var(--fg-1,#b6bfd4)';
+    }
+
+    function setSubmitEnabled(enabled){
+      saveBtn.disabled = !enabled;
+      saveBtn.style.opacity = enabled ? '1' : '0.6';
+      saveBtn.style.cursor = enabled ? 'pointer' : 'not-allowed';
+    }
+
+    async function checkAvailability(desired){
+      try {
+        const res = await fetch(`${API}/users/exists?username=${encodeURIComponent(desired)}`, { cache: 'no-store' });
+        if (!res.ok) { lastAvailability = null; return null; }
+        const data = await res.json();
+        lastAvailability = data && typeof data.exists === 'boolean' ? !data.exists : null;
+        return lastAvailability;
+      } catch {
+        lastAvailability = null;
+        return null;
+      }
+    }
+
+    const onInput = debounce(async () => {
+      const desired = (input.value || '').trim();
+      if (!validRe.test(desired)) {
+        setStatus('', 'neutral');
+        setSubmitEnabled(false);
+        lastAvailability = null;
+        return;
+      }
+      setStatus('Checking...', 'neutral');
+      setSubmitEnabled(false);
+      const ok = await checkAvailability(desired);
+      if (ok === true) {
+        setStatus('Username available', 'ok');
+        setSubmitEnabled(true);
+      } else if (ok === false) {
+        setStatus('Username already in use', 'err');
+        setSubmitEnabled(false);
+      } else {
+        setStatus('', 'neutral');
+        setSubmitEnabled(true);
+      }
+    }, 250);
+
+    input.addEventListener('input', onInput, { passive: true });
 
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       const desired = (input.value || '').trim();
-      if (!/^[A-Za-z0-9_]{3,24}$/.test(desired)) {
-        msg.style.color = '#f55';
-        msg.textContent = 'Invalid username format.';
+      if (!validRe.test(desired)) {
+        setStatus('Invalid username format.', 'err');
+        setSubmitEnabled(false);
         return;
       }
 
-      msg.style.color = '#b6bfd4';
-      msg.textContent = 'Saving...';
+      // If we don't know availability yet, check now to provide immediate feedback.
+      if (lastAvailability === null) {
+        setStatus('Checking...', 'neutral');
+        setSubmitEnabled(false);
+        await checkAvailability(desired);
+        if (lastAvailability === false) {
+          setStatus('Username already in use', 'err');
+          setSubmitEnabled(false);
+          return;
+        }
+      }
+      // Proceed (server no longer enforces uniqueness)
+      setStatus('Saving...', 'neutral');
+      setSubmitEnabled(false);
 
       try {
         const res = await fetch(`${API}/auth/username`, {
@@ -121,30 +193,28 @@
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
           const code = data && data.error;
-          msg.style.color = '#f55';
-          msg.textContent = code === 'username_taken'
-            ? 'Username is taken.'
-            : code === 'username_already_set'
-              ? 'Username already set.'
-              : 'Could not save username.';
+          setStatus(code === 'username_already_set' ? 'Username already set.' : 'Could not save username.', 'err');
+          setSubmitEnabled(true);
           return;
         }
 
-        msg.style.color = '#0f0';
-        msg.textContent = 'Saved!';
+        setStatus('Saved!', 'ok');
         if (typeof window.setAuthState === 'function') {
           window.setAuthState(true, desired);
         }
         updateQueryRemoveNeeds();
         setTimeout(() => { if (window.closeModal) window.closeModal(); }, 300);
       } catch {
-        msg.style.color = '#f55';
-        msg.textContent = 'Network error.';
+        setStatus('Network error.', 'err');
+        setSubmitEnabled(true);
       }
     });
+
+    // initial lock until valid
+    setSubmitEnabled(false);
   };
 
-  // ===== dropdown autocomplete =====
+  // ===== dropdown autocomplete (friends) =====
   let uaInput = null;
   let uaMenu = null;
   let uaMenuOpen = false;
@@ -216,12 +286,11 @@
     const r = uaInput.getBoundingClientRect();
     const mh = Math.min(uaMenu.scrollHeight, 280);
     const gap = 6;
-    const top = window.scrollY + r.top - gap - mh; // above the input
+    const top = window.scrollY + r.top - gap - mh;
     const left = window.scrollX + r.left;
     uaMenu.style.top = `${Math.max(4, top)}px`;
     uaMenu.style.left = `${left}px`;
 
-    // Conform exactly to input width (box-sizing keeps padding/borders inside)
     uaMenu.style.width = `${r.width}px`;
     uaMenu.style.maxWidth = `${r.width}px`;
     uaMenu.style.minWidth = `${r.width}px`;
@@ -253,7 +322,6 @@
     return opt;
   }
 
-  // Pull the selected members from scheduler (preferred) or the visible text list.
   function getSelectedMembers() {
     try {
       if (window.scheduler && typeof window.scheduler.getMembers === 'function') {
@@ -318,7 +386,6 @@
     if (!uaMenu) return;
     uaMenu.innerHTML = '';
 
-    // Sticky selected members (vertical, full width)
     uaRenderStickyChips(uaMenu);
 
     if (uaFiltered.length === 0) {
@@ -361,7 +428,6 @@
     uaInput.value = name;
     uaCloseMenu();
 
-    // Prefer triggering the existing add logic
     const btn = document.getElementById('add-user-btn');
     if (btn) {
       try { btn.click(); } catch {}

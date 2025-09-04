@@ -91,11 +91,7 @@ router.post('/username', async (req, res) => {
       return res.status(409).json({ error: 'username_already_set' });
     }
 
-    const conflict = await userModel.findOne({ username: desired }).lean();
-    if (conflict) {
-      return res.status(409).json({ error: 'username_taken' });
-    }
-
+    // No server-side uniqueness enforcement for username
     user.username = desired;
     await user.save();
 
